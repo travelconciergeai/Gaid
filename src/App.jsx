@@ -42,8 +42,11 @@ const AppShell = () => {
   // Chatbar / wizard kickoff → create a Trip via the store (empty-first: stub
   // returns null until backend is wired) then open the plan.
   const kickoffPlan = (prompt) => {
-    Promise.resolve(store.createTrip({ prompt })).then(trip => { if (trip && trip.id) setActiveTripId(trip.id); });
     setPlanKickoff(prompt);
+    return Promise.resolve(store.createTrip({ prompt })).then(trip => {
+      if (trip && trip.id) setActiveTripId(trip.id);
+      return trip;
+    });
   };
 
   const screen = (() => {

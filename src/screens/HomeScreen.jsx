@@ -105,17 +105,27 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     if (!t) return;
     setInput('');
 
-    // From idle: open the concierge chat and ask the backend.
+    // From idle: create a real trip through App/store, then open the plan.
     if (mode === 'idle') {
       const f = null;   // guided flows remain backend-driven
       if (f) {
         startFlow(t, f);
       } else {
-        const nextChat = [{ id: `u-${Date.now()}`, who: 'user', text: t }];
-        setMode('chat');
-        setChat(nextChat);
-        setPhase('done');
-        sendToGaid(t, nextChat);
+        setThinking(true);
+        Promise.resolve(kickoffPlan && kickoffPlan(t))
+          .then(() => setRoute && setRoute('plan'))
+          .catch(() => {
+            setMode('chat');
+            setChat([{ id: `u-${Date.now()}`, who: 'user', text: t }]);
+            setPhase('done');
+            setChat(c => [...c, {
+              id: `a-${Date.now()}`,
+              who: 'agent',
+              text: 'Não consegui criar sua viagem agora. Tente novamente em instantes.',
+              source: 'error',
+            }]);
+          })
+          .finally(() => setThinking(false));
       }
       return;
     }
