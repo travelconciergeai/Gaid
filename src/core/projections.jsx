@@ -1,4 +1,4 @@
-import { TBD, has, orTBD, TRIP_STATUS_LABEL, fmtMoney } from './contracts.jsx';
+import { TBD, has, orTBD, TRIP_STATUS_LABEL, fmtMoney, fmtDateRangeShort } from './contracts.jsx';
 // ============================================================================
 // Gaid Production — PROJECTIONS (view-models)
 // ----------------------------------------------------------------------------
