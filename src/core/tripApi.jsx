@@ -41,11 +41,14 @@ function inferDestination(prompt = '') {
   return match?.[1]?.replace(/[,.!?;:].*$/, '').trim() || '';
 }
 
+function hasFamilyContext(prompt = '') {
+  return /\b(fam[ií]lia|familiar|filh[oa]s?|crian[çc]as?|beb[eê]s?|casal com filhos|pais|m[aã]e|pai|av[oó]s?)\b/i.test(String(prompt || ''));
+}
+
 function buildTripTitle({ title, destination, prompt }) {
   if (firstFilled(title)) return firstFilled(title);
-  if (destination) return `Viagem para ${destination}`;
-  const cleanPrompt = String(prompt || '').replace(/\s+/g, ' ').trim();
-  if (cleanPrompt) return cleanPrompt.length > 72 ? `${cleanPrompt.slice(0, 69)}...` : cleanPrompt;
+  if (destination && hasFamilyContext(prompt)) return `${destination} em família`;
+  if (destination) return `Roteiro para ${destination}`;
   return 'Nova viagem';
 }
 
