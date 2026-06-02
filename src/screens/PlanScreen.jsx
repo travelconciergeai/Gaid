@@ -22,14 +22,41 @@ const QUICK_ACTIONS = [
 // Safe empty trip so the screen renders cleanly before a trip exists.
 const EMPTY_TRIP = { id: null, title: 'Sua viagem', blurb: '', dates: TBD, nights: null, travelers: 0, budget: TBD, status: 'Em planejamento', cover: 'warm', coverSeed: 'gaid', coverLabel: '', progress: 0, days: [], insights: [], prep: null };
 
+function safeClone(value) {
+  return JSON.parse(JSON.stringify(value || []));
+}
+function normalizeDays(value) {
+  return Array.isArray(value)
+    ? value.map((day, idx) => ({
+      ...day,
+      d: day?.d ?? idx + 1,
+      date: day?.date || TBD,
+      city: day?.city || TBD,
+      items: Array.isArray(day?.items) ? day.items : [],
+    }))
+    : [];
+}
+function normalizeInsights(value) {
+  return Array.isArray(value) ? value.filter(Boolean) : [];
+}
+function normalizeTripForPlan(trip) {
+  const base = trip || EMPTY_TRIP;
+  return {
+    ...EMPTY_TRIP,
+    ...base,
+    days: normalizeDays(base.days),
+    insights: normalizeInsights(base.insights),
+  };
+}
+
 const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
   const toast = useToast();
-  const tripData = trip || EMPTY_TRIP;
+  const tripData = useMemo(() => normalizeTripForPlan(trip), [trip]);
   const [tab, setTab] = useState('roteiro');
   const [chat, setChat] = useState(() => []);
   const [typing, setTyping] = useState(false);
   const [draft, setDraft] = useState('');
-  const [days, setDays] = useState(() => JSON.parse(JSON.stringify(tripData.days || [])));
+  const [days, setDays] = useState(() => safeClone(tripData.days));
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(null);
   const [shareOpen, setShareOpen] = useState(false);
@@ -41,7 +68,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
 
   // If trip changes (user opened a different trip), reset state.
   useEffect(() => {
-    setDays(JSON.parse(JSON.stringify(tripData.days || [])));
+    setDays(safeClone(tripData.days));
     setChat([]);
     setActiveMode(null);
     setEditing(null);
@@ -331,9 +358,11 @@ const Bubble = ({ m, onCta }) => {
 
 // ---------- Plan header ----------
 const PlanHeader = ({ trip, days, activeMode, onApplyMode, onShare, onCalendar, onExport }) => {
-  const total = days.reduce((s, d) => s + d.items.length, 0);
-  const confirmed = days.reduce((s, d) => s + d.items.filter(i => i.conf).length, 0);
+  const safeDays = normalizeDays(days);
+  const total = safeDays.reduce((s, d) => s + d.items.length, 0);
+  const confirmed = safeDays.reduce((s, d) => s + d.items.filter(i => i.conf).length, 0);
   const progressPct = total ? Math.round((confirmed / total) * 100) : 0;
+  const subtitle = trip.destination || trip.tripContext?.destination || trip.blurb || TBD;
   return (
     <div className="px-8 pt-7 pb-5 border-b hairline bg-paper">
       <div className="flex items-center gap-4">
@@ -341,9 +370,9 @@ const PlanHeader = ({ trip, days, activeMode, onApplyMode, onShare, onCalendar, 
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
-              <div className="label mb-1">Roteiro vivo</div>
+              <div className="label mb-1">{trip.status || 'Em planejamento'}</div>
               <h1 className="text-[22px] tracking-tight font-medium text-ink-900 leading-tight truncate">{trip.title}</h1>
-              <p className="text-[13px] text-ink-600 mt-0.5 truncate">{trip.blurb}</p>
+              <p className="text-[13px] text-ink-600 mt-0.5 truncate">{subtitle}</p>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
               <OptimizeMenu onApply={onApplyMode}/>
@@ -395,17 +424,20 @@ const Insights = ({ insights }) => {
     benefit: { tone:'sage',  icon: Icon.Shield,   label: 'Benefício' },
     miles:   { tone:'coral', icon: Icon.Coins,    label: 'Milhas' },
   };
+  const safeInsights = normalizeInsights(insights);
+  if (safeInsights.length === 0) return null;
   return (
     <div className="px-8 py-5 grid grid-cols-1 lg:grid-cols-3 gap-3 border-b hairline">
-      {insights.map((it, i) => {
-        const c = kindCfg[it.kind];
+      {safeInsights.map((it, i) => {
+        const c = kindCfg[it.kind] || { tone:'ink', icon: Icon.Sparkles, label: 'Nota' };
         const Ic = c.icon;
         return (
           <div key={i} className="bg-white border hairline rounded-xl p-3.5 flex items-start gap-3">
             <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${
               c.tone === 'brand' ? 'bg-brand-50 text-brand-700' :
               c.tone === 'sage'  ? 'bg-sage-50 text-sage-700' :
-              'bg-coral-50 text-coral-700'}`}>
+              c.tone === 'coral' ? 'bg-coral-50 text-coral-700' :
+              'bg-ink-100 text-ink-700'}`}>
               <Ic size={14}/>
             </div>
             <div className="flex-1 min-w-0">
@@ -504,9 +536,21 @@ const PlanPrep = ({ trip, prep, onToggle }) => {
 
 // ---------- Timeline ----------
 const Timeline = ({ days, onAdd, onEdit, onTogglePin, onRemove }) => {
+  const safeDays = normalizeDays(days);
+  if (safeDays.length === 0) {
+    return (
+      <div className="px-8 py-10">
+        <EmptyInline
+          icon={Icon.Map}
+          title="Roteiro ainda vazio"
+          desc="A conversa já está salva. O roteiro aparece aqui quando os dias forem definidos."
+        />
+      </div>
+    );
+  }
   return (
     <div className="px-8 py-6 pb-24 space-y-7">
-      {days.map((day, di) => (
+      {safeDays.map((day, di) => (
         <div key={day.d} className="grid grid-cols-[88px_1fr] gap-6">
           {/* day rail */}
           <div className="pt-3">

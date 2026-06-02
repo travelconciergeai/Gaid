@@ -33,6 +33,7 @@ function toTripDetail(trip) {
   return {
     id: trip.id,
     title: orTBD(trip.title),
+    destination: trip.destination || trip.tripContext?.destination || '',
     blurb: trip.blurb || '',
     dates: has(trip.dates) ? fmtDateLong(trip.dates) : TBD,
     nights: has(trip.nights) ? trip.nights : null,
@@ -44,6 +45,8 @@ function toTripDetail(trip) {
     coverLabel: trip.coverLabel || (trip.cities && trip.cities[0]) || '',
     progress: has(trip.progress) ? trip.progress : 0,
     expert: trip.expertName || null,
+    tripContext: trip.tripContext || {},
+    metadata: trip.metadata || {},
     days: (trip.days || []).map(d => ({
       d: d.d, date: d.date, city: d.city, flight: d.flight,
       items: (d.items || []).map(it => ({

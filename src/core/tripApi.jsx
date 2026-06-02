@@ -57,6 +57,7 @@ function rowToTrip(row) {
   return {
     id: row.id,
     title: row.title,
+    destination,
     status: row.status || 'planning',
     dates: tripContext.dates || metadata.dates || null,
     nights: tripContext.nights ?? metadata.nights ?? null,
