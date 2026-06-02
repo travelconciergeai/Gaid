@@ -15,7 +15,8 @@ export default async function handler(req, res) {
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    return res.status(200).json({ text: fallbackText, source: 'missing-key' });
+    console.error('[api/chat] Missing OPENAI_API_KEY');
+    return res.status(503).json({ text: fallbackText, source: 'missing-key' });
   }
 
   const { message, history = [], context = {} } = req.body || {};
@@ -54,9 +55,15 @@ export default async function handler(req, res) {
     const data = await response.json();
 
     if (!response.ok) {
-      return res.status(200).json({
+      const detail = data?.error?.message || data?.error || data;
+      console.error('[api/chat] OpenAI non-OK response', {
+        status: response.status,
+        detail,
+      });
+      return res.status(502).json({
         text: 'A Gaid ficou indisponivel por um instante. Tente novamente em alguns segundos.',
-        source: 'error',
+        source: 'openai-error',
+        detail,
       });
     }
 
@@ -64,10 +71,13 @@ export default async function handler(req, res) {
       text: data.output_text || 'Estou aqui. Me conte um pouco mais sobre a viagem que voce quer planejar.',
       source: 'openai',
     });
-  } catch (_error) {
-    return res.status(200).json({
+  } catch (error) {
+    const detail = error?.message || String(error);
+    console.error('[api/chat] Handler error', error);
+    return res.status(500).json({
       text: 'Nao consegui responder agora. Tente novamente em instantes.',
-      source: 'error',
+      source: 'server-error',
+      detail,
     });
   }
 }

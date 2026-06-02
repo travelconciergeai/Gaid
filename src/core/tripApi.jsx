@@ -54,7 +54,7 @@ const _emptyAdapter = {
       };
     }
     return {
-      text: data?.text || 'Estou aqui. Me conte um pouco mais sobre a viagem que você quer planejar.',
+      text: data?.text || 'Não consegui obter uma resposta da IA agora. Tente novamente em instantes.',
       source: data?.source || 'error',
     };
   },
