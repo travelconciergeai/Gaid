@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Gaid · Phase 0 — Executive Summary</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
+<link href="gaid-docs.css" rel="stylesheet"/>
+<style>
+  .rk { display: grid; grid-template-columns: 34px minmax(0,1fr) minmax(0,1fr); gap: 16px; padding: 14px 0; border-top: 0.5px solid var(--ink-200); align-items: start; }
+  .rk:first-of-type { border-top: none; }
+  .rk .rn { font-family: ui-monospace, monospace; font-size: 13px; font-weight: 700; color: var(--paper); background: var(--ink-900); height: 26px; width: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center; }
+  .rk .rt { font-size: 14px; }
+  .rk .rt b { color: var(--ink-900); }
+  .rk .rt .d { color: var(--ink-600); font-size: 13px; margin-top: 2px; line-height: 1.5; }
+  .rk .fix { font-size: 13px; color: var(--ink-800); line-height: 1.5; }
+  .rk .fix .sol { display: inline-block; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; color: var(--ink-500); }
+  .rkhead { display: grid; grid-template-columns: 34px minmax(0,1fr) minmax(0,1fr); gap: 16px; padding-bottom: 6px; }
+  .rkhead span { font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 600; color: var(--ink-500); }
+  @media (max-width: 980px){ .rk, .rkhead { grid-template-columns: 1fr; gap: 4px; } .rkhead { display: none; } }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="rail">
+    <div class="brand">
+      <div class="logo">V</div>
+      <div>
+        <div class="who">Gaid · Arquitetura</div>
+        <div class="sub">Sprint de arquitetura · V1</div>
+      </div>
+    </div>
+
+    <div class="rail-label">Documentos</div>
+    <nav class="doc-switch">
+      <a href="01 Data Architecture.html"><span class="num">01</span><span class="t">Data Architecture</span></a>
+      <a href="02 Component Contracts.html"><span class="num">02</span><span class="t">Component Contracts</span></a>
+      <a href="03 API Contracts.html"><span class="num">03</span><span class="t">API Contracts</span></a>
+      <a href="04 MVP Implementation Plan.html"><span class="num">04</span><span class="t">MVP Plan</span></a>
+      <a href="05 Final Architecture Review.html"><span class="num">05</span><span class="t">Final Review</span></a>
+      <a href="06 Real Data Ready Props.html"><span class="num">06</span><span class="t">RDR · Props</span></a>
+      <a href="07 Foundation Migration Strategy.html"><span class="num">07</span><span class="t">Migration Strategy</span></a>
+      <a href="08 Phase 0 Screen Data Inventory.html"><span class="num">08</span><span class="t">Fase 0 · Inventário</span></a>
+      <a class="active" href="09 Phase 0 Executive Summary.html"><span class="num">09</span><span class="t">Fase 0 · Resumo Exec.</span></a>
+      <a href="10 Phase 1 Foundation Design.html"><span class="num">10</span><span class="t">Fase 1 · Fundação</span></a>
+    </nav>
+
+    <div class="rail-label">Nesta página</div>
+    <nav class="toc">
+      <a href="#tldr">TL;DR</a>
+      <a href="#riscos">1 · Top 10 riscos</a>
+      <a href="#causas">2 · Causas das regressões</a>
+      <a href="#solucoes">3 · O que a fundação resolve</a>
+      <a href="#primeiras">4 · Migrar primeiro</a>
+      <a href="#ultimas">5 · Migrar por último</a>
+      <a href="#ordem">6 · Ordem recomendada</a>
+      <a href="#gate">Critério para a Fase 1</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+  <article class="doc">
+
+    <div class="eyebrow">Documento 09 — Fase 0 · resumo executivo (CTO / PM)</div>
+    <h1 class="title">Resumo Executivo da Fase 0</h1>
+    <p class="lede">A visão de gestão antes de desenharmos a fundação: os maiores riscos do que existe hoje, por que tivemos regressões, o que a nova fundação corrige em cada caso, e em que ordem migrar — com a UI aprovada intacta o tempo todo.</p>
+    <div class="meta">
+      <span><b>Base</b> · Docs 07 (estratégia) + 08 (inventário por evidência)</span>
+      <span><b>Decisão a tomar</b> · liberar o desenho da Fase 1</span>
+      <span><b>Restrição</b> · zero mudança de UI/UX/navegação</span>
+    </div>
+
+    <!-- TLDR -->
+    <h2 id="tldr"><span class="h2num">00</span>TL;DR</h2>
+    <div class="note decision">
+      <div class="lbl">Em uma tela</div>
+      <p>A experiência está sólida; <strong>o alicerce de dados é frágil</strong>. As regressões não vieram da UI — vieram de a mesma viagem existir em vários lugares com formas divergentes, ligados por strings. A fundação nova (Trip única + TripStore + ActiveTripContext só com id + tripApi) elimina a classe inteira desses bugs. Migramos do <strong>mais seguro para o mais arriscado</strong> (catálogo read-only → listas → Home → roteiro), uma tela por vez, com volta atrás por flag.</p>
+    </div>
+
+    <!-- RISCOS -->
+    <h2 id="riscos"><span class="h2num">01</span>Os 10 maiores riscos da arquitetura atual</h2>
+    <p>Ordenados por impacto sobre estabilidade (evidência no Doc 08).</p>
+    <div class="rkhead"><span>#</span><span>Risco</span><span>Sintoma observável</span></div>
+
+    <div class="rk"><div class="rn">1</div><div class="rt"><b>Sem fonte única da verdade</b><div class="d">A viagem vive em <code>mockData</code>, no <code>account</code> e em estado local de tela ao mesmo tempo.</div></div><div class="fix">Versões discordam → "qual é a verdadeira?"</div></div>
+    <div class="rk"><div class="rn">2</div><div class="rt"><b>Indireção por <code>dataKey</code></b><div class="d"><code>meta → dataKey → mockData[dataKey]</code> liga resumo e detalhe por uma string.</div></div><div class="fix">"Porto vira Paris"; viagem errada aberta.</div></div>
+    <div class="rk"><div class="rn">3</div><div class="rt"><b>Duas formas por viagem</b><div class="d">Resumo usa <code>state</code>; detalhe usa <code>status</code> + campos extras.</div></div><div class="fix">Campos somem/divergem entre lista e detalhe.</div></div>
+    <div class="rk"><div class="rn">4</div><div class="rt"><b>Clone de estado no roteiro</b><div class="d">PlanScreen faz <code>JSON.parse(JSON.stringify(days))</code> e edita a cópia.</div></div><div class="fix">Edição "some" ao navegar; roteiro regride.</div></div>
+    <div class="rk"><div class="rn">5</div><div class="rt"><b>Telas leem o mock direto</b><div class="d">Componentes importam <code>mockData</code> na renderização.</div></div><div class="fix">Ajuste num lugar vaza para telas alheias.</div></div>
+    <div class="rk"><div class="rn">6</div><div class="rt"><b>Cruzamentos por nome</b><div class="d">expert↔roteiro por <code>r.expert === e.name</code>; tour por <code>host</code>.</div></div><div class="fix">Renomear quebra relações silenciosamente.</div></div>
+    <div class="rk"><div class="rn">7</div><div class="rt"><b>Dados como string formatada</b><div class="d"><code>price:'R$ 4.820'</code> parseado na UI para ordenar.</div></div><div class="fix">Mudança de formato quebra ordenação/cálculo.</div></div>
+    <div class="rk"><div class="rn">8</div><div class="rt"><b>account semeado do mock</b><div class="d">Demo copia <code>mockData.*</code> para o estado do usuário.</div></div><div class="fix">Catálogo e dados do usuário se confundem.</div></div>
+    <div class="rk"><div class="rn">9</div><div class="rt"><b>Sem fronteira de I/O</b><div class="d">Não há camada única de acesso a dados (seam).</div></div><div class="fix">Plugar backend exigiria tocar muitas telas.</div></div>
+    <div class="rk"><div class="rn">10</div><div class="rt"><b>Wizard acoplado à Home</b><div class="d">Fluxo de criação vive in-chat, sem fronteira de criação de Trip.</div></div><div class="fix">Wizard e roteiro divergem; viagem "fantasma".</div></div>
+
+    <!-- CAUSAS -->
+    <h2 id="causas"><span class="h2num">02</span>As principais causas das regressões</h2>
+    <p>Os 10 riscos colapsam em <strong>quatro causas-raiz</strong>. Quase toda regressão da semana é uma combinação destas:</p>
+    <div class="grid2">
+      <div class="kv"><div class="kvh">A · Estado duplicado</div><div class="kvb">A mesma viagem em 3 lugares (mock, account, clone de tela). Editar um não atualiza os outros → o trabalho "volta no tempo".</div></div>
+      <div class="kv"><div class="kvh">B · Identidade frágil (strings)</div><div class="kvb">Lugares, viagens e relações ligados por texto/<code>dataKey</code>/nome, não por id estável. Um erro de string troca a entidade inteira.</div></div>
+      <div class="kv"><div class="kvh">C · Ausência de fronteira</div><div class="kvb">Telas falam direto com o catálogo. Sem um seam, qualquer mudança de dado se propaga sem controle.</div></div>
+      <div class="kv"><div class="kvh">D · Formas divergentes</div><div class="kvb">Resumo vs. detalhe da viagem têm chaves diferentes. A UI espera uma; recebe outra → campo quebra.</div></div>
+    </div>
+    <div class="note risk">
+      <div class="lbl">Leitura executiva</div>
+      <p>Nenhuma das quatro causas é visual. São todas <strong>estruturais, na camada de dados</strong> — o que confirma a decisão de congelar a UI e reconstruir só a fundação.</p>
+    </div>
+
+    <!-- SOLUCOES -->
+    <h2 id="solucoes"><span class="h2num">03</span>O que a nova fundação resolve — risco por risco</h2>
+    <table class="tbl">
+      <thead><tr><th>Risco atual</th><th>Peça da fundação</th><th>Como resolve</th></tr></thead>
+      <tbody>
+        <tr><td>1 · Sem fonte única</td><td><b>TripStore</b></td><td>Cache único; toda tela lê/escreve por ele. Acaba a duplicação.</td></tr>
+        <tr><td>2 · <code>dataKey</code></td><td><b>Trip</b> + <b>TripTemplate</b></td><td>A Trip carrega seus dados; template é cópia semeada, não referência viva por string.</td></tr>
+        <tr><td>3 · Duas formas</td><td><b>contracts</b> (projeções)</td><td>Uma Trip canônica → projeções <code>TripSummary</code> e <code>TripDetail</code> derivadas, sempre consistentes.</td></tr>
+        <tr><td>4 · Clone no roteiro</td><td><b>TripStore</b> (ações)</td><td>Roteiro lê do store e edita por ação; sem cópia local que diverge.</td></tr>
+        <tr><td>5 · Mock direto na tela</td><td><b>tripApi</b> (seam)</td><td>Única porta de dados; telas nunca importam catálogo.</td></tr>
+        <tr><td>6 · Cruzamento por nome</td><td><b>contracts</b> (ids)</td><td><code>expertId</code>/ids canônicos substituem comparação por nome.</td></tr>
+        <tr><td>7 · String formatada</td><td><b>contracts</b> (view-model)</td><td>Tradutor mantém a string da UI e expõe valor numérico cru à parte.</td></tr>
+        <tr><td>8 · account semeado do mock</td><td><b>tripApi</b> + <b>TripStore</b></td><td>Catálogo vira fixture atrás do seam; account fica só com sessão/usuário.</td></tr>
+        <tr><td>9 · Sem fronteira de I/O</td><td><b>tripApi</b></td><td>Backend pluga trocando o corpo do seam — telas intactas.</td></tr>
+        <tr><td>10 · Wizard acoplado</td><td><b>tripApi.createTrip</b> + <b>ActiveTripContext</b></td><td>Criação tem fronteira clara; <code>activeTripId</code> aponta a Trip recém-criada.</td></tr>
+      </tbody>
+    </table>
+    <div class="note">
+      <div class="lbl">E o ActiveTripContext?</div>
+      <p>Guarda <strong>só <code>activeTripId</code></strong>. Resolve a confusão "contexto vs. Trip" (risco transversal): ele aponta, nunca copia. Quem tem os dados é sempre o TripStore.</p>
+    </div>
+
+    <!-- PRIMEIRAS -->
+    <h2 id="primeiras"><span class="h2num">04</span>Telas a migrar primeiro</h2>
+    <p>Critério: <strong>menor superfície de risco</strong> — read-only, sem estado do usuário, sem edição.</p>
+    <table class="tbl">
+      <thead><tr><th>Ordem</th><th>Tela</th><th>Por quê é segura</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><b>Planos</b></td><td>Catálogo puro, estático, sem relações. Migração-piloto ideal para validar o seam.</td></tr>
+        <tr><td>2</td><td><b>Hotéis · Voos · Passeios</b></td><td>Listas read-only; só exigem manter o formato das strings (preço/duração).</td></tr>
+        <tr><td>3</td><td><b>Explorar · Experts</b></td><td>Catálogo + relações por id (substitui cruzamento por nome). Ainda sem estado do usuário.</td></tr>
+      </tbody>
+    </table>
+
+    <!-- ULTIMAS -->
+    <h2 id="ultimas"><span class="h2num">05</span>Telas a migrar por último</h2>
+    <p>Critério: <strong>maior superfície de risco</strong> — estado do usuário, edição, o epicentro das regressões.</p>
+    <table class="tbl">
+      <thead><tr><th>Ordem</th><th>Tela</th><th>Por quê é arriscada</th></tr></thead>
+      <tbody>
+        <tr><td>penúltima</td><td><b>Home</b></td><td>Mistura sessão + viagem ativa + catálogo, e hospeda o Wizard in-chat. Depende de várias projeções prontas.</td></tr>
+        <tr><td>última</td><td><b>Trip Detail / Roteiro</b></td><td>O clone de <code>days</code> mora aqui — epicentro das regressões. Só migrar com a fundação madura e fonte única firmada.</td></tr>
+      </tbody>
+    </table>
+    <div class="note risk">
+      <div class="lbl">Por que o roteiro fica para o fim</div>
+      <p>É a única tela que <em>edita</em> a viagem. Migrá-la exige o TripStore com ações estáveis. Fazê-la cedo recriaria justamente o bug que queremos extinguir.</p>
+    </div>
+
+    <!-- ORDEM -->
+    <h2 id="ordem"><span class="h2num">06</span>Ordem recomendada — e o porquê</h2>
+    <div class="flow">
+      <div class="stage">
+        <div class="node"><div class="nl">1</div><div class="nt">Planos</div><div class="nd">piloto do seam</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="nl">2</div><div class="nt">Hotéis/Voos/Passeios</div><div class="nd">listas read-only</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="nl">3</div><div class="nt">Explorar/Experts</div><div class="nd">relações por id</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="nl">4</div><div class="nt">Minhas Viagens</div><div class="nd">projeção Summary</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="nl">5</div><div class="nt">Home</div><div class="nd">composição</div></div>
+        <div class="arrow">→</div>
+        <div class="node solid"><div class="nl">6</div><div class="nt">Roteiro</div><div class="nd">fonte única + edição</div></div>
+      </div>
+    </div>
+    <p>A lógica é <strong>acumular confiança</strong>: cada passo valida uma peça da fundação com risco crescente, de modo que ao chegar no roteiro (o mais perigoso) o seam, as projeções e o store já foram exercitados por todas as telas anteriores.</p>
+    <table class="tbl">
+      <thead><tr><th>Passo</th><th>Valida</th><th>Reversão</th></tr></thead>
+      <tbody>
+        <tr><td>1 · Planos</td><td>tripApi (seam) funciona ponta a ponta</td><td>flag off → volta ao mock</td></tr>
+        <tr><td>2 · Hotéis/Voos/Passeios</td><td>Formato de strings preservado</td><td>flag por tela</td></tr>
+        <tr><td>3 · Explorar/Experts</td><td>Relações por id (sem nome)</td><td>flag por tela</td></tr>
+        <tr><td>4 · Minhas Viagens</td><td>Projeção <code>TripSummary</code> + <code>hasItinerary</code></td><td>flag off</td></tr>
+        <tr><td>5 · Home</td><td>Composição sessão + <code>TripDetail</code> + catálogo</td><td>flag off</td></tr>
+        <tr><td>6 · Roteiro</td><td>Fonte única com edição; fim do clone</td><td>flag off (volta ao clone temporariamente)</td></tr>
+      </tbody>
+    </table>
+
+    <!-- GATE -->
+    <h2 id="gate"><span class="h2num">✓</span>Critério para liberar a Fase 1</h2>
+    <div class="note decision">
+      <div class="lbl">O que esta Fase 0 conclui</div>
+      <ol>
+        <li><strong>Risco principal eliminado:</strong> confirmado por evidência que a UI é reaproveitável; o problema é a fundação.</li>
+        <li><strong>Causas nomeadas:</strong> estado duplicado, identidade frágil, ausência de fronteira, formas divergentes.</li>
+        <li><strong>Solução mapeada:</strong> cada risco tem a peça da fundação que o resolve.</li>
+        <li><strong>Ordem definida:</strong> do catálogo read-only ao roteiro, acumulando confiança, tudo reversível por flag.</li>
+      </ol>
+      <p>Com isso, a <strong>Fase 1</strong> (desenho da fundação: <code>contracts</code>, <code>Trip</code>, <code>TripTemplate</code>, <code>TripStore</code>, <code>ActiveTripContext</code>, <code>tripApi</code>) pode ser desenhada já ancorada nos contratos do Doc 08 e nesta ordem — ainda sem implementação. Aguardando seu aval para avançar.</p>
+    </div>
+
+    <div class="footer">
+      <span>Gaid · Fase 0 — Executive Summary</span>
+      <span><a href="08 Phase 0 Screen Data Inventory.html">← 08 · Inventário</a> &nbsp;·&nbsp; <a href="07 Foundation Migration Strategy.html">07 · Strategy</a></span>
+    </div>
+
+  </article>
+  </main>
+</div>
+</body>
+</html>

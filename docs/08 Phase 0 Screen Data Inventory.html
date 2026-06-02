@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Gaid · Phase 0 — Screen Data Inventory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
+<link href="gaid-docs.css" rel="stylesheet"/>
+<style>
+  /* per-screen anchor card */
+  .scr { margin-top: 30px; border: 0.5px solid var(--edge); border-radius: 16px; overflow: hidden; background: var(--paper); }
+  .scr > h3 { margin: 0; padding: 16px 22px; background: var(--ink-50); border-bottom: 0.5px solid var(--edge); font-size: 17px; display: flex; align-items: center; gap: 10px; scroll-margin-top: 24px; }
+  .scr > h3 .src { font-family: ui-monospace, monospace; font-size: 11px; color: var(--ink-500); font-weight: 500; margin-left: auto; }
+  .scr .body { padding: 6px 22px 20px; }
+  .scr .q { display: grid; grid-template-columns: 200px minmax(0,1fr); gap: 18px; padding: 15px 0; border-top: 0.5px solid var(--ink-200); }
+  .scr .q:first-child { border-top: none; }
+  .scr .q .qk { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; color: var(--ink-600); padding-top: 2px; }
+  .scr .q .qv { font-size: 13.5px; color: var(--ink-800); line-height: 1.6; }
+  .scr .q .qv code { font-family: ui-monospace, monospace; font-size: 12px; background: var(--ink-100); border: 0.5px solid var(--edge); border-radius: 4px; padding: 1px 5px; }
+  .scr .code { margin-top: 10px; }
+  .scr .q.change .qk { color: var(--ink-900); }
+  @media (max-width: 980px) { .scr .q { grid-template-columns: 1fr; gap: 5px; } }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="rail">
+    <div class="brand">
+      <div class="logo">V</div>
+      <div>
+        <div class="who">Gaid · Arquitetura</div>
+        <div class="sub">Sprint de arquitetura · V1</div>
+      </div>
+    </div>
+
+    <div class="rail-label">Documentos</div>
+    <nav class="doc-switch">
+      <a href="01 Data Architecture.html"><span class="num">01</span><span class="t">Data Architecture</span></a>
+      <a href="02 Component Contracts.html"><span class="num">02</span><span class="t">Component Contracts</span></a>
+      <a href="03 API Contracts.html"><span class="num">03</span><span class="t">API Contracts</span></a>
+      <a href="04 MVP Implementation Plan.html"><span class="num">04</span><span class="t">MVP Plan</span></a>
+      <a href="05 Final Architecture Review.html"><span class="num">05</span><span class="t">Final Review</span></a>
+      <a href="06 Real Data Ready Props.html"><span class="num">06</span><span class="t">RDR · Props</span></a>
+      <a href="07 Foundation Migration Strategy.html"><span class="num">07</span><span class="t">Migration Strategy</span></a>
+      <a class="active" href="08 Phase 0 Screen Data Inventory.html"><span class="num">08</span><span class="t">Fase 0 · Inventário</span></a>
+      <a href="09 Phase 0 Executive Summary.html"><span class="num">09</span><span class="t">Fase 0 · Resumo Exec.</span></a>
+      <a href="10 Phase 1 Foundation Design.html"><span class="num">10</span><span class="t">Fase 1 · Fundação</span></a>
+    </nav>
+
+    <div class="rail-label">Telas</div>
+    <nav class="toc">
+      <a href="#metodo">Método & evidência</a>
+      <a href="#fontes">As 2 fontes de hoje</a>
+      <a href="#veredito">Veredito · 100%?</a>
+      <a href="#home">1 · Home</a>
+      <a href="#wizard">2 · Guided Wizard</a>
+      <a href="#trips">3 · Minhas Viagens</a>
+      <a href="#detail">4 · Trip Detail</a>
+      <a href="#explore">5 · Explorar</a>
+      <a href="#experts">6 · Experts</a>
+      <a href="#hotels">7 · Hotéis</a>
+      <a href="#flights">8 · Voos</a>
+      <a href="#tours">9 · Passeios</a>
+      <a href="#plans">10 · Planos</a>
+      <a href="#achados">Achados que afetam a migração</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+  <article class="doc">
+
+    <div class="eyebrow">Documento 08 — Fase 0 · baseado em evidência (leitura do código-fonte)</div>
+    <h1 class="title">Inventário de Dados por Tela</h1>
+    <p class="lede">As "formas esperadas" de cada tela, extraídas <strong>do código atual</strong> — não de suposição. Para cada tela: o que consome, de onde vem hoje, de onde virá na nova fundação, o contrato que espera, e o que muda para trocar a origem <em>sem alterar a UI</em>. É a base que blinda a paridade visual antes de qualquer corte.</p>
+    <div class="meta">
+      <span><b>Fonte da evidência</b> · src/screens/*, src/mockData.jsx, src/account.jsx</span>
+      <span><b>Regra</b> · UI/UX/navegação intactas</span>
+      <span><b>Saída</b> · contratos por tela + veredito de reaproveitamento</span>
+    </div>
+
+    <!-- METODO -->
+    <h2 id="metodo"><span class="h2num">00</span>Método & evidência</h2>
+    <p>Cada linha abaixo foi verificada lendo o arquivo correspondente: quais campos a tela acessa, em qual variável, vinda de qual fonte. Onde cito um campo (ex.: <code class="k">liveTrip.coverSeed</code>), ele aparece literalmente no JSX hoje. O objetivo é que o <em>tradutor</em> (view-model) da migração reproduza exatamente essas formas.</p>
+
+    <!-- FONTES -->
+    <h2 id="fontes"><span class="h2num">01</span>As duas fontes de dados de hoje</h2>
+    <p>Toda tela lê de um (ou ambos) destes dois lugares — nunca de uma API:</p>
+    <div class="grid2">
+      <div class="kv"><div class="kvh">mockData (catálogo estático)</div><div class="kvb">Objeto único em <code>src/mockData.jsx</code>. Chaves: <code>user, starters, trip, cards, milesPrograms, benefits, experts, routes, flights, hotels, tours, trips[], maldivasTrip, japaoTrip, plans, chatSeed, quickActions, itemAlternatives, disneyTrip, dogTrip, disneyWizard, kidsWizard, dogWizard, genSteps*, routeDetails</code>.</div></div>
+      <div class="kv"><div class="kvh">account (estado do usuário)</div><div class="kvb"><code>useAccount()</code> em <code>src/account.jsx</code>: <code>authed, needsOnboarding, mode, profile, user{...}, trips[], cards[], milesPrograms[], benefits[], activeTripId</code> + ações (<code>login, addTrip, setActiveTripId…</code>). No modo demo, é semeado a partir do <code>mockData</code>.</div></div>
+    </div>
+    <div class="note risk">
+      <div class="lbl">A indireção que conecta as duas (e quebra)</div>
+      <p>Em <code class="k">App.jsx</code>: <code class="k">tripFor(id)</code> acha a <em>meta</em> em <code>acct.trips</code> ou <code>mockData.trips</code>, lê <code class="k">meta.dataKey</code> e resolve <code class="k">mockData[meta.dataKey]</code> para o itinerário completo. <strong>Resumo e detalhe da mesma viagem são objetos diferentes, com campos diferentes</strong> (ver §Achados).</p>
+    </div>
+
+    <!-- VEREDITO -->
+    <h2 id="veredito"><span class="h2num">02</span>Veredito: a UI pode mesmo ser 100% reaproveitada?</h2>
+    <div class="adr">
+      <div class="adr-head"><span class="adr-tag">Validado com ressalvas</span><span class="adr-id">Evidência</span></div>
+      <h4 class="adr-title">Sim — a apresentação é reaproveitável 100%, desde que o tradutor entregue as formas atuais</h4>
+      <div class="adr-grid">
+        <div class="adr-row"><div class="adr-k">Confirmado</div><div class="adr-v">Nenhuma tela faz <em>fetch</em> ou lógica de servidor. Todas leem objetos JS já prontos. Trocar a origem por um view-model que devolva o <strong>mesmo objeto</strong> não exige mudar o JSX.</div></div>
+        <div class="adr-row deny"><div class="adr-k">Ressalva 1</div><div class="adr-v">Existem <strong>duas formas por viagem</strong> (resumo vs. detalhe), com chaves divergentes (<code>state</code> vs <code>status</code>). O tradutor precisa expor <em>duas projeções</em>: <code>TripSummary</code> e <code>TripDetail</code>.</div></div>
+        <div class="adr-row deny"><div class="adr-k">Ressalva 2</div><div class="adr-v">"Guided Wizard" <strong>não é uma tela</strong> — é um fluxo in-chat dentro da Home (<code>disneyWizard</code>/<code>kidsWizard</code>/<code>dogWizard</code> + passos de geração). Reaproveitar = manter esse fluxo; a fundação só fornece a definição e cria a <code>Trip</code>.</div></div>
+        <div class="adr-row deny"><div class="adr-k">Ressalva 3</div><div class="adr-v">Vários campos são <strong>strings já formatadas</strong> (<code>price: 'R$ 4.820'</code>, <code>dates: '12–22 out · 2026'</code>) e a UI às vezes as <em>parseia</em> (Voos ordena por <code>parseInt(price.replace(/\D/g,''))</code>). O tradutor deve devolver as <strong>mesmas strings</strong> (idealmente + um campo numérico cru), senão a UI muda.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Conclusão</div><div class="adr-v">A afirmação se sustenta. O risco não está na UI, e sim em o tradutor reproduzir fielmente cada forma — exatamente o que este inventário especifica.</div></div>
+      </div>
+    </div>
+
+    <!-- ========================= 1 HOME ========================= -->
+    <h2 id="home"><span class="h2num">03</span>Inventário tela a tela</h2>
+
+    <div class="scr">
+      <h3 id="home-c">1 · Home <span class="src">src/screens/HomeScreen.jsx</span></h3>
+      <div class="body">
+        <div class="q"><div class="qk">1 · Consome hoje</div><div class="qv">Saudação <code>acct.user.firstName</code>; resumo <code>acct.user.miles</code>, <code>acct.cards.length</code>, <code>acct.trips.length</code>, <code>acct.profile?.travelStyles</code>; viagem ativa <code>liveTrip.{title,dates,travelers,progress,days,budget,expert,coverSeed,cover,coverLabel,insights[]}</code>; inspiração <code>mockData.routes</code>; ideias <code>mockData.starters</code>.</div></div>
+        <div class="q"><div class="qk">2 · Origem hoje</div><div class="qv"><code>useAccount()</code> + prop <code>activeTrip</code> (de <code>App.tripFor</code>) com fallback <code>mockData.trip</code>; <code>mockData.routes</code>, <code>mockData.starters</code>.</div></div>
+        <div class="q"><div class="qk">3 · Origem nova</div><div class="qv">Sessão/usuário: <code>account</code> (mantém). Viagem ativa: <code>TripStore</code> via <code>activeTripId</code> → projeção <code>TripDetail</code>. Inspiração/ideias: <code>tripApi</code> (catálogo de <code>TripTemplate</code> + starters).</div></div>
+        <div class="q"><div class="qk">4 · Contrato esperado</div><div class="qv">
+          <div class="code"><span class="cap">view-models que a Home espera</span>
+<b>HomeSummary</b> { firstName, miles, cardsCount, tripsCount, styles:[] }
+<b>TripDetail</b>  { title, dates, travelers, progress, budget, expert,
+             coverSeed, cover, coverLabel, days:[], insights:[{kind,text}] }
+<b>Template</b>    { id, title, category, days, from, expert, tone }   <span class="c">// routes</span>
+<b>Starter</b>     { id, label, hint, tone }</div>
+        </div></div>
+        <div class="q change"><div class="qk">5 · O que muda</div><div class="qv">Trocar <code>liveTrip = activeTrip || mockData.trip</code> por <code>useActiveTrip()→TripDetail</code>; <code>mockData.routes/starters</code> por chamadas ao <code>tripApi</code>. <strong>JSX inalterado.</strong></div></div>
+      </div>
+    </div>
+
+    <!-- 2 WIZARD -->
+    <div class="scr">
+      <h3 id="wizard-c">2 · Guided Wizard <span class="src">in-chat · HomeScreen.jsx + mockData</span></h3>
+      <div class="body">
+        <div class="q"><div class="qk">1 · Consome hoje</div><div class="qv">Definição de passos <code>mockData.disneyWizard</code> (e <code>kidsWizard</code>/<code>dogWizard</code>): <code>{id, q, sub, options[]}</code>; animação <code>genSteps*</code>: <code>{id,label,sub[]}</code>; resultado <code>mockData.disneyTrip</code>/<code>dogTrip</code> (forma <code>TripDetail</code> + <code>prep[]</code>).</div></div>
+        <div class="q"><div class="qk">2 · Origem hoje</div><div class="qv">Tudo de <code>mockData</code>. Ao concluir, <code>acct.addTrip(id)</code> puxa a <em>meta</em> de <code>mockData.trips</code> e marca ativa.</div></div>
+        <div class="q"><div class="qk">3 · Origem nova</div><div class="qv">Definição de passos e gen-steps: <code>tripApi</code> (config). Criação: <code>tripApi.createTrip(answers)</code> → <code>Trip</code> (status <code>draft</code>) no <code>TripStore</code>; <code>activeTripId</code> apontado.</div></div>
+        <div class="q"><div class="qk">4 · Contrato esperado</div><div class="qv">
+          <div class="code"><span class="cap">contratos do fluxo</span>
+<b>WizardDef</b>  { id, q, sub, options:[{...}] }[]
+<b>GenStep</b>    { id, label, sub:[] }[]
+<b>createTrip(answers)</b> → <b>Trip</b>  <span class="c">// projeção TripDetail + prep[] opcional</span></div>
+        </div></div>
+        <div class="q change"><div class="qk">5 · O que muda</div><div class="qv">Definições saem do <code>mockData</code> para o <code>tripApi</code>; <code>addTrip</code> (que hoje copia meta do catálogo) vira <code>createTrip</code> na fundação. <strong>A experiência in-chat e os passos permanecem idênticos.</strong></div></div>
+      </div>
+    </div>
+
+    <!-- 3 TRIPS -->
+    <div class="scr">
+      <h3 id="trips-c">3 · Minhas Viagens <span class="src">src/screens/TripsScreen.jsx</span></h3>
+      <div class="body">
+        <div class="q"><div class="qk">1 · Consome hoje</div><div class="qv"><code>acct.trips[]</code> (resumos), filtrados por <code>mapState(t.state)</code>; por card: <code>t.{id,tone,cover,state,title,dates,travelers,progress,dataKey}</code>; <code>activeTripId</code>; guarda <code>mockData[t.dataKey]</code> para saber se é "ideia".</div></div>
+        <div class="q"><div class="qk">2 · Origem hoje</div><div class="qv"><code>useAccount().trips</code> (semeado de <code>mockData.trips</code> no demo). Empty state quando <code>trips.length === 0</code>.</div></div>
+        <div class="q"><div class="qk">3 · Origem nova</div><div class="qv"><code>TripStore.listTrips()</code> → projeção <code>TripSummary[]</code>. Empty state já existe (aprovado).</div></div>
+        <div class="q"><div class="qk">4 · Contrato esperado</div><div class="qv">
+          <div class="code"><span class="cap">TripSummary (forma do card)</span>
+<b>TripSummary</b> { id, title, dates, state, travelers, tone, cover, progress }
+<span class="c">// state ∈ "Roteiro vivo" | "Em planejamento" | "Idéia" | "Concluído"</span>
+<span class="c">// mapState() mapeia state → aba; manter os MESMOS rótulos</span></div>
+        </div></div>
+        <div class="q change"><div class="qk">5 · O que muda</div><div class="qv">Ler de <code>TripStore</code> em vez de <code>acct.trips</code>. A checagem <code>mockData[t.dataKey]</code> (ideia vs. montável) vira um campo do <code>TripSummary</code> (ex.: <code>hasItinerary</code>). <strong>Cards, abas e copy intactos.</strong></div></div>
+      </div>
+    </div>
+
+    <!-- 4 DETAIL -->
+    <div class="scr">
+      <h3 id="detail-c">4 · Trip Detail / Roteiro <span class="src">src/screens/PlanScreen.jsx</span></h3>
+      <div class="body">
+        <div class="q"><div class="qk">1 · Consome hoje</div><div class="qv"><code>tripData = trip || mockData.trip</code>; <code>tripData.days[]</code> <strong>clonado</strong> via <code>JSON.parse(JSON.stringify())</code> para estado local; <code>mockData.chatSeed</code>, <code>mockData.quickActions</code>, <code>mockData.itemAlternatives[item.tag]</code>; <code>mockData.trip</code> (ExportModal).</div></div>
+        <div class="q"><div class="qk">2 · Origem hoje</div><div class="qv">Prop <code>trip</code> (de <code>App.tripFor</code> → <code>mockData[dataKey]</code>) com fallback <code>mockData.trip</code>. Edições vivem só no estado local clonado.</div></div>
+        <div class="q"><div class="qk">3 · Origem nova</div><div class="qv"><code>TripStore</code> via <code>activeTripId</code> → <code>TripDetail</code> (sem clone — edições viram ações no store). Chat/quick-actions/alternativas: <code>tripApi</code>.</div></div>
+        <div class="q"><div class="qk">4 · Contrato esperado</div><div class="qv">
+          <div class="code"><span class="cap">TripDetail + item do roteiro</span>
+<b>TripDetail</b> { id, title, blurb, dates, nights, travelers, budget, status,
+            cover, coverSeed, coverLabel, progress,
+            days:[ { d, date, city, flight?, items:[ Item ] } ],
+            insights:[ {kind, text} ] }
+<b>Item</b> { t, title, place, dur, tag, vibe, conf }   <span class="c">// t = manhã|tarde|noite</span></div>
+        </div></div>
+        <div class="q change"><div class="qk">5 · O que muda</div><div class="qv"><strong>Eliminar o clone</strong>: a tela passa a ler <code>days</code> do store e emitir ações (add/move/edit) em vez de mutar estado local. É o ponto de maior risco — migrar por último. <strong>JSX e interações idênticos.</strong></div></div>
+      </div>
+    </div>
+
+    <!-- 5 EXPLORE -->
+    <div class="scr">
+      <h3 id="explore-c">5 · Explorar <span class="src">src/screens/ExploreScreen.jsx</span></h3>
+      <div class="body">
+        <div class="q"><div class="qk">1 · Consome hoje</div><div class="qv"><code>mockData.routes</code> (filtro por <code>category</code>/título); <code>mockData.experts</code> (colagem + contagem); <code>mockData.routeDetails[route.id]</code> (drawer).</div></div>
+        <div class="q"><div class="qk">2 · Origem hoje</div><div class="qv"><code>mockData.routes</code>, <code>mockData.experts</code>, <code>mockData.routeDetails</code>.</div></div>
+        <div class="q"><div class="qk">3 · Origem nova</div><div class="qv"><code>tripApi.listTemplates()</code> (= routes) e <code>tripApi.listExperts()</code>; detalhe via <code>tripApi.getTemplate(id)</code>.</div></div>
+        <div class="q"><div class="qk">4 · Contrato esperado</div><div class="qv">
+          <div class="code"><span class="cap">Template (route) + detalhe</span>
+<b>Template</b>       { id, title, category, days, from, expert, tone }
+<b>TemplateDetail</b> { ...itinerário expandido por id }   <span class="c">// routeDetails[id]</span></div>
+        </div></div>
+        <div class="q change"><div class="qk">5 · O que muda</div><div class="qv">Trocar leituras de <code>mockData</code> por <code>tripApi</code>. <strong>Read-only, baixo risco — candidata a 1º corte.</strong></div></div>
+      </div>
+    </div>
+
+    <!-- 6 EXPERTS -->
+    <div class="scr">
+      <h3 id="experts-c">6 · Experts <span class="src">src/screens/ExpertsScreen.jsx</span></h3>
+      <div class="body">
+        <div class="q"><div class="qk">1 · Consome hoje</div><div class="qv"><code>mockData.experts</code> (lista, filtro por <code>regions[]/specs/region</code>, busca por nome/destino); <code>mockData.routes.filter(r=>r.expert===open.name)</code>; <code>mockData.routeDetails[route.id]</code>.</div></div>
+        <div class="q"><div class="qk">2 · Origem hoje</div><div class="qv"><code>mockData.experts</code>, <code>mockData.routes</code>, <code>mockData.routeDetails</code>.</div></div>
+        <div class="q"><div class="qk">3 · Origem nova</div><div class="qv"><code>tripApi.listExperts()</code> + <code>tripApi.listTemplates({expert})</code>.</div></div>
+        <div class="q"><div class="qk">4 · Contrato esperado</div><div class="qv">
+          <div class="code"><span class="cap">Expert</span>
+<b>Expert</b> { id, portrait, name, region, regions:[], trips, routes,
+         rating, responseMin, years, tone, specs:[] }</div>
+        </div></div>
+        <div class="q change"><div class="qk">5 · O que muda</div><div class="qv">Origem vira <code>tripApi</code>; o cruzamento expert↔roteiros (hoje por <em>nome</em>) deve passar a usar <code>expertId</code>. <strong>UI de lista/perfil intacta.</strong></div></div>
+      </div>
+    </div>
+
+    <!-- 7 HOTELS -->
+    <div class="scr">
+      <h3 id="hotels-c">7 · Hotéis <span class="src">src/screens/HotelsScreen.jsx</span></h3>
+      <div class="body">
+        <div class="q"><div class="qk">1 · Consome hoje</div><div class="qv"><code>mockData.hotels</code>; por card <code>h.{id,name,city,rating,nights,price,perk,tone,tag}</code>.</div></div>
+        <div class="q"><div class="qk">2 · Origem hoje</div><div class="qv"><code>mockData.hotels</code> (lista estática).</div></div>
+        <div class="q"><div class="qk">3 · Origem nova</div><div class="qv"><code>tripApi.searchHotels(query)</code>.</div></div>
+        <div class="q"><div class="qk">4 · Contrato esperado</div><div class="qv">
+          <div class="code"><span class="cap">Hotel</span>
+<b>Hotel</b> { id, name, city, rating, nights, price, perk, tone, tag }
+<span class="c">// price = string "R$ 4.200" (a UI exibe direto)</span></div>
+        </div></div>
+        <div class="q change"><div class="qk">5 · O que muda</div><div class="qv">Lista estática → resultado de <code>searchHotels</code>; manter <code>price</code> como string formatada. <strong>Card intacto.</strong></div></div>
+      </div>
+    </div>
+
+    <!-- 8 FLIGHTS -->
+    <div class="scr">
+      <h3 id="flights-c">8 · Voos <span class="src">src/screens/FlightsScreen.jsx</span></h3>
+      <div class="body">
+        <div class="q"><div class="qk">1 · Consome hoje</div><div class="qv"><code>mockData.flights</code>, ordenado por preço (<code>parseInt(price.replace(/\D/g,''))</code>) ou horário (<code>dep</code>); por card <code>f.{id,from,to,dep,arr,airline,flight,stops,dur,price,miles,best,tone}</code>; comparação "mesma rota".</div></div>
+        <div class="q"><div class="qk">2 · Origem hoje</div><div class="qv"><code>mockData.flights</code>.</div></div>
+        <div class="q"><div class="qk">3 · Origem nova</div><div class="qv"><code>tripApi.searchFlights(query)</code>.</div></div>
+        <div class="q"><div class="qk">4 · Contrato esperado</div><div class="qv">
+          <div class="code"><span class="cap">Flight</span>
+<b>Flight</b> { id, from, to, dep, arr, airline, flight, stops,
+          dur, price, miles, best, tone }
+<span class="c">// price/dep são strings; a UI parseia price p/ ordenar →</span>
+<span class="c">// devolver mesma string (ideal: + priceValue numérico)</span></div>
+        </div></div>
+        <div class="q change"><div class="qk">5 · O que muda</div><div class="qv">Origem vira <code>searchFlights</code>; preservar formato de <code>price</code> (a ordenação depende dele). <strong>Lista e comparação intactas.</strong></div></div>
+      </div>
+    </div>
+
+    <!-- 9 TOURS -->
+    <div class="scr">
+      <h3 id="tours-c">9 · Passeios <span class="src">src/screens/ToursScreen.jsx</span></h3>
+      <div class="body">
+        <div class="q"><div class="qk">1 · Consome hoje</div><div class="qv"><code>mockData.tours</code>; por card <code>t.{id,name,city,dur,price,host,tone}</code>.</div></div>
+        <div class="q"><div class="qk">2 · Origem hoje</div><div class="qv"><code>mockData.tours</code>.</div></div>
+        <div class="q"><div class="qk">3 · Origem nova</div><div class="qv"><code>tripApi.searchTours(query)</code>.</div></div>
+        <div class="q"><div class="qk">4 · Contrato esperado</div><div class="qv">
+          <div class="code"><span class="cap">Tour</span>
+<b>Tour</b> { id, name, city, dur, price, host, tone }</div>
+        </div></div>
+        <div class="q change"><div class="qk">5 · O que muda</div><div class="qv">Lista estática → <code>searchTours</code>. <code>host</code> (nome do expert) idealmente vira <code>expertId</code>. <strong>Card intacto.</strong></div></div>
+      </div>
+    </div>
+
+    <!-- 10 PLANS -->
+    <div class="scr">
+      <h3 id="plans-c">10 · Planos <span class="src">src/screens/PlansScreen.jsx</span></h3>
+      <div class="body">
+        <div class="q"><div class="qk">1 · Consome hoje</div><div class="qv"><code>mockData.plans</code>; por card <code>p.{id,name,tag,highlight,desc,price,period,features[],cta}</code>.</div></div>
+        <div class="q"><div class="qk">2 · Origem hoje</div><div class="qv"><code>mockData.plans</code> (estático).</div></div>
+        <div class="q"><div class="qk">3 · Origem nova</div><div class="qv"><code>tripApi.listPlans()</code> (catálogo de planos).</div></div>
+        <div class="q"><div class="qk">4 · Contrato esperado</div><div class="qv">
+          <div class="code"><span class="cap">Plan</span>
+<b>Plan</b> { id, name, tag, highlight, desc, price, period, features:[], cta }</div>
+        </div></div>
+        <div class="q change"><div class="qk">5 · O que muda</div><div class="qv">Origem vira <code>listPlans</code>. <strong>Grid, FAQ e copy intactos.</strong> (Assinatura ativa do usuário fica fora do escopo desta tela.)</div></div>
+      </div>
+    </div>
+
+    <!-- ACHADOS -->
+    <h2 id="achados"><span class="h2num">04</span>Achados que afetam a migração</h2>
+    <table class="tbl">
+      <thead><tr><th>Achado (evidência)</th><th>Implicação para o tradutor</th></tr></thead>
+      <tbody>
+        <tr><td><b>Duas formas por viagem.</b> Resumo usa <code>state</code>; detalhe usa <code>status</code> + <code>blurb/nights/coverLabel</code>.</td><td>Expor <strong>duas projeções</strong> da mesma <code>Trip</code>: <code>TripSummary</code> e <code>TripDetail</code>. Mapear <code>status ↔ state</code> com os mesmos rótulos.</td></tr>
+        <tr><td><b>Indireção <code>dataKey</code>.</b> <code>tripFor</code> resolve <code>mockData[meta.dataKey]</code>.</td><td>Aposentada: <code>TripStore.getTrip(id)</code> devolve a viagem inteira. <code>TripSummary.hasItinerary</code> substitui a checagem <code>mockData[dataKey]</code> da TripsScreen.</td></tr>
+        <tr><td><b>Clone no PlanScreen.</b> <code>JSON.parse(JSON.stringify(days))</code> + re-seed do chat.</td><td>Remover clone: ler do store, editar por ação. Epicentro de regressão → migrar por último.</td></tr>
+        <tr><td><b>Strings formatadas + parsing na UI.</b> Voos ordena por <code>parseInt(price…)</code>.</td><td>Tradutor devolve as <strong>mesmas strings</strong> (<code>price</code>, <code>dates</code>, <code>dur</code>). Opcional: adicionar campos numéricos crus sem remover os formatados.</td></tr>
+        <tr><td><b>Cruzamentos por nome.</b> expert↔route por <code>r.expert === e.name</code>; tour <code>host</code> por nome.</td><td>Introduzir <code>expertId</code> nas entidades e cruzar por id — sem mudar o que a UI exibe.</td></tr>
+        <tr><td><b>Wizard é in-chat.</b> Vive na Home, não em tela própria.</td><td>"Reaproveitar" = manter o fluxo no chat; fundação só fornece <code>WizardDef</code>/<code>GenStep</code> e <code>createTrip</code>.</td></tr>
+        <tr><td><b>account semeado do mock.</b> Demo copia <code>mockData.*</code> para o account.</td><td>account mantém sessão/usuário; <code>trips[]</code>/<code>activeTripId</code> migram para o <code>TripStore</code> na Fase 4.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note decision">
+      <div class="lbl">Saída da Fase 0</div>
+      <p>Os contratos por tela acima são a <strong>especificação do tradutor</strong>: para cada tela, o view-model deve produzir exatamente estas formas. Com isto, dá para construir a fundação (Fase 1) e o tradutor (Fase 2) e, a cada corte, comparar a saída contra estes contratos — garantindo paridade visual <em>antes</em> de ligar qualquer tela. Nenhuma mudança de UI, UX ou navegação é necessária para a migração.</p>
+    </div>
+
+    <div class="footer">
+      <span>Gaid · Fase 0 — Screen Data Inventory · baseado em evidência</span>
+      <span><a href="07 Foundation Migration Strategy.html">← 07 · Migration Strategy</a></span>
+    </div>
+
+  </article>
+  </main>
+</div>
+</body>
+</html>

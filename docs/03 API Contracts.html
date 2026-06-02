@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Gaid · API Contracts V1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
+<link href="gaid-docs.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="rail">
+    <div class="brand">
+      <div class="logo">V</div>
+      <div>
+        <div class="who">Gaid · Arquitetura</div>
+        <div class="sub">Sprint de arquitetura · V1</div>
+      </div>
+    </div>
+
+    <div class="rail-label">Documentos</div>
+    <nav class="doc-switch">
+      <a href="01 Data Architecture.html"><span class="num">01</span><span class="t">Data Architecture</span></a>
+      <a href="02 Component Contracts.html"><span class="num">02</span><span class="t">Component Contracts</span></a>
+      <a class="active" href="03 API Contracts.html"><span class="num">03</span><span class="t">API Contracts</span></a>
+      <a href="04 MVP Implementation Plan.html"><span class="num">04</span><span class="t">MVP Plan</span></a>
+      <a href="05 Final Architecture Review.html"><span class="num">05</span><span class="t">Final Review</span></a>
+      <a href="06 Real Data Ready Props.html"><span class="num">06</span><span class="t">RDR · Props</span></a>
+      <a href="07 Foundation Migration Strategy.html"><span class="num">07</span><span class="t">Migration Strategy</span></a>
+      <a href="08 Phase 0 Screen Data Inventory.html"><span class="num">08</span><span class="t">Fase 0 · Inventário</span></a>
+      <a href="09 Phase 0 Executive Summary.html"><span class="num">09</span><span class="t">Fase 0 · Resumo Exec.</span></a>
+      <a href="10 Phase 1 Foundation Design.html"><span class="num">10</span><span class="t">Fase 1 · Fundação</span></a>
+    </nav>
+
+    <div class="rail-label">Endpoints</div>
+    <nav class="toc">
+      <a href="#envelope">Convenções</a>
+      <a href="#search">Buscar hotéis / voos / passeios</a>
+      <a href="#create">Criar roteiro</a>
+      <a href="#update">Atualizar roteiro</a>
+      <a href="#apply">Aplicar hotel / voo / passeio</a>
+      <a href="#experts">Experts</a>
+      <a href="#subs">Assinaturas</a>
+      <a href="#riscos">Riscos cobertos</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+  <article class="doc">
+
+    <div class="eyebrow">Documento 03 — integração</div>
+    <h1 class="title">Gaid API Contracts V1</h1>
+    <p class="lede">Os payloads oficiais que <strong>frontend e backend compartilham</strong>. Mesma forma dos dois lados, mesmos ids do Documento 01. Se o contrato muda, muda aqui primeiro — nunca em um lado só.</p>
+    <div class="meta">
+      <span><b>Base</b> · <code>/api/v1</code></span>
+      <span><b>Formato</b> · JSON · ids canônicos</span>
+      <span><b>Concorrência</b> · <code>version</code> + <code>If-Match</code></span>
+    </div>
+
+    <!-- ENVELOPE -->
+    <h2 id="envelope"><span class="h2num">00</span>Convenções (envelope, erro, concorrência)</h2>
+    <p>Toda resposta usa o mesmo envelope. Toda escrita carrega versão. Toda mutação que “aplica” algo é idempotente.</p>
+    <div class="code">
+      <span class="cap">Envelope de resposta — sucesso e erro</span>
+<span class="c">// Sucesso</span>
+{
+  <span class="key">"data"</span>: <span class="ty">T</span>,                 <span class="c">// o recurso ou lista</span>
+  <span class="key">"meta"</span>: { <span class="key">"requestId"</span>: <span class="ty">string</span>, <span class="key">"page"</span>?: <span class="ty">Page</span> }
+}
+
+<span class="c">// Erro — SEMPRE esta forma, nunca HTML/string solta</span>
+{
+  <span class="key">"error"</span>: {
+    <span class="key">"code"</span>: <span class="ty">string</span>,        <span class="c">// "validation_failed" | "version_conflict" | "not_found" …</span>
+    <span class="key">"message"</span>: <span class="ty">string</span>,     <span class="c">// legível, pt-BR</span>
+    <span class="key">"fields"</span>?: <span class="ty">FieldError[]</span>,
+    <span class="key">"requestId"</span>: <span class="ty">string</span>
+  }
+}
+    </div>
+    <div class="code">
+      <span class="cap">Concorrência & idempotência — headers</span>
+<span class="key">If-Match</span>: <span class="st">"&lt;trip.version&gt;"</span>          <span class="c">// toda escrita em Trip; 409 se desatualizado</span>
+<span class="key">Idempotency-Key</span>: <span class="st">"&lt;uuid&gt;"</span>        <span class="c">// toda mutação "apply"/create; evita duplicar</span>
+    </div>
+    <div class="note">
+      <div class="lbl">Por que isso resolve “estados conflitantes”</div>
+      <p>Se duas origens (usuário e expert, ou duas abas) tentarem escrever sobre a mesma <code class="k">version</code>, a segunda recebe <code class="k">409 version_conflict</code> e re-sincroniza — em vez de sobrescrever silenciosamente. <code class="k">Idempotency-Key</code> garante que “aplicar hotel” duas vezes não crie duas reservas.</p>
+    </div>
+
+    <div class="adr">
+      <div class="adr-head"><span class="adr-tag">Decisão recomendada</span><span class="adr-id">ADR-07 · Contratos</span></div>
+      <h4 class="adr-title">O contrato é a fonte compartilhada — front e back derivam dele, nunca o contrário</h4>
+      <div class="adr-grid">
+        <div class="adr-row"><div class="adr-k">Decisão</div><div class="adr-v">Os payloads deste documento (envelope, entidades por id, <code>version</code>, <code>Idempotency-Key</code>) são a fonte única do contrato. Tipos de frontend e backend são <strong>derivados do mesmo schema</strong>; mudança de contrato muda aqui primeiro.</div></div>
+        <div class="adr-row"><div class="adr-k">Justificativa</div><div class="adr-v">Contratos divergentes entre os lados são a origem de “dados inventados” e quebras na integração. Um schema compartilhado garante que os dois lados falem exatamente a mesma língua.</div></div>
+        <div class="adr-row"><div class="adr-k">Riscos</div><div class="adr-v">Versionar o contrato exige disciplina (breaking changes precisam de <code>/v2</code>); requer um lugar único onde o schema vive.</div></div>
+        <div class="adr-row deny"><div class="adr-k">Não deve acontecer</div><div class="adr-v">Frontend “ajustar” o shape no cliente; backend mudar campo sem atualizar o contrato; erro retornar HTML/string em vez do envelope; escrita sem <code>If-Match</code>.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Frontend</div><div class="adr-v">Consumir tipos gerados do schema; tratar <code>409</code> com re-sync; enviar <code>Idempotency-Key</code> em create/apply; nunca recalcular preço/milhas.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Backend</div><div class="adr-v">Validar todo request contra o schema; sempre devolver o recurso inteiro no envelope; impor <code>version</code>/idempotência; cálculos (preço, milhas, progresso) prontos.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Codex</div><div class="adr-v">Gerar tipos a partir do schema (single source); criar um cliente de API tipado; testes de contrato que falham se request/response divergir do payload definido aqui.</div></div>
+      </div>
+    </div>
+
+    <!-- SEARCH -->
+    <h2 id="search"><span class="h2num">01</span>Buscar hotéis · voos · passeios</h2>
+    <p>Buscas são <em>read-only</em> e retornam entidades de catálogo já normalizadas (ids canônicos de cidade/aeroporto). O cliente nunca recalcula preço/milhas.</p>
+    <div class="code">
+      <span class="cap">POST /search/hotels</span>
+<span class="c">// request</span>
+{ <span class="key">"cityId"</span>: <span class="ty">DestinationId</span>, <span class="key">"checkIn"</span>: <span class="ty">ISODate</span>, <span class="key">"checkOut"</span>: <span class="ty">ISODate</span>,
+  <span class="key">"guests"</span>: { <span class="key">"adults"</span>: <span class="ty">number</span>, <span class="key">"children"</span>: <span class="ty">number</span> },
+  <span class="key">"filters"</span>?: { <span class="key">"style"</span>?: <span class="ty">string[]</span>, <span class="key">"maxPrice"</span>?: <span class="ty">number</span> }, <span class="key">"page"</span>?: <span class="ty">Page</span> }
+
+<span class="c">// response.data</span>
+<span class="ty">Hotel[]</span>   <span class="c">// cada item conforme schema Hotel (Doc 01)</span>
+    </div>
+    <div class="code">
+      <span class="cap">POST /search/flights</span>
+<span class="c">// request</span>
+{ <span class="key">"fromAirportId"</span>: <span class="ty">AirportId</span>, <span class="key">"toAirportId"</span>: <span class="ty">AirportId</span>,
+  <span class="key">"depart"</span>: <span class="ty">ISODate</span>, <span class="key">"return"</span>?: <span class="ty">ISODate</span>,
+  <span class="key">"pax"</span>: { <span class="key">"adults"</span>: <span class="ty">number</span>, <span class="key">"children"</span>: <span class="ty">number</span>, <span class="key">"infants"</span>: <span class="ty">number</span> },
+  <span class="key">"cabin"</span>?: <span class="ty">string</span>, <span class="key">"milesProgram"</span>?: <span class="ty">string</span> }
+
+<span class="c">// response.data</span>
+<span class="ty">Flight[]</span>  <span class="c">// preço e milhas JÁ calculados pelo backend</span>
+    </div>
+    <div class="code">
+      <span class="cap">POST /search/tours</span>
+<span class="c">// request</span>
+{ <span class="key">"cityId"</span>: <span class="ty">DestinationId</span>, <span class="key">"date"</span>?: <span class="ty">ISODate</span>,
+  <span class="key">"filters"</span>?: { <span class="key">"category"</span>?: <span class="ty">string[]</span>, <span class="key">"maxPrice"</span>?: <span class="ty">number</span> }, <span class="key">"page"</span>?: <span class="ty">Page</span> }
+
+<span class="c">// response.data</span>
+<span class="ty">Tour[]</span>
+    </div>
+
+    <!-- CREATE -->
+    <h2 id="create"><span class="h2num">02</span>Criar roteiro</h2>
+    <p>Cria a Trip como <code class="k">draft</code> a partir das respostas do wizard. Retorna a Trip com <strong>id real</strong> e <code class="k">version: 1</code>. A geração de dias pela IA é um passo separado (assíncrono), com seu próprio status.</p>
+    <div class="code">
+      <span class="cap">POST /trips  ·  (Idempotency-Key)</span>
+<span class="c">// request — intenção do wizard, destinos por id</span>
+{
+  <span class="key">"source"</span>: <span class="st">"wizard"</span>,
+  <span class="key">"destinations"</span>: <span class="ty">DestinationId[]</span>,
+  <span class="key">"dateRange"</span>?: { <span class="key">"start"</span>: <span class="ty">ISODate</span>, <span class="key">"end"</span>: <span class="ty">ISODate</span> },
+  <span class="key">"travelers"</span>: <span class="ty">Traveler[]</span>,
+  <span class="key">"budget"</span>?: <span class="ty">Money</span>,
+  <span class="key">"preferences"</span>: { <span class="key">"styles"</span>: <span class="ty">string[]</span>, <span class="key">"hotel"</span>: <span class="ty">string[]</span>, <span class="key">"flight"</span>: <span class="ty">string[]</span> }
+}
+
+<span class="c">// response.data — Trip status:"draft", version:1, days:[]</span>
+<span class="ty">Trip</span>
+    </div>
+    <div class="code">
+      <span class="cap">POST /trips/{tripId}/generate  ·  geração de roteiro pela IA</span>
+<span class="c">// request</span>
+{ <span class="key">"regenerate"</span>?: <span class="ty">boolean</span>, <span class="key">"keepLocked"</span>: <span class="ty">true</span> }
+
+<span class="c">// response.data — Trip com days preenchidos; itens locked preservados</span>
+<span class="ty">Trip</span>   <span class="c">// version incrementada</span>
+    </div>
+    <div class="note risk">
+      <div class="lbl">Fronteira da IA</div>
+      <p>A IA roda <em>no servidor</em> e produz um patch validado contra schema + ids existentes antes de persistir. Itens com <code class="k">locked: true</code> nunca são tocados por <code class="k">generate</code>. É aqui que “dados inventados” são barrados — não no cliente.</p>
+    </div>
+
+    <!-- UPDATE -->
+    <h2 id="update"><span class="h2num">03</span>Atualizar roteiro</h2>
+    <p>Edições granulares por <em>patch</em>. Sempre com <code class="k">If-Match: version</code>. Retorna a Trip nova com <code class="k">version</code> incrementada — o cliente troca o cache inteiro pela resposta (sem merge manual).</p>
+    <div class="code">
+      <span class="cap">PATCH /trips/{tripId}  ·  (If-Match: version)</span>
+<span class="c">// request — operações atômicas sobre o itinerário</span>
+{
+  <span class="key">"ops"</span>: [
+    { <span class="key">"op"</span>: <span class="st">"addItem"</span>,    <span class="key">"dayId"</span>: <span class="ty">TripDayId</span>, <span class="key">"item"</span>: <span class="ty">ItemDraft</span> },
+    { <span class="key">"op"</span>: <span class="st">"moveItem"</span>,   <span class="key">"itemId"</span>: <span class="ty">ItemId</span>, <span class="key">"toDayId"</span>: <span class="ty">TripDayId</span>, <span class="key">"toSlot"</span>: <span class="ty">Slot</span> },
+    { <span class="key">"op"</span>: <span class="st">"updateItem"</span>, <span class="key">"itemId"</span>: <span class="ty">ItemId</span>, <span class="key">"patch"</span>: <span class="ty">Partial&lt;Item&gt;</span> },
+    { <span class="key">"op"</span>: <span class="st">"removeItem"</span>, <span class="key">"itemId"</span>: <span class="ty">ItemId</span> },
+    { <span class="key">"op"</span>: <span class="st">"setLock"</span>,    <span class="key">"itemId"</span>: <span class="ty">ItemId</span>, <span class="key">"locked"</span>: <span class="ty">boolean</span> }
+  ]
+}
+
+<span class="c">// response.data — Trip atualizada (nova version)</span>
+<span class="ty">Trip</span>
+<span class="c">// 409 version_conflict → cliente refaz GET e reaplica</span>
+    </div>
+
+    <!-- APPLY -->
+    <h2 id="apply"><span class="h2num">04</span>Aplicar hotel · voo · passeio ao roteiro</h2>
+    <p>“Aplicar” cria um <code class="k">BookingRef</code> e amarra a entidade aos itens corretos do itinerário. Idempotente por <code class="k">Idempotency-Key</code>.</p>
+    <div class="code">
+      <span class="cap">POST /trips/{tripId}/apply  ·  (If-Match + Idempotency-Key)</span>
+<span class="c">// request — um destes por chamada</span>
+{ <span class="key">"refKind"</span>: <span class="st">"hotel"</span>,  <span class="key">"refId"</span>: <span class="ty">HotelId</span>,  <span class="key">"nights"</span>: { <span class="key">"checkIn"</span>: <span class="ty">ISODate</span>, <span class="key">"checkOut"</span>: <span class="ty">ISODate</span> } }
+{ <span class="key">"refKind"</span>: <span class="st">"flight"</span>, <span class="key">"refId"</span>: <span class="ty">FlightId</span>, <span class="key">"dayId"</span>?: <span class="ty">TripDayId</span> }
+{ <span class="key">"refKind"</span>: <span class="st">"tour"</span>,   <span class="key">"refId"</span>: <span class="ty">TourId</span>,   <span class="key">"dayId"</span>: <span class="ty">TripDayId</span>, <span class="key">"slot"</span>: <span class="ty">Slot</span> }
+
+<span class="c">// response.data — Trip com novo BookingRef + itens marcados "booked"</span>
+{ <span class="key">"trip"</span>: <span class="ty">Trip</span>, <span class="key">"booking"</span>: <span class="ty">BookingRef</span> }
+    </div>
+    <table class="tbl">
+      <thead><tr><th>Ação</th><th>Efeito no itinerário</th><th>Status do item</th></tr></thead>
+      <tbody>
+        <tr><td>applyHotel</td><td>cria/atualiza itens <code>checkin</code> nas noites</td><td>booked</td></tr>
+        <tr><td>applyFlight</td><td>insere item <code>flight</code> no dia da partida</td><td>booked</td></tr>
+        <tr><td>applyTour</td><td>anexa item <code>tour</code> ao dia/slot</td><td>booked</td></tr>
+      </tbody>
+    </table>
+
+    <!-- EXPERTS -->
+    <h2 id="experts"><span class="h2num">05</span>Experts</h2>
+    <div class="code">
+      <span class="cap">GET /experts  ·  GET /experts/{expertId}  ·  POST /trips/{tripId}/expert</span>
+<span class="c">// GET /experts?region=&amp;specialty= → lista</span>
+<span class="ty">Expert[]</span>
+
+<span class="c">// Expert</span>
+<b>Expert</b> { id, name, region, specialties: <span class="ty">string[]</span>, rating: <span class="ty">number</span>,
+         tripsCount: <span class="ty">number</span>, responseMin: <span class="ty">number</span>, portraitRef: <span class="ty">ImageRef</span> }
+
+<span class="c">// Atribuir expert à viagem (If-Match)</span>
+<span class="c">// POST /trips/{tripId}/expert  body:</span>
+{ <span class="key">"expertId"</span>: <span class="ty">ExpertId</span> }   <span class="c">// → Trip com expertId setado</span>
+    </div>
+
+    <!-- SUBS -->
+    <h2 id="subs"><span class="h2num">06</span>Assinaturas</h2>
+    <div class="code">
+      <span class="cap">GET /plans  ·  GET /me/subscription  ·  POST /me/subscription</span>
+<span class="c">// Plan (catálogo de planos)</span>
+<b>Plan</b> { id, name, priceMonth: <span class="ty">Money</span>, tier: <span class="ty">string</span>, features: <span class="ty">string[]</span> }
+
+<span class="c">// Subscription (a do usuário)</span>
+<b>Subscription</b> { id, planId: <span class="ty">PlanId</span>, status: <span class="ty">"active"|"past_due"|"canceled"</span>,
+               currentPeriodEnd: <span class="ty">ISODate</span>, renews: <span class="ty">boolean</span> }
+
+<span class="c">// Trocar de plano (Idempotency-Key)</span>
+<span class="c">// POST /me/subscription  body:</span>
+{ <span class="key">"planId"</span>: <span class="ty">PlanId</span> }   <span class="c">// → Subscription atualizada</span>
+    </div>
+
+    <!-- RISCOS -->
+    <h2 id="riscos"><span class="h2num">07</span>Riscos cobertos por este contrato</h2>
+    <table class="tbl">
+      <thead><tr><th>Sintoma</th><th>Mecanismo do contrato</th></tr></thead>
+      <tbody>
+        <tr><td>Porto → Paris</td><td>destinos/aeroportos só por <code>DestinationId</code>/<code>AirportId</code>; texto livre não trafega.</td></tr>
+        <tr><td>Dados inventados</td><td>preço/milhas vêm prontos do backend; IA validada no servidor antes de persistir.</td></tr>
+        <tr><td>Estados conflitantes</td><td><code>If-Match: version</code> → 409 em vez de sobrescrita.</td></tr>
+        <tr><td>Ações duplicadas</td><td><code>Idempotency-Key</code> em create/apply.</td></tr>
+        <tr><td>Contexto perdido</td><td>resposta sempre devolve a <code>Trip</code> inteira; cliente troca o cache, sem merge manual.</td></tr>
+        <tr><td>Regressões</td><td><code>locked</code> preserva decisões do usuário em qualquer <code>generate</code>.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note decision">
+      <div class="lbl">Saída da sprint</div>
+      <p>Com os três documentos fechados temos: <strong>fonte única da verdade</strong> (servidor + um cache), <strong>modelo de dados</strong> (Doc 01), <strong>contratos de componente</strong> (Doc 02) e <strong>contratos de API</strong> (Doc 03). É a base sólida para reconstruir a integração Front ↔ Estado ↔ Backend antes de voltar à implementação.</p>
+    </div>
+
+    <div class="footer">
+      <span>Gaid · API Contracts V1 · proposta</span>
+      <span><a href="01 Data Architecture.html">← 01 · Data</a> &nbsp;·&nbsp; <a href="02 Component Contracts.html">← 02 · Componentes</a></span>
+    </div>
+
+  </article>
+  </main>
+</div>
+</body>
+</html>

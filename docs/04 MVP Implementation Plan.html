@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Gaid · MVP Implementation Plan V1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
+<link href="gaid-docs.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="rail">
+    <div class="brand">
+      <div class="logo">V</div>
+      <div>
+        <div class="who">Gaid · Arquitetura</div>
+        <div class="sub">Sprint de arquitetura · V1</div>
+      </div>
+    </div>
+
+    <div class="rail-label">Documentos</div>
+    <nav class="doc-switch">
+      <a href="01 Data Architecture.html"><span class="num">01</span><span class="t">Data Architecture</span></a>
+      <a href="02 Component Contracts.html"><span class="num">02</span><span class="t">Component Contracts</span></a>
+      <a href="03 API Contracts.html"><span class="num">03</span><span class="t">API Contracts</span></a>
+      <a class="active" href="04 MVP Implementation Plan.html"><span class="num">04</span><span class="t">MVP Plan</span></a>
+      <a href="05 Final Architecture Review.html"><span class="num">05</span><span class="t">Final Review</span></a>
+      <a href="06 Real Data Ready Props.html"><span class="num">06</span><span class="t">RDR · Props</span></a>
+      <a href="07 Foundation Migration Strategy.html"><span class="num">07</span><span class="t">Migration Strategy</span></a>
+      <a href="08 Phase 0 Screen Data Inventory.html"><span class="num">08</span><span class="t">Fase 0 · Inventário</span></a>
+      <a href="09 Phase 0 Executive Summary.html"><span class="num">09</span><span class="t">Fase 0 · Resumo Exec.</span></a>
+      <a href="10 Phase 1 Foundation Design.html"><span class="num">10</span><span class="t">Fase 1 · Fundação</span></a>
+    </nav>
+
+    <div class="rail-label">Nesta página</div>
+    <nav class="toc">
+      <a href="#norte">Estrela-guia</a>
+      <a href="#escopo">01 · Escopo do MVP</a>
+      <a href="#fora">02 · O que fica fora</a>
+      <a href="#ordem">03 · Ordem de implementação</a>
+      <a href="#modulos">04 · Arquivos & módulos</a>
+      <a href="#datamode">DATA_MODE</a>
+      <a href="#riscos">05 · Riscos</a>
+      <a href="#aceite">06 · Critérios de aceite</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+  <article class="doc">
+
+    <div class="eyebrow">Documento 04 — execução</div>
+    <h1 class="title">Gaid MVP Implementation Plan V1</h1>
+    <p class="lede">Traduz a arquitetura (Docs 01–03) no <strong>menor recorte que prova o loop central</strong>: criar uma viagem, buscar um hotel, aplicá-lo ao roteiro e ver tudo em Minhas Viagens — com a <strong>Trip como fonte única da verdade</strong> e <strong>sem mocks fabricando dados</strong>. Nada além disso entra agora.</p>
+    <div class="meta">
+      <span><b>Princípio</b> · um loop completo &gt; muitas features pela metade</span>
+      <span><b>Verdade</b> · Trip (servidor) ↔ TripStore (cliente)</span>
+      <span><b>Sem</b> · overengineering — ver §02</span>
+    </div>
+
+    <!-- NORTE -->
+    <h2 id="norte"><span class="h2num">00</span>A estrela-guia do MVP</h2>
+    <p>Um único fluxo, ponta a ponta, sem nenhum dado inventado:</p>
+    <div class="flow">
+      <div class="stage">
+        <div class="node"><div class="nl">1</div><div class="nt">Wizard</div><div class="nd">cria a Trip (draft)</div></div>
+        <div class="arrow">→</div>
+        <div class="node solid"><div class="nl">2</div><div class="nt">TripStore</div><div class="nd">única verdade no cliente</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="nl">3</div><div class="nt">Buscar hotel</div><div class="nd">HotelCard real</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="nl">4</div><div class="nt">Aplicar hotel</div><div class="nd">vira item no roteiro</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="nl">5</div><div class="nt">Minhas Viagens</div><div class="nd">lê só o TripStore</div></div>
+      </div>
+    </div>
+    <p>Se esse loop funcionar com <code class="k">DATA_MODE</code> real e <strong>zero</strong> uso de <code class="k">mockData</code> para fabricar viagens, a fundação da arquitetura está provada e o resto (voos, passeios, experts…) passa a ser repetição do mesmo padrão.</p>
+
+    <!-- ESCOPO -->
+    <h2 id="escopo"><span class="h2num">01</span>Escopo do MVP</h2>
+    <table class="tbl">
+      <thead><tr><th>Item</th><th>O que entra</th></tr></thead>
+      <tbody>
+        <tr><td>Trip = fonte da verdade</td><td>A entidade <code>Trip</code> (Doc 01, recorte mínimo) é a única representação de uma viagem. Persistida pela camada de dados.</td></tr>
+        <tr><td>TripStore (frontend)</td><td>Um cache normalizado único + selectors + ações. Nenhuma tela guarda cópia de dados de viagem.</td></tr>
+        <tr><td>GuidedWizard</td><td>Coleta destino (por id), datas e travelers; <strong>cria</strong> a Trip como draft e a <strong>atualiza</strong>; define como ativa.</td></tr>
+        <tr><td>Busca de hotéis</td><td><code>searchHotels(cityId, datas, guests)</code> alimentando <code>HotelCard</code> (loading/empty/success/error).</td></tr>
+        <tr><td>Aplicar hotel</td><td><code>applyHotel(tripId, hotelId, nights)</code> cria a reserva e insere item(ns) <code>checkin</code> no roteiro.</td></tr>
+        <tr><td>Minhas Viagens</td><td>Lista lendo <strong>exclusivamente</strong> o TripStore — sem catálogo mock.</td></tr>
+        <tr><td>DATA_MODE real</td><td>Camada de dados com seam único; modo real persistente, sem mocks fabricando viagens/hotéis.</td></tr>
+      </tbody>
+    </table>
+    <div class="note">
+      <div class="lbl">Recorte da Trip para o MVP</div>
+      <p>Só os campos que o loop exige: <code class="k">id, ownerId, title, status, destinations[], dateRange, travelers[], days[], bookings[], createdAt, updatedAt</code>. <code class="k">days</code> nasce derivado do <code class="k">dateRange</code> (dias vazios) e ganha itens ao aplicar hotel. Campos como <code class="k">budget, expertId, coverRef, confidence, locked</code> existem no modelo mas <em>não são necessários</em> agora.</p>
+    </div>
+
+    <!-- FORA -->
+    <h2 id="fora"><span class="h2num">02</span>O que fica fora (explicitamente)</h2>
+    <p>Adiado de propósito — não por esquecimento. Cada item entra depois reusando o mesmo padrão do hotel.</p>
+    <div class="grid2">
+      <div class="kv"><div class="kvh">Voos</div><div class="kvb">FlightCard, applyFlight — depois do hotel provar o padrão.</div></div>
+      <div class="kv"><div class="kvh">Passeios</div><div class="kvb">TourCard, applyTour.</div></div>
+      <div class="kv"><div class="kvh">Experts</div><div class="kvb">Atribuição e canal — fora do loop central.</div></div>
+      <div class="kv"><div class="kvh">Assinatura / planos</div><div class="kvb">Billing não toca o loop de viagem.</div></div>
+      <div class="kv"><div class="kvh">Versionamento avançado / If-Match</div><div class="kvb">Sem concorrência otimista agora (usuário único, sequencial).</div></div>
+      <div class="kv"><div class="kvh">Idempotency-Key</div><div class="kvb">Sem chave de idempotência nesta fase.</div></div>
+      <div class="kv"><div class="kvh">Multi-dispositivo</div><div class="kvb">Uma sessão, um cliente.</div></div>
+      <div class="kv"><div class="kvh">Edição colaborativa</div><div class="kvb">Sem expert/co-edição simultânea.</div></div>
+      <div class="kv"><div class="kvh">Geração de roteiro por IA</div><div class="kvb">Fora do recorte: dias vazios + itens via aplicar hotel já fecham o loop.</div></div>
+    </div>
+    <div class="note risk">
+      <div class="lbl">Dívida consciente (não esquecer)</div>
+      <p>A camada de dados deve ser desenhada para que <code class="k">version</code>, <code class="k">If-Match</code> e <code class="k">Idempotency-Key</code> <em>caibam depois sem reescrever o store</em> — os endpoints já recebem/devolvem a Trip inteira, então adicionar os headers é incremento, não refatoração. É a única concessão que fazemos ao futuro.</p>
+    </div>
+
+    <!-- ORDEM -->
+    <h2 id="ordem"><span class="h2num">03</span>Ordem de implementação</h2>
+    <p>Sequência pensada para que cada passo seja verificável isolado e nada dependa de algo ainda não construído (de baixo para cima: dados → store → telas).</p>
+
+    <h3>Fase 0 — Fundação de dados</h3>
+    <ol>
+      <li>Definir <strong>tipos declarativos</strong> do recorte MVP (Trip, TripDay, ItineraryItem, Hotel, Destination).</li>
+      <li>Criar <strong>dados de referência</strong> de destinos (lista canônica pequena, com id).</li>
+      <li>Criar o seam <strong><code class="k">DATA_MODE</code></strong> e o cliente <code class="k">tripApi</code> (modo real persistente).</li>
+    </ol>
+
+    <h3>Fase 1 — Verdade no cliente</h3>
+    <ol start="4">
+      <li>Implementar o <strong>TripStore</strong> (cache normalizado + selectors + ações).</li>
+      <li>Implementar o <strong>ActiveTripContext</strong> (só id + selectors), reidratável.</li>
+    </ol>
+
+    <h3>Fase 2 — Criar e listar</h3>
+    <ol start="6">
+      <li><strong>GuidedWizard</strong> → <code class="k">createTrip</code> (draft) → define ativa.</li>
+      <li><strong>Minhas Viagens</strong> lendo só o TripStore (lista + estados vazio/loading).</li>
+    </ol>
+
+    <h3>Fase 3 — Hotel & roteiro</h3>
+    <ol start="8">
+      <li><strong>Busca de hotéis</strong> via <code class="k">searchHotels</code> → <strong>HotelCard</strong> (4 estados).</li>
+      <li><strong>Aplicar hotel</strong> → ação <code class="k">applyHotel</code> → <strong>TripItinerary</strong> reflete o item.</li>
+    </ol>
+
+    <h3>Fase 4 — Corte dos mocks</h3>
+    <ol start="10">
+      <li>Remover qualquer leitura de <code class="k">mockData.trips / dataKey</code> nos fluxos acima. <code class="k">DATA_MODE</code> = real, ponta a ponta.</li>
+    </ol>
+
+    <!-- MODULOS -->
+    <h2 id="modulos"><span class="h2num">04</span>Arquivos & módulos necessários</h2>
+    <p>Mínimo viável. <em>Novo</em> = criar; <em>Refatorar</em> = adaptar o que já existe no protótipo.</p>
+    <table class="tbl">
+      <thead><tr><th>Módulo</th><th>Responsabilidade</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>data/types</td><td>Tipos declarativos do recorte MVP (sem lógica).</td><td>Novo</td></tr>
+        <tr><td>data/destinations</td><td>Catálogo canônico de destinos (referência, com id).</td><td>Novo</td></tr>
+        <tr><td>data/dataMode</td><td>Flag <code>DATA_MODE</code> + configuração do seam.</td><td>Novo</td></tr>
+        <tr><td>data/tripApi</td><td>Cliente único: <code>createTrip · getTrip · listTrips · searchHotels · applyHotel · patchTrip</code>. Modo real persistente.</td><td>Novo</td></tr>
+        <tr><td>store/tripStore</td><td>Cache normalizado + provider + selectors + ações. Fonte da verdade no cliente.</td><td>Novo (absorve parte do account atual)</td></tr>
+        <tr><td>store/activeTripContext</td><td>Só <code>activeTripId</code> + selectors; reidrata da URL.</td><td>Novo</td></tr>
+        <tr><td>GuidedWizard</td><td>Coleta intenção; cria/atualiza Trip via store.</td><td>Refatorar (onboarding/wizard atuais)</td></tr>
+        <tr><td>HotelCard</td><td>Presenter puro do hotel + CTA aplicar; 4 estados.</td><td>Refatorar</td></tr>
+        <tr><td>HotelSearch</td><td>Tela/seção que chama <code>searchHotels</code> e lista HotelCards.</td><td>Refatorar (HotelsScreen)</td></tr>
+        <tr><td>TripItinerary</td><td>Lê dias do store; mostra item do hotel aplicado.</td><td>Refatorar (PlanScreen — remover clones)</td></tr>
+        <tr><td>TripsScreen</td><td>Minhas Viagens lendo só o TripStore.</td><td>Refatorar (já parcialmente feito)</td></tr>
+      </tbody>
+    </table>
+    <div class="note">
+      <div class="lbl">Aproveitando o que já existe</div>
+      <p>O <code class="k">account.jsx</code> e os empty states já construídos são reaproveitados: o account vira a camada de <em>sessão/usuário</em>, e o <strong>TripStore</strong> assume os dados de viagem (hoje espalhados em <code class="k">mockData.trips</code> + clones de tela). TripsScreen, WalletScreen etc. já lêem de um store — falta apontar a parte de <em>viagens</em> para o TripStore real.</p>
+    </div>
+
+    <!-- DATAMODE -->
+    <h3 id="datamode">DATA_MODE — o seam, sem mocks</h3>
+    <p>Um único ponto decide a origem dos dados. No MVP existe só o modo <strong>real</strong>; o seam existe para que trocar a implementação (local persistido → backend HTTP) não toque em nenhuma tela.</p>
+    <div class="code">
+      <span class="cap">data/dataMode — contrato do seam (declarativo)</span>
+<span class="c">// Um enum, não um monte de ifs espalhados.</span>
+<b>DATA_MODE</b> = <span class="st">"live"</span>            <span class="c">// MVP: única opção ativa</span>
+
+<span class="c">// tripApi expõe SEMPRE o mesmo contrato, qualquer que seja o backing:</span>
+<b>tripApi</b> = {
+  createTrip(input): <span class="ty">Trip</span>,
+  getTrip(id): <span class="ty">Trip</span>,
+  listTrips(): <span class="ty">TripSummary[]</span>,
+  patchTrip(id, ops): <span class="ty">Trip</span>,
+  searchHotels(q): <span class="ty">Hotel[]</span>,
+  applyHotel(id, hotelId, nights): { trip: <span class="ty">Trip</span>, booking: <span class="ty">BookingRef</span> }
+}
+    </div>
+    <div class="note risk">
+      <div class="lbl">Regra: “sem mocks” significa</div>
+      <p>Proibido fabricar viagens a partir de <code class="k">mockData.disneyTrip</code> et al. <strong>Permitido</strong>: dados de <em>referência</em> (lista de destinos, catálogo de hotéis de exemplo servidos <em>através do tripApi</em> como se viessem do backend). A diferença é que tudo passa pelo contrato — nada é montado direto na tela.</p>
+    </div>
+
+    <!-- RISCOS -->
+    <h2 id="riscos"><span class="h2num">05</span>Riscos</h2>
+    <div class="note risk">
+      <div class="lbl">R1 — TripStore reabsorver responsabilidades demais</div>
+      <p>Tentação de jogar tudo (usuário, milhas, UI) no TripStore. Mitigação: TripStore só cuida de Trips; sessão/usuário fica no account; nada de estado de UI.</p>
+    </div>
+    <div class="note risk">
+      <div class="lbl">R2 — Clones de estado sobreviventes</div>
+      <p>PlanScreen/TripItinerary podem continuar clonando <code class="k">days</code> “por hábito”. Mitigação: revisão dirigida + a regra de não ter <code>useState</code> com dados de viagem.</p>
+    </div>
+    <div class="note risk">
+      <div class="lbl">R3 — Seam vazar para as telas</div>
+      <p>Telas chamando persistência direta em vez do <code class="k">tripApi</code>. Mitigação: toda I/O de viagem passa pelo store → tripApi; tela nunca importa a camada de persistência.</p>
+    </div>
+    <div class="note risk">
+      <div class="lbl">R4 — Quebrar telas fora do escopo</div>
+      <p>Wallet/Miles/Experts ainda em mock podem quebrar ao mexer na base. Mitigação: mantê-las intactas; o MVP só troca a origem das <em>viagens</em>.</p>
+    </div>
+    <div class="note risk">
+      <div class="lbl">R5 — Destinos canônicos incompletos</div>
+      <p>Wizard oferecer destino sem id correspondente. Mitigação: wizard só permite escolher da lista de referência; texto livre sem match é bloqueado/sinalizado.</p>
+    </div>
+
+    <!-- ACEITE -->
+    <h2 id="aceite"><span class="h2num">06</span>Critérios de aceite</h2>
+    <p>Verificáveis e binários — passou ou não passou.</p>
+    <table class="tbl">
+      <thead><tr><th>#</th><th>Critério</th></tr></thead>
+      <tbody>
+        <tr><td>A1</td><td>Concluir o wizard cria uma <code>Trip</code> com <code>id</code> real e <code>status: "draft"</code>, que aparece imediatamente em Minhas Viagens.</td></tr>
+        <tr><td>A2</td><td>Minhas Viagens lê <strong>exclusivamente</strong> do TripStore — busca por <code>mockData.trips</code> retorna zero ocorrências no fluxo.</td></tr>
+        <tr><td>A3</td><td>Buscar hotéis para o destino da Trip retorna resultados via <code>tripApi.searchHotels</code> e renderiza <code>HotelCard</code> nos 4 estados (loading/empty/success/error).</td></tr>
+        <tr><td>A4</td><td>Aplicar um hotel cria um <code>BookingRef</code> e insere item(ns) <code>checkin</code> no <code>TripItinerary</code> — visível sem reload.</td></tr>
+        <tr><td>A5</td><td>Sair e voltar à Trip (navegar entre telas) mostra <strong>o mesmo</strong> estado; nenhuma edição se perde (sem clones).</td></tr>
+        <tr><td>A6</td><td>Recarregar a página reidrata a Trip ativa pela URL/sessão sem recriar dados.</td></tr>
+        <tr><td>A7</td><td>Nenhum componente faz I/O direto: toda leitura/escrita de viagem passa por store → <code>tripApi</code>.</td></tr>
+        <tr><td>A8</td><td>Lugares trafegam por <code>DestinationId</code>; em nenhum ponto do fluxo um destino é comparado/armazenado como string livre.</td></tr>
+        <tr><td>A9</td><td><code>DATA_MODE = "live"</code>; trocar a implementação do <code>tripApi</code> não exige alterar nenhuma tela.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note decision">
+      <div class="lbl">Definição de pronto (MVP)</div>
+      <p>O loop <strong>Wizard → TripStore → Hotel → Aplicar → Minhas Viagens</strong> roda ponta a ponta, com A1–A9 verdes, <em>sem</em> nenhuma viagem ou hotel fabricado fora do <code class="k">tripApi</code>. A partir daí, voos/passeios/experts entram clonando o padrão do hotel — sem novas decisões de arquitetura.</p>
+    </div>
+
+    <div class="footer">
+      <span>Gaid · MVP Implementation Plan V1 · proposta</span>
+      <span><a href="01 Data Architecture.html">← 01 · Data</a> &nbsp;·&nbsp; <a href="03 API Contracts.html">03 · API</a></span>
+    </div>
+
+  </article>
+  </main>
+</div>
+</body>
+</html>

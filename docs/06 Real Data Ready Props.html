@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Gaid · Real Data Ready — Props Reference</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
+<link href="gaid-docs.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="rail">
+    <div class="brand">
+      <div class="logo">V</div>
+      <div>
+        <div class="who">Gaid · Arquitetura</div>
+        <div class="sub">Sprint de arquitetura · V1</div>
+      </div>
+    </div>
+
+    <div class="rail-label">Documentos</div>
+    <nav class="doc-switch">
+      <a href="01 Data Architecture.html"><span class="num">01</span><span class="t">Data Architecture</span></a>
+      <a href="02 Component Contracts.html"><span class="num">02</span><span class="t">Component Contracts</span></a>
+      <a href="03 API Contracts.html"><span class="num">03</span><span class="t">API Contracts</span></a>
+      <a href="04 MVP Implementation Plan.html"><span class="num">04</span><span class="t">MVP Plan</span></a>
+      <a href="05 Final Architecture Review.html"><span class="num">05</span><span class="t">Final Review</span></a>
+      <a class="active" href="06 Real Data Ready Props.html"><span class="num">06</span><span class="t">RDR · Props</span></a>
+      <a href="07 Foundation Migration Strategy.html"><span class="num">07</span><span class="t">Migration Strategy</span></a>
+      <a href="08 Phase 0 Screen Data Inventory.html"><span class="num">08</span><span class="t">Fase 0 · Inventário</span></a>
+      <a href="09 Phase 0 Executive Summary.html"><span class="num">09</span><span class="t">Fase 0 · Resumo Exec.</span></a>
+      <a href="10 Phase 1 Foundation Design.html"><span class="num">10</span><span class="t">Fase 1 · Fundação</span></a>
+    </nav>
+
+    <div class="rail-label">Nesta página</div>
+    <nav class="toc">
+      <a href="#como">Como ler</a>
+      <a href="#dados">Camada de dados</a>
+      <a href="#estados">Os 4 estados</a>
+      <a href="#cards">Cards</a>
+      <a href="#wizard">Wizard & Onboarding</a>
+      <a href="#detail">TripDetail</a>
+      <a href="#regras">Regras de ouro</a>
+      <a href="#plug">Onde o backend pluga</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+  <article class="doc">
+
+    <div class="eyebrow">Documento 06 — Real Data Ready Front</div>
+    <h1 class="title">Props Reference — Real Data Ready</h1>
+    <p class="lede">A nova aba <code class="k">Gaid Real Data Ready.html</code> com o front inteiro preparado para o backend: componentes <em>presenter puros</em>, dados por props, os 4 estados em toda tela, e <strong>nenhum dado falso em modo real</strong>. Este doc lista o que cada componente espera receber.</p>
+    <div class="meta">
+      <span><b>Arquivo</b> · Gaid Real Data Ready.html</span>
+      <span><b>Fonte da verdade</b> · Trip</span>
+      <span><b>Context</b> · só <code>activeTripId</code></span>
+    </div>
+
+    <!-- COMO -->
+    <h2 id="como"><span class="h2num">00</span>Como ler & como testar</h2>
+    <p>Todo componente segue o mesmo padrão: <strong>dado entra por props</strong> (já resolvido da camada de dados), <strong>intenção sai por callback</strong> (<code class="k">onApply</code>, <code class="k">onOpen</code>…). Nenhum componente faz <em>fetch</em>, inventa valor ou lê mock. Quando um campo não existe, renderiza <code class="k">"A definir"</code> — nunca um valor fabricado.</p>
+    <p>A barra escura no topo do app é o <strong>painel de handoff</strong>:</p>
+    <table class="tbl">
+      <thead><tr><th>Controle</th><th>O que faz</th></tr></thead>
+      <tbody>
+        <tr><td><b>Dados · Real (vazio)</b></td><td>Modo que vai pro ar. Backend ainda não plugado → <strong>tudo vazio</strong>. Zero dado falso.</td></tr>
+        <tr><td><b>Dados · Amostra</b></td><td>Serve fixtures <em>através da camada de dados</em> (nunca dentro de componentes) para revisar a UI premium.</td></tr>
+        <tr><td><b>Estado · Auto/Loading/Empty/Error/Success</b></td><td>Força qualquer tela em qualquer um dos 4 estados — para inspeção e QA.</td></tr>
+      </tbody>
+    </table>
+
+    <!-- DADOS -->
+    <h2 id="dados"><span class="h2num">01</span>Camada de dados (o seam)</h2>
+    <p>Três arquivos isolam <em>de onde</em> o dado vem. Telas só conhecem o <code class="k">tripApi</code>.</p>
+    <table class="tbl">
+      <thead><tr><th>Módulo</th><th>Papel</th></tr></thead>
+      <tbody>
+        <tr><td><code>rdr/data/contracts.jsx</code></td><td>Forma da <code>Trip</code> + helpers <code>has()</code>, <code>orTBD()</code>, <code>fmtDates/Budget/Travelers/Place</code> — a regra "A definir" mora aqui.</td></tr>
+        <tr><td><code>rdr/data/dataMode.jsx</code></td><td><code>DATA_MODE</code> (real ↔ sample) + harness de force-state, persistido.</td></tr>
+        <tr><td><code>rdr/data/tripApi.jsx</code></td><td><strong>O seam.</strong> Único lugar com fixtures. Backend substitui cada método por <code>fetch</code>; assinaturas e retornos não mudam.</td></tr>
+        <tr><td><code>rdr/store/store.jsx</code></td><td><code>useApi()</code> (resolve loading/empty/error/success), <code>SessionContext</code>, <code>ActiveTripContext</code> (só <code>activeTripId</code>).</td></tr>
+      </tbody>
+    </table>
+    <div class="code">
+      <span class="cap">A Trip que o front consome (igual ao contrato do Doc 01)</span>
+<b>Trip</b> { id, status, destination, city, country,
+       dates:{start,end}, travelers:[{kind}], budget,
+       preferences:{styles,hotel,flight}, hotel, flights:[], tours:[], days:[] }
+
+<span class="c">// Ausências esperadas → tratadas, não inventadas:</span>
+budget: null         <span class="c">→ "A definir"</span>
+dates: null          <span class="c">→ "A definir"</span>
+hotel: null          <span class="c">→ slot "Adicionar hotel"</span>
+flights: []          <span class="c">→ slot "Adicionar voo"</span>
+tours: []            <span class="c">→ slot "Adicionar passeio"</span>
+    </div>
+
+    <!-- ESTADOS -->
+    <h2 id="estados"><span class="h2num">02</span>Os 4 estados (primitivos)</h2>
+    <p>Em <code class="k">rdr/ui/primitives.jsx</code>. O componente <code class="k">&lt;Async/&gt;</code> recebe o resultado de <code class="k">useApi</code> e escolhe o estado — nenhuma tela reinventa isso.</p>
+    <table class="tbl">
+      <thead><tr><th>Componente</th><th>Props</th><th>Uso</th></tr></thead>
+      <tbody>
+        <tr><td><code>&lt;LoadingState/&gt;</code></td><td><code>label?, rows?</code></td><td>Skeleton enquanto carrega.</td></tr>
+        <tr><td><code>&lt;EmptyState/&gt;</code></td><td><code>icon?, eyebrow?, title, desc?, action?</code></td><td>Sem dados — convida à ação.</td></tr>
+        <tr><td><code>&lt;ErrorState/&gt;</code></td><td><code>title?, desc?, onRetry?</code></td><td>Falha — com retry.</td></tr>
+        <tr><td><code>&lt;AddSlot/&gt;</code></td><td><code>icon?, label, hint?, onClick</code></td><td>Espaço para adicionar hotel/voo/passeio ausente.</td></tr>
+        <tr><td><code>&lt;Field/&gt;</code></td><td><code>label, value</code></td><td>Valor ausente → "A definir" em itálico.</td></tr>
+        <tr><td><code>&lt;Async/&gt;</code></td><td><code>query, empty?, skeleton?, children</code></td><td>Switch dos 4 estados a partir de <code>useApi</code>.</td></tr>
+      </tbody>
+    </table>
+
+    <!-- CARDS -->
+    <h2 id="cards"><span class="h2num">03</span>Cards (presenter puro)</h2>
+    <p>Em <code class="k">rdr/components/cards.jsx</code>. Cada card aceita <code class="k">loading</code> para virar skeleton em listas.</p>
+
+    <h3>TripCard</h3>
+    <table class="tbl">
+      <thead><tr><th>Prop</th><th>Tipo</th><th>Nota</th></tr></thead>
+      <tbody>
+        <tr><td>trip</td><td><code>Trip</code></td><td>Resumo já resolvido.</td></tr>
+        <tr><td>active</td><td><code>boolean</code></td><td>Marca a viagem ativa.</td></tr>
+        <tr><td>onOpen</td><td><code>(tripId)⇒</code></td><td>Define <code>activeTripId</code> e navega.</td></tr>
+        <tr><td>loading</td><td><code>boolean</code></td><td>Skeleton.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>HotelCard · FlightCard · TourCard</h3>
+    <table class="tbl">
+      <thead><tr><th>Prop</th><th>Tipo</th><th>Nota</th></tr></thead>
+      <tbody>
+        <tr><td>hotel / flight / tour</td><td>entidade</td><td>Já resolvida; campos ausentes → "A definir".</td></tr>
+        <tr><td>applied</td><td><code>BookingStatus</code></td><td><code>none|held|booked</code> — controla CTA "Aplicar" vs "No roteiro".</td></tr>
+        <tr><td>onApply</td><td><code>(id)⇒</code></td><td>Intenção de aplicar ao roteiro.</td></tr>
+        <tr><td>onOpen</td><td><code>(id)⇒</code></td><td>Abrir detalhe (hotel).</td></tr>
+        <tr><td>loading</td><td><code>boolean</code></td><td>Skeleton.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>ExpertCard · PlanCard</h3>
+    <table class="tbl">
+      <thead><tr><th>Prop</th><th>Tipo</th><th>Nota</th></tr></thead>
+      <tbody>
+        <tr><td>expert / plan</td><td>entidade</td><td>Já resolvida.</td></tr>
+        <tr><td>onSelect / onChoose</td><td><code>(id)⇒</code></td><td>Intenção.</td></tr>
+        <tr><td>current</td><td><code>boolean</code></td><td>PlanCard: marca plano atual.</td></tr>
+        <tr><td>loading</td><td><code>boolean</code></td><td>Skeleton.</td></tr>
+      </tbody>
+    </table>
+
+    <!-- WIZARD -->
+    <h2 id="wizard"><span class="h2num">04</span>GuidedWizard & OnboardingStep</h2>
+    <p>Em <code class="k">rdr/components/wizard.jsx</code>. Presenters controlados — o container detém <code class="k">answers</code>/<code class="k">stepIndex</code> e chama <code class="k">tripApi.createTrip</code>. O wizard <strong>não cria a Trip</strong> nem adivinha destino/datas.</p>
+    <table class="tbl">
+      <thead><tr><th>Prop (GuidedWizard)</th><th>Tipo</th><th>Nota</th></tr></thead>
+      <tbody>
+        <tr><td>steps</td><td><code>WizardStep[]</code></td><td>Definição declarativa.</td></tr>
+        <tr><td>answers</td><td><code>Record</code></td><td>Controlado pelo container.</td></tr>
+        <tr><td>stepIndex</td><td><code>number</code></td><td>Passo ativo.</td></tr>
+        <tr><td>status</td><td><code>'loading'|'error'|undefined</code></td><td>Geração após o último passo.</td></tr>
+        <tr><td>canNext</td><td><code>boolean</code></td><td>Validação do passo.</td></tr>
+        <tr><td>onAnswer / onBack / onNext / onComplete / onCancel</td><td>callbacks</td><td>Intenções.</td></tr>
+      </tbody>
+    </table>
+    <div class="note">
+      <div class="lbl">Destino resolve para id (ADR-09)</div>
+      <p>O passo <code class="k">destination</code> usa <code class="k">resolveDestination(texto) → DestinationId</code> sobre uma lista curada. Sem correspondência, mostra "não encontrei" — <strong>nunca</strong> chuta um destino. É o que impede "Porto→Paris".</p>
+    </div>
+
+    <!-- DETAIL -->
+    <h2 id="detail"><span class="h2num">05</span>TripDetail</h2>
+    <p>Em <code class="k">rdr/components/tripDetail.jsx</code>. Lê tudo da prop <code class="k">trip</code> (fonte única). Hotel/voo/passeio ausentes viram <code class="k">&lt;AddSlot/&gt;</code>; escalares ausentes viram "A definir".</p>
+    <table class="tbl">
+      <thead><tr><th>Prop</th><th>Tipo</th><th>Nota</th></tr></thead>
+      <tbody>
+        <tr><td>trip</td><td><code>Trip</code></td><td>A viagem inteira, já resolvida.</td></tr>
+        <tr><td>onAddHotel / onAddFlight / onAddTour</td><td>callbacks</td><td>Abrem a busca correspondente.</td></tr>
+        <tr><td>onBack</td><td><code>()⇒</code></td><td>Voltar para Minhas Viagens.</td></tr>
+      </tbody>
+    </table>
+
+    <!-- REGRAS -->
+    <h2 id="regras"><span class="h2num">06</span>Regras de ouro (o que NÃO acontece)</h2>
+    <div class="note decision">
+      <div class="lbl">Garantias do Real Data Ready</div>
+      <ul>
+        <li>Nenhum <code class="k">mockData</code> dentro de componentes. Fixtures só no <code class="k">tripApi</code>, atrás do seam.</li>
+        <li>Nenhum texto hardcoded fingindo dado real. Ausência → "A definir" ou AddSlot.</li>
+        <li>Nenhum componente inventa destino, datas, hotel, voo, passeio, orçamento ou viajantes.</li>
+        <li>Em modo <strong>real</strong>, tudo vem vazio — é o estado honesto enquanto não há backend.</li>
+        <li><code class="k">Trip</code> é a fonte única; <code class="k">ActiveTripContext</code> guarda só <code class="k">activeTripId</code>.</li>
+        <li>Todo componente data-driven desenha loading / empty / error / success.</li>
+      </ul>
+    </div>
+
+    <!-- PLUG -->
+    <h2 id="plug"><span class="h2num">07</span>Onde o backend pluga (semana que vem)</h2>
+    <p>Um arquivo. Trocar cada corpo de método do <code class="k">tripApi</code> por uma chamada real — as assinaturas e os formatos de retorno são o contrato e não mudam, então <strong>nenhuma tela ou componente é tocado</strong>.</p>
+    <div class="code">
+      <span class="cap">rdr/data/tripApi.jsx — antes → depois</span>
+<span class="c">// HOJE (sem backend)</span>
+async listTrips(_p, mode) { return mode === <span class="st">'sample'</span> ? SAMPLE.trips : []; }
+
+<span class="c">// SEMANA QUE VEM (backend plugado) — mesma assinatura, mesmo retorno</span>
+async listTrips() {
+  const r = await fetch(<span class="st">'/api/v1/trips'</span>);
+  return (await r.json()).data;   <span class="c">// já no formato Trip[]</span>
+}
+    </div>
+    <table class="tbl">
+      <thead><tr><th>Método do tripApi</th><th>Vira</th></tr></thead>
+      <tbody>
+        <tr><td><code>listTrips()</code></td><td><code>GET /trips</code></td></tr>
+        <tr><td><code>getTrip(id)</code></td><td><code>GET /trips/:id</code></td></tr>
+        <tr><td><code>createTrip(input)</code></td><td><code>POST /trips</code> (status draft)</td></tr>
+        <tr><td><code>searchHotels/Flights/Tours(q)</code></td><td><code>POST /search/*</code></td></tr>
+        <tr><td><code>applyHotel/Flight/Tour(...)</code></td><td><code>POST /trips/:id/apply</code></td></tr>
+        <tr><td><code>listExperts() · listPlans()</code></td><td><code>GET /experts · GET /plans</code></td></tr>
+      </tbody>
+    </table>
+
+    <div class="footer">
+      <span>Gaid · Real Data Ready — Props Reference</span>
+      <span><a href="05 Final Architecture Review.html">← 05 · Final Review</a> &nbsp;·&nbsp; <a href="03 API Contracts.html">03 · API</a></span>
+    </div>
+
+  </article>
+  </main>
+</div>
+</body>
+</html>

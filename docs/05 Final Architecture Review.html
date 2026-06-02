@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Gaid · Final Architecture Review V1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
+<link href="gaid-docs.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="rail">
+    <div class="brand">
+      <div class="logo">V</div>
+      <div>
+        <div class="who">Gaid · Arquitetura</div>
+        <div class="sub">Sprint de arquitetura · V1</div>
+      </div>
+    </div>
+
+    <div class="rail-label">Documentos</div>
+    <nav class="doc-switch">
+      <a href="01 Data Architecture.html"><span class="num">01</span><span class="t">Data Architecture</span></a>
+      <a href="02 Component Contracts.html"><span class="num">02</span><span class="t">Component Contracts</span></a>
+      <a href="03 API Contracts.html"><span class="num">03</span><span class="t">API Contracts</span></a>
+      <a href="04 MVP Implementation Plan.html"><span class="num">04</span><span class="t">MVP Plan</span></a>
+      <a class="active" href="05 Final Architecture Review.html"><span class="num">05</span><span class="t">Final Review</span></a>
+      <a href="06 Real Data Ready Props.html"><span class="num">06</span><span class="t">RDR · Props</span></a>
+      <a href="07 Foundation Migration Strategy.html"><span class="num">07</span><span class="t">Migration Strategy</span></a>
+      <a href="08 Phase 0 Screen Data Inventory.html"><span class="num">08</span><span class="t">Fase 0 · Inventário</span></a>
+      <a href="09 Phase 0 Executive Summary.html"><span class="num">09</span><span class="t">Fase 0 · Resumo Exec.</span></a>
+      <a href="10 Phase 1 Foundation Design.html"><span class="num">10</span><span class="t">Fase 1 · Fundação</span></a>
+    </nav>
+
+    <div class="rail-label">Nesta página</div>
+    <nav class="toc">
+      <a href="#veredito">Veredito</a>
+      <a href="#p1">Parte 1 · Revisão crítica</a>
+      <a class="sub" href="#verdade">1 · Fonte da verdade</a>
+      <a class="sub" href="#context">2 · ActiveTripContext</a>
+      <a class="sub" href="#draft">3 · Trip vs TripDraft</a>
+      <a class="sub" href="#dest">4 · Destinos</a>
+      <a class="sub" href="#dup">5 · Estados duplicados</a>
+      <a href="#p2">Parte 2 · Plano MVP</a>
+      <a href="#p3">Parte 3 · Riscos</a>
+      <a href="#locked">Decisões travadas</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+  <article class="doc">
+
+    <div class="eyebrow">Documento 05 — revisão final · base da próxima sprint</div>
+    <h1 class="title">Gaid Final Architecture Review V1</h1>
+    <p class="lede">Revisão crítica dos Docs 01–04, decisão sobre os dois pontos em aberto (<em>Trip vs TripDraft</em> e <em>estratégia de destinos</em>), mapa de donos de estado e plano MVP em fases. Este documento é a <strong>base oficial</strong> — o que estiver travado aqui não se rediscute no meio da implementação.</p>
+    <div class="meta">
+      <span><b>Papel</b> · CTO · PM · Arquiteto</span>
+      <span><b>Objetivo</b> · que os 6 problemas não voltem</span>
+      <span><b>Saída</b> · decisões travadas + fases + riscos</span>
+    </div>
+
+    <!-- VEREDITO -->
+    <h2 id="veredito"><span class="h2num">00</span>Veredito em uma tela</h2>
+    <table class="tbl">
+      <thead><tr><th>Tema</th><th>Decisão</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Fonte única da verdade</td><td>Servidor canônico + um cache no cliente (TripStore)</td><td>Validada — mantém</td></tr>
+        <tr><td>ActiveTripContext</td><td>Só identidade (id) + selectors/ações; zero dados</td><td>Validada — mantém</td></tr>
+        <tr><td>Trip vs TripDraft</td><td><strong>Uma entidade Trip com <code>status: draft</code></strong> — não criar entidade separada</td><td>Decidida (nova)</td></tr>
+        <tr><td>Estratégia de destinos</td><td><strong>Destination Resolver com lista curada</strong> por trás</td><td>Decidida (nova)</td></tr>
+        <tr><td>Estados duplicados</td><td>Mapa de donos fechado; UI efêmera ≠ fonte de verdade</td><td>Fechado</td></tr>
+      </tbody>
+    </table>
+    <p>Os seis problemas relatados (Porto→Paris, dados inventados, datas inferidas, wizard divergindo do roteiro, contexto conflitando com Trip, regressões) têm <strong>uma raiz comum</strong>: estado de viagem existindo em mais de um lugar, e lugares/datas trafegando como texto livre. As decisões abaixo eliminam a raiz — não tratam sintoma.</p>
+
+    <!-- ===================== PARTE 1 ===================== -->
+    <h2 id="p1"><span class="h2num">P1</span>Parte 1 — Revisão crítica da arquitetura</h2>
+
+    <!-- 1 VERDADE -->
+    <h3 id="verdade">1 · Fonte Única da Verdade</h3>
+    <p><strong>A decisão atual está correta. Mantém-se.</strong> Servidor canônico + um único cache normalizado no cliente (TripStore), com telas lendo por selectors e escrevendo por ações.</p>
+    <div class="adr">
+      <div class="adr-head"><span class="adr-tag">Validada — mantém</span><span class="adr-id">ADR-01 · revalidada</span></div>
+      <h4 class="adr-title">Servidor canônico; cliente com um cache espelho</h4>
+      <div class="adr-grid">
+        <div class="adr-row"><div class="adr-k">Justificativa</div><div class="adr-v">É a única topologia em que “Porto→Paris”, dados inventados e regressões são <strong>impossíveis por construção</strong>, não por disciplina: existe um só lugar onde a viagem mora, e ele é durável.</div></div>
+        <div class="adr-row"><div class="adr-k">Correção fina</div><div class="adr-v">Tornar explícito que <code>LocalStorage</code> e a busca de hotéis <strong>não são fontes de verdade</strong> — são, respectivamente, persistência do cache e estado de UI efêmero (ver §5).</div></div>
+        <div class="adr-row deny"><div class="adr-k">Não deve acontecer</div><div class="adr-v">Tela com <code>useState</code> de dados de viagem; segundo espelho do servidor; “verdade” vivendo no Wizard ou no Context.</div></div>
+      </div>
+    </div>
+
+    <!-- 2 CONTEXT -->
+    <h3 id="context">2 · ActiveTripContext</h3>
+    <p>Responsabilidades <strong>corretas</strong>, desde que ele permaneça uma <em>lente</em>. O conflito relatado (“Context conflitou com Trip”) só acontece se ele guardar dados — o que está proibido.</p>
+    <div class="grid2">
+      <div class="kv"><div class="kvh">Pode fazer</div><div class="kvb">Guardar <code>activeTripId</code>; expor selectors (<code>useActiveTrip</code>, <code>useTripDay</code>); despachar ações (<code>applyHotel</code>, <code>patch</code>); expor status de sync; reidratar da URL.</div></div>
+      <div class="kv"><div class="kvh">Não pode fazer</div><div class="kvb">Guardar a Trip ou <code>days</code>; buscar catálogo; transformar/mesclar dados; duplicar o estado do Wizard; conter lógica de UI.</div></div>
+    </div>
+    <p><strong>Ciclo de vida:</strong> nasce ao abrir/criar uma Trip → persiste durante a navegação → é reidratado de <code class="k">/trip/:id</code> no load → é limpo no logout. Ele nunca “possui” a viagem; só aponta para ela.</p>
+
+    <!-- 3 DRAFT -->
+    <h3 id="draft">3 · Trip vs TripDraft</h3>
+    <p>A preocupação é legítima: <em>Wizard → Trip direto</em> gera viagens-lixo se o usuário desistir no meio. Mas criar uma <strong>entidade TripDraft separada</strong> dobra o modelo (duas tabelas, duas APIs, migração draft→trip) — overengineering para o MVP.</p>
+    <table class="tbl">
+      <thead><tr><th>Critério</th><th>A · Wizard cria Trip</th><th>B · Wizard cria TripDraft</th></tr></thead>
+      <tbody>
+        <tr><td>Simplicidade</td><td>Alta — uma entidade</td><td>Baixa — duas entidades + promoção</td></tr>
+        <tr><td>UX</td><td>Boa, mas pode poluir “Minhas Viagens”</td><td>Boa — lixo nunca aparece</td></tr>
+        <tr><td>Implementação</td><td>Mínima</td><td>Dobrada (modelo, API, migração)</td></tr>
+        <tr><td>Risco</td><td>Viagens incompletas visíveis</td><td>Divergência draft↔trip (mais um par de fontes a sincronizar)</td></tr>
+        <tr><td>Escalabilidade</td><td>Boa se o status resolver a visibilidade</td><td>Boa, porém mais cara</td></tr>
+      </tbody>
+    </table>
+    <div class="adr">
+      <div class="adr-head"><span class="adr-tag">Decisão recomendada</span><span class="adr-id">ADR-08 · Draft</span></div>
+      <h4 class="adr-title">Uma só entidade Trip, com <code>status: draft</code> — o melhor dos dois</h4>
+      <div class="adr-grid">
+        <div class="adr-row"><div class="adr-k">Decisão</div><div class="adr-v">Adotar a <strong>mecânica da Opção A</strong> (uma entidade) com a <strong>semântica da Opção B</strong> (rascunho gateado). O Wizard cria a Trip já como <code>status: "draft"</code>; “Minhas Viagens” lista apenas <code>planning | active | completed</code>. Confirmar promove <code>draft → planning</code>.</div></div>
+        <div class="adr-row"><div class="adr-k">Justificativa</div><div class="adr-v">Evita viagens-lixo visíveis <em>sem</em> introduzir uma segunda entidade e uma segunda fonte a sincronizar (que recriaria o problema “wizard divergiu do roteiro”). Um campo resolve o que uma tabela inteira resolveria — mais barato e mais seguro.</div></div>
+        <div class="adr-row"><div class="adr-k">Riscos</div><div class="adr-v">Drafts órfãos acumulando. Mitigação: TTL/limpeza server-side e “1 draft ativo por usuário por vez” no MVP.</div></div>
+        <div class="adr-row deny"><div class="adr-k">Não deve acontecer</div><div class="adr-v">Criar tabela/entidade <code>TripDraft</code>; o Wizard manter um rascunho próprio em paralelo à Trip; draft aparecer em “Minhas Viagens”.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Frontend</div><div class="adr-v">Wizard chama <code>createTrip</code> no início e edita a mesma Trip; listas filtram por status; “confirmar” chama <code>promote</code>.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Backend</div><div class="adr-v">Status na Trip; criação de draft barata; TTL de draft; transição <code>draft→planning</code> validada.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Codex</div><div class="adr-v">Não gerar entidade TripDraft. Gerar filtro de visibilidade por status como única regra; teste: draft não aparece em Minhas Viagens; promover torna visível.</div></div>
+      </div>
+    </div>
+
+    <!-- 4 DEST -->
+    <h3 id="dest">4 · Destination Strategy</h3>
+    <p>Os dois extremos são ruins: <strong>só lista cadastrada</strong> é restritiva (“Toscana” não existe → usuário travado); <strong>texto livre puro</strong> é a porta de “Porto→Paris” e datas/lugares inventados. A resposta não é escolher um — é a <em>interface</em> certa com o <em>dado</em> certo para o MVP.</p>
+    <div class="adr">
+      <div class="adr-head"><span class="adr-tag">Decisão recomendada</span><span class="adr-id">ADR-09 · Destinos</span></div>
+      <h4 class="adr-title">Destination Resolver (interface) sobre lista curada (dado do MVP)</h4>
+      <div class="adr-grid">
+        <div class="adr-row"><div class="adr-k">Decisão</div><div class="adr-v">Adotar a <strong>interface da Opção B</strong> — um <code>resolveDestination(texto) → DestinationId</code> — porém, no MVP, lastreado por uma <strong>lista curada</strong> (Opção A). Toda escolha do usuário vira um <code>DestinationId</code> antes de tocar a Trip.</div></div>
+        <div class="adr-row"><div class="adr-k">Justificativa</div><div class="adr-v">A Trip nunca vê texto livre (mata Porto→Paris), mas o Resolver isola a estratégia: trocar “lista curada” por “geocoding/serviço externo” depois <strong>não muda nenhum chamador</strong>. Decisão reversível sem refatoração.</div></div>
+        <div class="adr-row"><div class="adr-k">Riscos</div><div class="adr-v">Texto sem correspondência na lista. Mitigação MVP: autocomplete só sugere ids existentes; “não encontrei” explícito em vez de adivinhar.</div></div>
+        <div class="adr-row deny"><div class="adr-k">Não deve acontecer</div><div class="adr-v">A Trip armazenar “Toscana” como string; o Resolver “chutar” um id por similaridade frágil; a IA inventar um destino fora do catálogo.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Frontend</div><div class="adr-v">Campo de destino = autocomplete que devolve <code>DestinationId</code>; nunca envia texto para a Trip.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Backend</div><div class="adr-v">Endpoint/serviço de resolução; validar todo <code>DestinationId</code>; recusar ids inexistentes.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Codex</div><div class="adr-v">Gerar <code>resolveDestination</code> como contrato estável; implementação MVP = lookup na lista; teste: entrada sem match retorna “não resolvido”, nunca um id aproximado.</div></div>
+      </div>
+    </div>
+
+    <!-- 5 DUP -->
+    <h3 id="dup">5 · Estados duplicados — mapa de donos</h3>
+    <p>Risco restante neutralizado declarando, para cada estado, <strong>quem cria, quem atualiza, quem consome</strong> e se é ou não fonte de verdade. Só a Trip é verdade; o resto é cache, ponteiro ou UI efêmera.</p>
+    <table class="tbl">
+      <thead><tr><th>Estado</th><th>Cria</th><th>Atualiza</th><th>Consome</th><th>É verdade?</th></tr></thead>
+      <tbody>
+        <tr><td>Trip (servidor)</td><td>tripApi</td><td>ações → tripApi</td><td>todas as telas (via store)</td><td><strong>Sim — única</strong></td></tr>
+        <tr><td>TripStore (cache)</td><td>store, da resposta do tripApi</td><td>store</td><td>selectors das telas</td><td>Não — espelho</td></tr>
+        <tr><td>ActiveTripContext</td><td>ao abrir/criar Trip</td><td>ao trocar de trip</td><td>telas (qual trip)</td><td>Não — só o id</td></tr>
+        <tr><td>Wizard answers</td><td>Wizard (UI)</td><td>usuário</td><td>só o Wizard, até submeter</td><td>Não — efêmero → createTrip</td></tr>
+        <tr><td>HotelSearchState</td><td>tela de busca</td><td>busca/filtros</td><td>só a tela de busca</td><td>Não — UI efêmero</td></tr>
+        <tr><td>LocalStorage</td><td>store (persistência)</td><td>store</td><td>store na reidratação</td><td>Não — cache durável</td></tr>
+      </tbody>
+    </table>
+    <div class="note decision">
+      <div class="lbl">Regra única</div>
+      <p>Se um dado <strong>descreve a viagem</strong>, ele vive na Trip e em nenhum outro lugar. Se um dado é <strong>“como o usuário chegou até aqui”</strong> (respostas do wizard, query de busca, filtros), ele é UI efêmera e morre ao concluir a ação. Não existe terceira categoria.</p>
+    </div>
+
+    <!-- ===================== PARTE 2 ===================== -->
+    <h2 id="p2"><span class="h2num">P2</span>Parte 2 — MVP Implementation Plan (fases)</h2>
+    <p>Cada fase é entregável e verificável isolada. Fases 3–6 reusam <strong>exatamente</strong> o padrão provado na Fase 2 (buscar → card → aplicar → roteiro reflete) — sem novas decisões de arquitetura.</p>
+
+    <h3>Fase 1 — Fundação</h3>
+    <p><strong>Escopo:</strong> Trip · TripStore · ActiveTripContext · Wizard · Minhas Viagens.</p>
+    <p><strong>Objetivo:</strong> uma viagem persistente funcionando.</p>
+    <div class="note"><div class="lbl">Critério de aceite</div><p>Criar viagem → fechar o app → reabrir → <strong>a viagem continua existindo</strong> (reidratada do servidor/persistência, sem recriar dados). Draft não aparece em Minhas Viagens; promovido aparece.</p></div>
+
+    <h3>Fase 2 — Hotéis</h3>
+    <p><strong>Escopo:</strong> Hotel Search · HotelCard · Aplicar hotel ao roteiro.</p>
+    <div class="note"><div class="lbl">Critério de aceite</div><p>Buscar hotel → receber resultados (4 estados) → aplicar → <strong>roteiro atualiza corretamente, sem regressões</strong>. Sair e voltar mantém o item aplicado.</p></div>
+
+    <h3>Fase 3 — Voos (escopo mínimo)</h3>
+    <ul>
+      <li><code class="k">searchFlights(fromAirportId, toAirportId, datas, pax)</code> → <strong>FlightCard</strong> (4 estados).</li>
+      <li><code class="k">applyFlight(tripId, flightId, dayId?)</code> → insere item <code>flight</code> no dia da partida.</li>
+      <li><strong>Aceite:</strong> aplicar voo reflete no roteiro sem afetar o hotel já aplicado.</li>
+    </ul>
+
+    <h3>Fase 4 — Passeios (escopo mínimo)</h3>
+    <ul>
+      <li><code class="k">searchTours(cityId, date)</code> → <strong>TourCard</strong> (4 estados).</li>
+      <li><code class="k">applyTour(tripId, tourId, dayId, slot)</code> → anexa item <code>tour</code> ao dia/slot.</li>
+      <li><strong>Aceite:</strong> passeio aparece no dia correto; demais itens intactos.</li>
+    </ul>
+
+    <h3>Fase 5 — Experts (escopo mínimo)</h3>
+    <ul>
+      <li><code class="k">listExperts(region)</code> (diretório read-only) + <code class="k">assignExpert(tripId, expertId)</code>.</li>
+      <li><strong>Aceite:</strong> atribuir grava <code>expertId</code> na Trip e reflete no roteiro. <em>Sem</em> canal/chat humano.</li>
+    </ul>
+
+    <h3>Fase 6 — Assinaturas (escopo mínimo)</h3>
+    <ul>
+      <li><code class="k">getPlans()</code> · <code class="k">getSubscription()</code> · <code class="k">setSubscription(planId)</code>.</li>
+      <li><strong>Aceite:</strong> trocar de plano atualiza a Subscription e o tier exibido. <em>Sem</em> cobrança/billing real.</li>
+    </ul>
+
+    <!-- ===================== PARTE 3 ===================== -->
+    <h2 id="p3"><span class="h2num">P3</span>Parte 3 — Análise de riscos</h2>
+
+    <h3>Maiores riscos arquiteturais restantes</h3>
+    <table class="tbl">
+      <thead><tr><th>Risco</th><th>Por quê</th><th>Mitigação</th></tr></thead>
+      <tbody>
+        <tr><td>Clones de estado reaparecem</td><td>Hábito de copiar <code>days</code> para a tela</td><td>Regra: zero <code>useState</code> de dados de viagem; revisão dirigida</td></tr>
+        <tr><td>Seam vaza para a tela</td><td>Tela chama persistência direta</td><td>Toda I/O de viagem passa por store → tripApi</td></tr>
+        <tr><td>Wizard ↔ Trip divergem</td><td>Wizard guardar rascunho próprio</td><td>ADR-08: wizard edita a própria Trip (draft), sem cópia</td></tr>
+        <tr><td>Destino sem id</td><td>Texto livre escapando</td><td>ADR-09: Resolver obrigatório antes da Trip</td></tr>
+        <tr><td>Drafts-lixo</td><td>Abandono no wizard</td><td>TTL + 1 draft ativo por usuário</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Onde a regressão é mais provável</h3>
+    <ul>
+      <li><strong>TripItinerary</strong> — era o epicentro dos clones; primeiro lugar a auditar a cada PR.</li>
+      <li><strong>Aplicar item</strong> — risco de duplicar itens/bookings ao aplicar duas vezes (sem idempotency no MVP, garantir guarda no store).</li>
+      <li><strong>Reidratação pós-reload</strong> — Trip ativa precisa voltar pela URL/sessão sem recriar dados.</li>
+      <li><strong>Telas legadas em mock</strong> (Wallet/Miles) — não devem acoplar ao TripStore nem quebrar quando os mocks de viagem saírem.</li>
+    </ul>
+
+    <h3>Decisões a tomar ANTES de voltar ao Codex</h3>
+    <ol>
+      <li><strong>Trip vs TripDraft</strong> → travado: uma Trip com <code>status: draft</code> (ADR-08).</li>
+      <li><strong>Destinos</strong> → travado: Resolver sobre lista curada (ADR-09).</li>
+      <li><strong>Formato de id</strong> → definir convenção (ex.: <code>dst_*, trip_*, htl_*</code>) e branded types.</li>
+      <li><strong>Onde mora o catálogo de hotéis no MVP</strong> → atrás do <code>tripApi</code>, nunca montado na tela.</li>
+      <li><strong>Política de dias</strong> → <code>days</code> derivados do <code>dateRange</code> (vazios) na criação; itens só via aplicar.</li>
+      <li><strong>Regra de promoção</strong> → o que confirma <code>draft → planning</code> (ação explícita do usuário).</li>
+    </ol>
+
+    <!-- LOCKED -->
+    <h2 id="locked"><span class="h2num">✓</span>Decisões travadas (base da sprint)</h2>
+    <div class="note decision">
+      <div class="lbl">O que está fechado</div>
+      <ol>
+        <li><strong>Arquitetura validada:</strong> servidor canônico + um cache (TripStore) + Context só com id.</li>
+        <li><strong>Fonte única da verdade:</strong> a Trip. Tudo mais é cache, ponteiro ou UI efêmera.</li>
+        <li><strong>Trip vs TripDraft:</strong> uma Trip com <code>status: draft</code> — sem entidade separada.</li>
+        <li><strong>Destinos:</strong> Destination Resolver com lista curada; Trip só vê <code>DestinationId</code>.</li>
+        <li><strong>Plano MVP:</strong> 6 fases; Fase 1 (persistência) e Fase 2 (hotel) provam o padrão; 3–6 clonam.</li>
+        <li><strong>Riscos:</strong> mapeados, com mitigação e os pontos de auditoria por PR definidos.</li>
+      </ol>
+      <p>Com isto a próxima sprint começa sem decisões de arquitetura em aberto. O que o Codex implementar deve respeitar estas travas — qualquer desvio é bug de arquitetura, não escolha de implementação.</p>
+    </div>
+
+    <div class="footer">
+      <span>Gaid · Final Architecture Review V1 · base oficial</span>
+      <span><a href="04 MVP Implementation Plan.html">← 04 · MVP Plan</a> &nbsp;·&nbsp; <a href="01 Data Architecture.html">01 · Data</a></span>
+    </div>
+
+  </article>
+  </main>
+</div>
+</body>
+</html>

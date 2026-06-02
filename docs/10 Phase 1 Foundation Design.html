@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Gaid · Phase 1 — Foundation Design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
+<link href="gaid-docs.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="rail">
+    <div class="brand">
+      <div class="logo">V</div>
+      <div>
+        <div class="who">Gaid · Arquitetura</div>
+        <div class="sub">Sprint de arquitetura · V1</div>
+      </div>
+    </div>
+
+    <div class="rail-label">Documentos</div>
+    <nav class="doc-switch">
+      <a href="01 Data Architecture.html"><span class="num">01</span><span class="t">Data Architecture</span></a>
+      <a href="02 Component Contracts.html"><span class="num">02</span><span class="t">Component Contracts</span></a>
+      <a href="03 API Contracts.html"><span class="num">03</span><span class="t">API Contracts</span></a>
+      <a href="04 MVP Implementation Plan.html"><span class="num">04</span><span class="t">MVP Plan</span></a>
+      <a href="05 Final Architecture Review.html"><span class="num">05</span><span class="t">Final Review</span></a>
+      <a href="06 Real Data Ready Props.html"><span class="num">06</span><span class="t">RDR · Props</span></a>
+      <a href="07 Foundation Migration Strategy.html"><span class="num">07</span><span class="t">Migration Strategy</span></a>
+      <a href="08 Phase 0 Screen Data Inventory.html"><span class="num">08</span><span class="t">Fase 0 · Inventário</span></a>
+      <a href="09 Phase 0 Executive Summary.html"><span class="num">09</span><span class="t">Fase 0 · Resumo Exec.</span></a>
+      <a class="active" href="10 Phase 1 Foundation Design.html"><span class="num">10</span><span class="t">Fase 1 · Fundação</span></a>
+    </nav>
+
+    <div class="rail-label">Nesta página</div>
+    <nav class="toc">
+      <a href="#principios">Princípios</a>
+      <a href="#mapa">01 · Mapa de módulos</a>
+      <a href="#contracts">02 · contracts</a>
+      <a href="#trip">03 · Trip</a>
+      <a href="#template">04 · TripTemplate</a>
+      <a href="#proj">05 · Projeções / view-models</a>
+      <a href="#store">06 · TripStore</a>
+      <a href="#context">07 · ActiveTripContext</a>
+      <a href="#api">08 · tripApi</a>
+      <a href="#fluxo">09 · Fluxo de dados</a>
+      <a href="#travado">10 · Decisões travadas</a>
+      <a href="#aceite">Definição de pronto</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+  <article class="doc">
+
+    <div class="eyebrow">Documento 10 — Fase 1 · desenho da fundação (spec para implementação)</div>
+    <h1 class="title">Foundation Design</h1>
+    <p class="lede">A especificação da nova fundação — <strong>Trip, TripTemplate, TripStore, ActiveTripContext, tripApi, contracts e projeções</strong> — ancorada nos contratos da Fase 0 (Doc 08) e na ordem da Fase 0 Exec (Doc 09). Detalhada para o Codex implementar <em>sem tomar decisões estruturais</em>: o que cada módulo é, o que expõe, o que é proibido, e como mapeia para as formas que a UI já espera.</p>
+    <div class="meta">
+      <span><b>Formato</b> · schemas + assinaturas declarativas (não implementação)</span>
+      <span><b>Restrição</b> · UI/UX/navegação intactas</span>
+      <span><b>Meta</b> · spec autossuficiente p/ Codex</span>
+    </div>
+
+    <!-- PRINCIPIOS -->
+    <h2 id="principios"><span class="h2num">00</span>Princípios da fundação</h2>
+    <ul>
+      <li><strong>Modelo canônico + projeções.</strong> Existe <em>uma</em> Trip canônica. As telas nunca a consomem direto: consomem <strong>projeções</strong> (view-models) que reproduzem exatamente as formas da Fase 0.</li>
+      <li><strong>Dado desce por seleção, intenção sobe por ação.</strong> Telas leem via selectors; mudanças são ações no store — nunca mutação local.</li>
+      <li><strong>Uma fronteira de I/O.</strong> Todo dado entra pelo <code class="k">tripApi</code>. Nenhum módulo de UI importa catálogo/fixtures.</li>
+      <li><strong>Identidade por id.</strong> Toda entidade e relação usa id canônico. Strings de exibição continuam existindo, mas nunca são chave.</li>
+      <li><strong>A apresentação é imutável.</strong> Nada nesta fundação pede mudança de UI. Se algo exigiria, é bug de design — não de implementação.</li>
+    </ul>
+
+    <!-- MAPA -->
+    <h2 id="mapa"><span class="h2num">01</span>Mapa de módulos & direção de dependência</h2>
+    <div class="flow">
+      <div class="stage">
+        <div class="node"><div class="nl">congelado</div><div class="nt">Telas</div><div class="nd">screens/* + ui.jsx</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="nl">novo · fino</div><div class="nt">projeções</div><div class="nd">selectors/view-models</div></div>
+        <div class="arrow">→</div>
+        <div class="node solid"><div class="nl">novo</div><div class="nt">TripStore</div><div class="nd">cache único + ações</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="nl">novo · seam</div><div class="nt">tripApi</div><div class="nd">fixtures → backend</div></div>
+      </div>
+    </div>
+    <table class="tbl">
+      <thead><tr><th>Módulo</th><th>Responsabilidade única</th><th>Depende de</th></tr></thead>
+      <tbody>
+        <tr><td><code>contracts</code></td><td>Tipos canônicos, ids, enums e regras de mapeamento/formatação</td><td>— (base de tudo)</td></tr>
+        <tr><td><code>tripApi</code></td><td>Fronteira de I/O: busca/cria/edita; hoje fixtures, amanhã backend</td><td>contracts</td></tr>
+        <tr><td><code>TripStore</code></td><td>Cache único normalizado + selectors + ações; resolve estados</td><td>contracts, tripApi</td></tr>
+        <tr><td><code>ActiveTripContext</code></td><td>Guardar <strong>só</strong> <code>activeTripId</code></td><td>— (id puro)</td></tr>
+        <tr><td><code>projeções</code></td><td>Mapear Trip canônica → formas exatas da Fase 0</td><td>contracts, TripStore</td></tr>
+        <tr><td><code>account</code> (existente)</td><td>Sessão/usuário/onboarding (mantém); cede posse de viagens</td><td>— </td></tr>
+      </tbody>
+    </table>
+    <div class="note risk">
+      <div class="lbl">Regra de dependência (unidirecional)</div>
+      <p>Telas → projeções → TripStore → tripApi → (fixtures | backend). <strong>Nunca</strong> o contrário. <code>contracts</code> é importado por todos; <code>ActiveTripContext</code> só fornece o id às projeções/telas. Nenhuma seta volta.</p>
+    </div>
+
+    <!-- CONTRACTS -->
+    <h2 id="contracts"><span class="h2num">02</span>contracts — tipos, ids, enums, mapeamentos</h2>
+    <p>O vocabulário canônico. Tudo abaixo é <em>declarativo</em>: define forma e regra, não comportamento.</p>
+
+    <h3>Ids & enums</h3>
+    <div class="code">
+      <span class="cap">Ids tipados (branded) — prefixos fixos</span>
+<b>TripId</b>        = <span class="st">"trip_…"</span>
+<b>TemplateId</b>    = <span class="st">"tpl_…"</span>      <span class="c">// catálogo (hoje "routes")</span>
+<b>ExpertId</b>      = <span class="st">"exp_…"</span>
+<b>HotelId</b> / <b>FlightId</b> / <b>TourId</b> / <b>PlanId</b> = <span class="st">"htl_… / flt_… / tour_… / plan_…"</span>
+<b>DayId</b> / <b>ItemId</b>  = <span class="st">"day_… / itm_…"</span>
+    </div>
+    <div class="code">
+      <span class="cap">Enums canônicos</span>
+<b>TripStatus</b> = <span class="st">"draft"</span> | <span class="st">"idea"</span> | <span class="st">"planning"</span> | <span class="st">"active"</span> | <span class="st">"completed"</span> | <span class="st">"archived"</span>
+<b>Slot</b>       = <span class="st">"manha"</span> | <span class="st">"tarde"</span> | <span class="st">"noite"</span>      <span class="c">// UI exibe "manhã/tarde/noite"</span>
+<b>ItemStatus</b> = <span class="st">"suggested"</span> | <span class="st">"confirmed"</span> | <span class="st">"booked"</span>
+    </div>
+
+    <h3>Regra de mapeamento status ↔ rótulo da UI (TRAVADA)</h3>
+    <p>A UI exibe e filtra por rótulos em português (<code class="k">mapState()</code> no TripsScreen). A projeção <strong>deve</strong> emitir exatamente estes rótulos. O Codex não escolhe nomes novos.</p>
+    <table class="tbl">
+      <thead><tr><th>TripStatus (canônico)</th><th>Rótulo UI (<code>state</code>)</th><th>Aba TripsScreen</th><th>Visível em Minhas Viagens?</th></tr></thead>
+      <tbody>
+        <tr><td><code>active</code></td><td>Roteiro vivo</td><td>ativas</td><td>Sim</td></tr>
+        <tr><td><code>planning</code></td><td>Em planejamento</td><td>plan</td><td>Sim</td></tr>
+        <tr><td><code>idea</code></td><td>Idéia</td><td>ideias</td><td>Sim</td></tr>
+        <tr><td><code>completed</code></td><td>Concluído</td><td>feitas</td><td>Sim</td></tr>
+        <tr><td><code>draft</code></td><td>— (oculto)</td><td>—</td><td><strong>Não</strong> (rascunho do wizard)</td></tr>
+        <tr><td><code>archived</code></td><td>— (oculto)</td><td>—</td><td>Não</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Regra de formatação (TRAVADA)</h3>
+    <p>A UI consome strings já formatadas e às vezes as parseia. A fundação guarda valor estruturado <em>e</em> entrega a string idêntica à de hoje. Formatos exatos a reproduzir:</p>
+    <table class="tbl">
+      <thead><tr><th>Campo</th><th>Valor canônico</th><th>String que a projeção entrega (idêntica à atual)</th></tr></thead>
+      <tbody>
+        <tr><td>price</td><td><code>{ currency:'R$', amount:4820 }</code></td><td><code>"R$ 4.820"</code> (+ <code>priceValue:4820</code> cru)</td></tr>
+        <tr><td>dates (resumo)</td><td><code>{ start, end }</code></td><td><code>"12–22 out · 2026"</code></td></tr>
+        <tr><td>dates (detalhe)</td><td><code>{ start, end }</code></td><td><code>"12–22 outubro"</code></td></tr>
+        <tr><td>dur</td><td>minutos</td><td><code>"3 h"</code> / <code>"90 min"</code></td></tr>
+      </tbody>
+    </table>
+    <div class="note">
+      <div class="lbl">Por que guardar os dois</div>
+      <p>String para a UI não mudar; valor cru para ordenar/calcular sem <code class="k">parseInt(price.replace(...))</code>. A UI continua usando a string; o valor cru fica disponível para quando quisermos remover o parsing — sem pressa.</p>
+    </div>
+
+    <h3>Entidades de catálogo (formas da Fase 0, com id adicionado)</h3>
+    <div class="code">
+      <span class="cap">Catálogo — campos idênticos ao Doc 08 + ids canônicos</span>
+<b>Hotel</b>  { id, name, city, rating, nights, price, perk, tone, tag }
+<b>Flight</b> { id, from, to, dep, arr, airline, flight, stops, dur, price, miles, best, tone }
+<b>Tour</b>   { id, name, city, dur, price, host, hostExpertId, tone }
+<b>Expert</b> { id, portrait, name, region, regions:[], trips, routes, rating, responseMin, years, tone, specs:[] }
+<b>Plan</b>   { id, name, tag, highlight, desc, price, period, features:[], cta }
+<b>Starter</b>{ id, label, hint, tone }
+    </div>
+    <div class="note risk">
+      <div class="lbl">Única adição além da Fase 0</div>
+      <p><code class="k">hostExpertId</code> (Tour) e <code class="k">expert→expertId</code> nas relações: substituem o cruzamento por <em>nome</em> (risco 6). Os campos de <em>exibição</em> por nome (<code>host</code>, <code>expert</code>) permanecem para a UI não mudar.</p>
+    </div>
+
+    <!-- TRIP -->
+    <h2 id="trip"><span class="h2num">03</span>Trip — o modelo canônico (fonte única)</h2>
+    <p>Uma única estrutura. Dela derivam <strong>todas</strong> as projeções (resumo e detalhe). Não há "duas viagens".</p>
+    <div class="code">
+      <span class="cap">Trip (canônica)</span>
+<b>Trip</b> {
+  id: <span class="ty">TripId</span>
+  status: <span class="ty">TripStatus</span>
+  title: <span class="ty">string</span>
+  blurb: <span class="ty">string</span> | <span class="ty">null</span>
+  destinationLabel: <span class="ty">string</span>          <span class="c">// "Portugal — Lisboa & Porto"</span>
+  cities: <span class="ty">string[]</span>                   <span class="c">// exibição; ids canônicos quando houver</span>
+  dates: { start: <span class="ty">ISODate</span>, end: <span class="ty">ISODate</span> } | <span class="ty">null</span>
+  nights: <span class="ty">number</span> | <span class="ty">null</span>
+  travelers: <span class="ty">number</span>                   <span class="c">// contagem (UI mostra "N viajantes")</span>
+  budget: <span class="ty">Money</span> | <span class="ty">null</span>
+  progress: <span class="ty">number</span>                    <span class="c">// 0..100</span>
+  cover: <span class="ty">string</span>                       <span class="c">// tom: warm|cool|sage|coral|ink</span>
+  coverSeed: <span class="ty">string</span> | <span class="ty">null</span>
+  coverLabel: <span class="ty">string</span> | <span class="ty">null</span>
+  expertId: <span class="ty">ExpertId</span> | <span class="ty">null</span>
+  templateId: <span class="ty">TemplateId</span> | <span class="ty">null</span>     <span class="c">// origem, se semeada de um template</span>
+  days: <span class="ty">TripDay[]</span>
+  insights: { kind: <span class="ty">string</span>, text: <span class="ty">string</span> }[]
+  prep?: <span class="ty">PrepGroup[]</span>                  <span class="c">// fluxos kids/dog (opcional)</span>
+  createdAt: <span class="ty">ISODateTime</span>
+  updatedAt: <span class="ty">ISODateTime</span>
+}
+
+<b>TripDay</b>  { id: <span class="ty">DayId</span>, d: <span class="ty">number</span>, date: <span class="ty">string</span>, city: <span class="ty">string</span>, flight?: <span class="ty">boolean</span>, items: <span class="ty">Item[]</span> }
+<b>Item</b>     { id: <span class="ty">ItemId</span>, slot: <span class="ty">Slot</span>, title, place, dur, tag, vibe, conf: <span class="ty">boolean</span>,
+            refKind?: <span class="st">"hotel"|"flight"|"tour"</span>, refId?: <span class="ty">EntityId</span>, status?: <span class="ty">ItemStatus</span> }
+    </div>
+    <div class="note">
+      <div class="lbl">Invariantes (o Codex deve garantir)</div>
+      <ul>
+        <li>Toda <code class="k">Trip</code> tem <code class="k">id</code> real desde a criação (sem objeto solto sem id).</li>
+        <li><code class="k">days[].items[].slot</code> ∈ {manha,tarde,noite}; a UI traduz para "manhã/tarde/noite".</li>
+        <li>Campos ausentes são <code class="k">null</code> explícito — nunca inventados.</li>
+        <li>Edição só via ação do store; a Trip nunca é clonada para estado de tela.</li>
+      </ul>
+    </div>
+
+    <!-- TEMPLATE -->
+    <h2 id="template"><span class="h2num">04</span>TripTemplate — o catálogo (read-only)</h2>
+    <p>O que hoje são <code class="k">mockData.routes</code> + <code class="k">routeDetails</code>: roteiros editoriais/inspiração. Imutável e compartilhado; <strong>semeia</strong> uma Trip, nunca é referenciado vivo em runtime (mata o <code class="k">dataKey</code>).</p>
+    <div class="code">
+      <span class="cap">TripTemplate</span>
+<b>TripTemplate</b> {
+  id: <span class="ty">TemplateId</span>
+  title: <span class="ty">string</span>
+  category: <span class="ty">string</span>
+  days: <span class="ty">number</span>
+  from: <span class="ty">string</span>            <span class="c">// "R$ 38k" (string de exibição)</span>
+  expert: <span class="ty">string</span>          <span class="c">// nome p/ exibição</span>
+  expertId: <span class="ty">ExpertId</span> | <span class="ty">null</span>
+  tone: <span class="ty">string</span>
+  detail?: <span class="ty">TemplateDetail</span>   <span class="c">// itinerário expandido (hoje routeDetails[id])</span>
+}
+
+<span class="c">// Criar viagem a partir de um template = COPIAR para uma Trip nova:</span>
+createTripFromTemplate(templateId) → <b>Trip</b>  <span class="c">// status:"planning"|"draft"; templateId preenchido</span>
+    </div>
+    <div class="note decision">
+      <div class="lbl">Decisão (estrutural — travada)</div>
+      <p>Template e Trip são <strong>entidades distintas</strong>. A Trip recebe uma <em>cópia</em> dos dados do template no momento da criação. Mudar o catálogo nunca altera viagens existentes. Acabou o "a viagem é um objeto do catálogo resolvido por string".</p>
+    </div>
+
+    <!-- PROJ -->
+    <h2 id="proj"><span class="h2num">05</span>Projeções / view-models — a ponte para a UI atual</h2>
+    <p>Cada projeção produz <strong>exatamente</strong> a forma que a tela já consome (Doc 08). É a peça que garante paridade visual. O Codex implementa estes mapeamentos — não inventa formas.</p>
+
+    <h3>toTripSummary(trip) — para TripsScreen e Home</h3>
+    <div class="code">
+      <span class="cap">TripSummary (forma do card de Minhas Viagens)</span>
+<b>TripSummary</b> {
+  id, title,
+  dates: <span class="ty">string</span>,        <span class="c">// "12–22 out · 2026"</span>
+  state: <span class="ty">string</span>,        <span class="c">// rótulo PT via mapa travado (§02)</span>
+  travelers: <span class="ty">number</span>,
+  tone: <span class="ty">string</span>,         <span class="c">// = trip.cover</span>
+  cover: <span class="ty">string</span>,        <span class="c">// rótulo curto p/ SmartImg ("Lisboa")</span>
+  progress: <span class="ty">number</span>,
+  hasItinerary: <span class="ty">boolean</span>  <span class="c">// substitui o check mockData[dataKey]</span>
+}
+    </div>
+
+    <h3>toTripDetail(trip) — para PlanScreen e Home (viagem ativa)</h3>
+    <div class="code">
+      <span class="cap">TripDetail (forma do roteiro) — campos idênticos ao Doc 08</span>
+<b>TripDetail</b> {
+  id, title, blurb,
+  dates: <span class="ty">string</span>,        <span class="c">// "12–22 outubro"</span>
+  nights, travelers,
+  budget: <span class="ty">string</span>,       <span class="c">// "R$ 24–28k"</span>
+  status: <span class="ty">string</span>,       <span class="c">// rótulo PT (mesma família do state)</span>
+  cover, coverSeed, coverLabel, progress, expert,
+  days: [ { d, date, city, flight?, items:[ { t, title, place, dur, tag, vibe, conf } ] } ],
+  insights: [ { kind, text } ]
+}
+<span class="c">// item.t = "manhã"|"tarde"|"noite"  ← derivado de Item.slot</span>
+    </div>
+
+    <h3>Projeções de catálogo (1:1 com a Fase 0)</h3>
+    <table class="tbl">
+      <thead><tr><th>Projeção</th><th>Entrega</th><th>Consumida por</th></tr></thead>
+      <tbody>
+        <tr><td><code>toHotelCardVM</code></td><td>Hotel (campos Doc 08)</td><td>HotelsScreen</td></tr>
+        <tr><td><code>toFlightCardVM</code></td><td>Flight + <code>priceValue</code> cru</td><td>FlightsScreen (ordenação)</td></tr>
+        <tr><td><code>toTourCardVM</code></td><td>Tour</td><td>ToursScreen</td></tr>
+        <tr><td><code>toExpertVM</code></td><td>Expert</td><td>ExpertsScreen, Explorar</td></tr>
+        <tr><td><code>toTemplateVM</code></td><td>TripTemplate (= route)</td><td>Explorar, Experts</td></tr>
+        <tr><td><code>toPlanVM</code></td><td>Plan</td><td>PlansScreen</td></tr>
+      </tbody>
+    </table>
+    <div class="note decision">
+      <div class="lbl">Regra de ouro das projeções</div>
+      <p>A saída de cada projeção é <strong>comparada campo a campo</strong> contra o objeto que a tela recebe hoje (baseline da Fase 0). Igual → corte aprovado. Diferente → conserta a projeção, nunca a tela.</p>
+    </div>
+
+    <!-- STORE -->
+    <h2 id="store"><span class="h2num">06</span>TripStore — cache único, selectors, ações</h2>
+    <p>O coração da fundação. Único lugar onde dados de viagem moram no cliente. Resolve os 4 estados internamente (sem expô-los na UI).</p>
+    <div class="code">
+      <span class="cap">Estado interno (normalizado)</span>
+<b>TripStoreState</b> {
+  byId: { [TripId]: <span class="ty">Trip</span> }       <span class="c">// cache único</span>
+  allIds: <span class="ty">TripId[]</span>
+  status: { [chave]: <span class="st">"loading"|"success"|"empty"|"error"</span> }   <span class="c">// por consulta</span>
+  error:  { [chave]: <span class="ty">UiError</span> | null }
+}
+    </div>
+    <div class="code">
+      <span class="cap">Selectors (leitura — devolvem PROJEÇÕES, nunca a Trip crua)</span>
+selectTripSummaries()            → <span class="ty">TripSummary[]</span>
+selectTripDetail(id)             → <span class="ty">TripDetail</span> | null
+selectActiveTripDetail()         → usa ActiveTripContext.activeTripId
+selectStatus(chave)              → <span class="st">"loading"|"success"|"empty"|"error"</span>
+    </div>
+    <div class="code">
+      <span class="cap">Ações (escrita — única forma de mudar uma viagem)</span>
+loadTrips()                                  <span class="c">// → tripApi.listTrips</span>
+loadTrip(id)                                 <span class="c">// → tripApi.getTrip</span>
+createTrip(input) / createTripFromTemplate(templateId)
+applyHotel(tripId, hotelId, nights)
+applyFlight(tripId, flightId, dayId?)
+applyTour(tripId, tourId, dayId, slot)
+patchItinerary(tripId, ops[])                <span class="c">// add/move/update/remove/setLock</span>
+setProgress(tripId, n)
+<span class="c">// Toda ação chama o tripApi, recebe a Trip atualizada e substitui no cache.</span>
+    </div>
+    <div class="note risk">
+      <div class="lbl">Proibições (o que mata regressão)</div>
+      <ul>
+        <li>Nenhum componente recebe a <code class="k">Trip</code> crua — só projeções.</li>
+        <li>Nenhuma tela mantém <code class="k">useState</code> com dados de viagem (fim do clone do PlanScreen).</li>
+        <li>Ação sempre devolve a Trip inteira; o cache é <em>substituído</em>, não mesclado à mão.</li>
+      </ul>
+    </div>
+
+    <!-- CONTEXT -->
+    <h2 id="context"><span class="h2num">07</span>ActiveTripContext — só o id</h2>
+    <div class="code">
+      <span class="cap">ActiveTripContext</span>
+<b>ActiveTripContext</b> {
+  activeTripId: <span class="ty">TripId</span> | null
+  setActiveTripId(id)
+}
+<span class="c">// NÃO guarda Trip, days, nem qualquer dado. Só o ponteiro.</span>
+<span class="c">// Telas que precisam da viagem ativa: selectActiveTripDetail() no store.</span>
+    </div>
+    <table class="tbl">
+      <thead><tr><th>Pode</th><th>Não pode</th></tr></thead>
+      <tbody>
+        <tr><td>Guardar <code>activeTripId</code>; trocar de viagem ativa; reidratar o id (URL/sessão)</td><td>Guardar a Trip ou <code>days</code>; buscar dados; transformar/mesclar; conter lógica de UI</td></tr>
+      </tbody>
+    </table>
+    <div class="note">
+      <div class="lbl">Transição de posse (vindo do account)</div>
+      <p>Hoje <code class="k">activeTripId</code> e <code class="k">trips[]</code> vivem no <code>account</code>. Na fundação: <code class="k">activeTripId</code> → <strong>ActiveTripContext</strong>; <code class="k">trips[]</code> → <strong>TripStore</strong>. O <code>account</code> fica só com sessão/usuário/onboarding.</p>
+    </div>
+
+    <!-- API -->
+    <h2 id="api"><span class="h2num">08</span>tripApi — a fronteira (seam)</h2>
+    <p>Única porta de dados. Hoje devolve fixtures (repackaging do <code class="k">mockData</code>); amanhã, <code class="k">fetch</code>. As assinaturas e formatos de retorno <strong>não mudam</strong> entre os dois — é isso que mantém a UI intacta na virada do backend.</p>
+    <div class="code">
+      <span class="cap">tripApi — assinaturas (retornam SEMPRE formas canônicas de contracts)</span>
+<span class="c">// Viagens</span>
+listTrips()                       → <span class="ty">Trip[]</span>      <span class="c">// drafts/archived filtrados na projeção</span>
+getTrip(id)                       → <span class="ty">Trip</span> | null
+createTrip(input)                 → <span class="ty">Trip</span>
+createTripFromTemplate(templateId)→ <span class="ty">Trip</span>
+patchTrip(id, ops[])              → <span class="ty">Trip</span>
+applyHotel/applyFlight/applyTour(…) → <span class="ty">Trip</span>
+
+<span class="c">// Catálogo / busca</span>
+searchHotels(q)  → <span class="ty">Hotel[]</span>
+searchFlights(q) → <span class="ty">Flight[]</span>
+searchTours(q)   → <span class="ty">Tour[]</span>
+listTemplates(q?) → <span class="ty">TripTemplate[]</span>
+getTemplate(id)   → <span class="ty">TripTemplate</span>
+listExperts(q?)   → <span class="ty">Expert[]</span>
+listPlans()       → <span class="ty">Plan[]</span>
+
+<span class="c">// Config do wizard in-chat (Home)</span>
+getWizardDef(flow) → <span class="ty">WizardDef</span>     <span class="c">// disney|kids|dog</span>
+getGenSteps(flow)  → <span class="ty">GenStep[]</span>
+getStarters()      → <span class="ty">Starter[]</span>
+    </div>
+    <div class="note">
+      <div class="lbl">Como o backend entra (sem tocar UI)</div>
+      <p>Cada método troca o corpo (fixture → <code class="k">fetch('/api/v1/…')</code>) mantendo a assinatura. Doc 03 (API Contracts) já define os endpoints correspondentes. Telas, store e projeções não percebem a troca.</p>
+    </div>
+
+    <!-- FLUXO -->
+    <h2 id="fluxo"><span class="h2num">09</span>Fluxo de dados</h2>
+    <h4>Leitura (ex.: abrir o roteiro)</h4>
+    <div class="code">
+      <span class="cap">read path</span>
+Tela(PlanScreen) → selectActiveTripDetail()
+   → ActiveTripContext.activeTripId
+   → TripStore.byId[id]  (se ausente: loadTrip → tripApi.getTrip → cache)
+   → toTripDetail(trip)  → props idênticas às de hoje
+    </div>
+    <h4>Escrita (ex.: aplicar hotel)</h4>
+    <div class="code">
+      <span class="cap">write path</span>
+Tela → store.applyHotel(tripId, hotelId, nights)
+   → tripApi.applyHotel(...) → Trip atualizada
+   → store substitui byId[tripId]
+   → selectors re-emitem projeções → UI reflete (sem clone, sem merge manual)
+    </div>
+
+    <!-- TRAVADO -->
+    <h2 id="travado"><span class="h2num">10</span>Decisões travadas (o Codex não decide)</h2>
+    <div class="note decision">
+      <div class="lbl">Estrutura fixada nesta spec</div>
+      <ol>
+        <li><strong>Uma Trip canônica</strong> + projeções <code>TripSummary</code>/<code>TripDetail</code>; nunca duas entidades de viagem.</li>
+        <li><strong>Template ≠ Trip</strong>; criar viagem copia do template (sem <code>dataKey</code> vivo).</li>
+        <li><strong>TripStore</strong> é o único cache; selectors devolvem projeções; ações são a única escrita.</li>
+        <li><strong>ActiveTripContext</strong> guarda só <code>activeTripId</code>.</li>
+        <li><strong>tripApi</strong> é a única fronteira de I/O; assinaturas fixas (Doc 03).</li>
+        <li><strong>Mapa status↔rótulo</strong> e <strong>formatos de string</strong> são os da §02 — exatos, para a UI não mudar.</li>
+        <li><strong>Relações por id</strong> (<code>expertId</code> etc.); strings de nome só para exibição.</li>
+        <li><strong>Sem clones</strong> de dados de viagem em estado de componente.</li>
+      </ol>
+    </div>
+    <div class="note risk">
+      <div class="lbl">Deixado em aberto de propósito (parâmetro, não estrutura)</div>
+      <p>Persistência concreta do cache (memória/localStorage), origem das fixtures (arquivo único vs. por entidade) e detalhes de formatação de datas localizadas são <em>parâmetros de implementação</em> — não mudam a arquitetura e podem ser decididos no código, desde que respeitem os contratos acima.</p>
+    </div>
+
+    <!-- ACEITE -->
+    <h2 id="aceite"><span class="h2num">✓</span>Definição de pronto (Fase 1 · desenho)</h2>
+    <div class="note decision">
+      <div class="lbl">Esta spec está completa quando…</div>
+      <ol>
+        <li>Cada módulo tem responsabilidade única, dependências unidirecionais e proibições explícitas. ✓</li>
+        <li>A <code>Trip</code> canônica cobre todos os campos que as projeções da Fase 0 exigem. ✓</li>
+        <li>Cada tela tem uma projeção que reproduz sua forma atual campo a campo. ✓</li>
+        <li>O <code>tripApi</code> lista todas as operações que store/telas precisam, com retornos canônicos. ✓</li>
+        <li>Mapeamentos sensíveis (status↔rótulo, formatos) estão travados — o Codex não improvisa. ✓</li>
+      </ol>
+      <p>Com isto, a implementação pode começar pela ordem do Doc 09 (Planos → buscas → catálogo → Minhas Viagens → Home → Roteiro), construindo a fundação isolada e cortando tela por tela atrás de flag. Próximo passo possível (quando você quiser): a <strong>Fase 1.5</strong> — o "kit de paridade" por tela (checklist de campos a comparar antes de ligar cada flag). Sem implementação.</p>
+    </div>
+
+    <div class="footer">
+      <span>Gaid · Fase 1 — Foundation Design · spec para implementação</span>
+      <span><a href="09 Phase 0 Executive Summary.html">← 09 · Resumo Exec.</a> &nbsp;·&nbsp; <a href="08 Phase 0 Screen Data Inventory.html">08 · Inventário</a></span>
+    </div>
+
+  </article>
+  </main>
+</div>
+</body>
+</html>

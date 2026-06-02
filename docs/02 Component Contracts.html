@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Gaid · Component Contracts V1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
+<link href="gaid-docs.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="rail">
+    <div class="brand">
+      <div class="logo">V</div>
+      <div>
+        <div class="who">Gaid · Arquitetura</div>
+        <div class="sub">Sprint de arquitetura · V1</div>
+      </div>
+    </div>
+
+    <div class="rail-label">Documentos</div>
+    <nav class="doc-switch">
+      <a href="01 Data Architecture.html"><span class="num">01</span><span class="t">Data Architecture</span></a>
+      <a class="active" href="02 Component Contracts.html"><span class="num">02</span><span class="t">Component Contracts</span></a>
+      <a href="03 API Contracts.html"><span class="num">03</span><span class="t">API Contracts</span></a>
+      <a href="04 MVP Implementation Plan.html"><span class="num">04</span><span class="t">MVP Plan</span></a>
+      <a href="05 Final Architecture Review.html"><span class="num">05</span><span class="t">Final Review</span></a>
+      <a href="06 Real Data Ready Props.html"><span class="num">06</span><span class="t">RDR · Props</span></a>
+      <a href="07 Foundation Migration Strategy.html"><span class="num">07</span><span class="t">Migration Strategy</span></a>
+      <a href="08 Phase 0 Screen Data Inventory.html"><span class="num">08</span><span class="t">Fase 0 · Inventário</span></a>
+      <a href="09 Phase 0 Executive Summary.html"><span class="num">09</span><span class="t">Fase 0 · Resumo Exec.</span></a>
+      <a href="10 Phase 1 Foundation Design.html"><span class="num">10</span><span class="t">Fase 1 · Fundação</span></a>
+    </nav>
+
+    <div class="rail-label">Componentes</div>
+    <nav class="toc">
+      <a href="#principios">Princípios</a>
+      <a href="#wizard">GuidedWizard</a>
+      <a href="#hotel">HotelCard</a>
+      <a href="#flight">FlightCard</a>
+      <a href="#tour">TourCard</a>
+      <a href="#trip">TripCard</a>
+      <a href="#itinerary">TripItinerary</a>
+      <a href="#estados">Matriz de estados</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+  <article class="doc">
+
+    <div class="eyebrow">Documento 02 — interface</div>
+    <h1 class="title">Gaid Component Contracts V1</h1>
+    <p class="lede">O que cada componente <em>recebe</em>, o que ele <em>emite</em>, e quais estados ele precisa saber desenhar. Todo componente é um <strong>apresentador puro</strong>: dado entra por props já resolvidas do store; intenção sai por callback. Nenhum componente busca, transforma ou inventa dado.</p>
+    <div class="meta">
+      <span><b>Forma</b> · dados ↓ por props, intenções ↑ por eventos</span>
+      <span><b>Proibido</b> · fetch, defaults inventados, mutação direta</span>
+      <span><b>Obrigatório</b> · 4 estados — loading, empty, success, error</span>
+    </div>
+
+    <!-- PRINCÍPIOS -->
+    <h2 id="principios"><span class="h2num">00</span>Princípios transversais</h2>
+    <ul>
+      <li><strong>Presenter puro.</strong> O componente não sabe de onde o dado veio. Recebe uma entidade já resolvida (ou seus ids + status) e a desenha.</li>
+      <li><strong>Intenção, não mutação.</strong> Cliques não alteram dados — emitem eventos (<code class="k">onApply</code>, <code class="k">onSelect</code>, <code class="k">onChange</code>) que o container traduz em ações do store.</li>
+      <li><strong>Status explícito.</strong> Todo componente que depende de dado remoto recebe um <code class="k">status</code> e desenha os 4 casos. “Sem dado” nunca é renderizado como dado vazio inventado.</li>
+      <li><strong>Sem fabricação.</strong> Se um campo não veio, o componente mostra o estado de ausência — jamais um placeholder que pareça real (preço “R$ 0”, “Paris” por engano, etc).</li>
+    </ul>
+
+    <div class="code">
+      <span class="cap">Convenção de status — comum a todos</span>
+<b>LoadState</b> = <span class="st">"loading"</span> | <span class="st">"empty"</span> | <span class="st">"success"</span> | <span class="st">"error"</span>
+
+<span class="c">// Todo card/lista recebe, no mínimo:</span>
+{ status: <span class="ty">LoadState</span>, data?: <span class="ty">Entity</span>, error?: <span class="ty">UiError</span> }
+    </div>
+
+    <div class="adr">
+      <div class="adr-head"><span class="adr-tag">Decisão recomendada</span><span class="adr-id">ADR-05 · Componentes</span></div>
+      <h4 class="adr-title">Todo componente é presenter puro: dados ↓ por props, intenções ↑ por eventos</h4>
+      <div class="adr-grid">
+        <div class="adr-row"><div class="adr-k">Decisão</div><div class="adr-v">Componentes recebem entidades já resolvidas do store e emitem <strong>intenções</strong> (<code>onApply</code>, <code>onSelect</code>, <code>onChange</code>). Não buscam, não transformam, não mutam dado. O container traduz intenção em ação do store.</div></div>
+        <div class="adr-row"><div class="adr-k">Justificativa</div><div class="adr-v">Acoplar fetch/lógica de dados no componente é como surgem dados inventados e estados divergentes. Presenter puro torna o componente testável, previsível e reutilizável.</div></div>
+        <div class="adr-row"><div class="adr-k">Riscos</div><div class="adr-v">Mais boilerplate de container; props podem inflar (mitigar passando a entidade inteira + status, não 20 campos soltos).</div></div>
+        <div class="adr-row deny"><div class="adr-k">Não deve acontecer</div><div class="adr-v">Componente fazer <code>fetch</code>; calcular preço/milhas; inventar default que pareça real (<code>R$ 0</code>, lugar errado); mutar o store diretamente.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Frontend</div><div class="adr-v">Separar containers (ligam store) de presenters (desenham). Eventos sobem; dados descem. Reuso entre web e mobile.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Backend</div><div class="adr-v">Nenhum direto — mas reforça que cálculos (preço, milhas, progresso) são responsabilidade do backend, entregues prontos.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Codex</div><div class="adr-v">Gerar cada componente como função pura de <code>(props) → UI</code>; lint que proíbe <code>fetch</code>/efeitos de dados em presenters; cada componente entrega os 4 estados (ADR-06) ou o teste falha.</div></div>
+      </div>
+    </div>
+
+    <!-- WIZARD -->
+    <h2 id="wizard"><span class="h2num">01</span>GuidedWizard</h2>
+    <p>Coleta a <em>intenção</em> de viagem em passos. Não cria a viagem sozinho: emite respostas; o container cria/atualiza o draft no servidor.</p>
+    <h4>Inputs</h4>
+    <table class="tbl">
+      <thead><tr><th>Prop</th><th>Tipo</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td>steps</td><td><code>WizardStep[]</code></td><td>Definição declarativa dos passos (id, pergunta, opções, regra de validação).</td></tr>
+        <tr><td>answers</td><td><code>Record&lt;StepId, Answer&gt;</code></td><td>Respostas atuais (controlado pelo container — fonte da verdade fica fora).</td></tr>
+        <tr><td>stepIndex</td><td><code>number</code></td><td>Passo ativo.</td></tr>
+        <tr><td>status</td><td><code>LoadState</code></td><td><code>loading</code> enquanto a IA gera após o último passo.</td></tr>
+      </tbody>
+    </table>
+    <h4>Outputs</h4>
+    <table class="tbl">
+      <thead><tr><th>Evento</th><th>Payload</th><th>Quando</th></tr></thead>
+      <tbody>
+        <tr><td>onAnswer</td><td><code>{ stepId, answer }</code></td><td>Usuário responde (opção ou texto livre).</td></tr>
+        <tr><td>onBack / onNext</td><td><code>—</code></td><td>Navegação entre passos.</td></tr>
+        <tr><td>onComplete</td><td><code>{ answers }</code></td><td>Último passo — container cria o draft.</td></tr>
+        <tr><td>onSkip</td><td><code>—</code></td><td>Pular onboarding/wizard.</td></tr>
+      </tbody>
+    </table>
+    <div class="states">
+      <span class="pill"><b>loading</b> · IA montando após último passo</span>
+      <span class="pill"><b>empty</b> · nenhum passo respondido (estado inicial)</span>
+      <span class="pill"><b>success</b> · passo renderizado, resposta aceita</span>
+      <span class="pill"><b>error</b> · validação falha / geração falhou → permite retry</span>
+    </div>
+    <div class="note risk">
+      <div class="lbl">Não deve</div>
+      <p>Guardar as respostas como verdade interna, criar a Trip por conta própria, ou inferir destino a partir de texto sem confirmá-lo contra a lista de <code class="k">Destination</code>.</p>
+    </div>
+
+    <!-- HOTEL -->
+    <h2 id="hotel"><span class="h2num">02</span>HotelCard</h2>
+    <h4>Inputs</h4>
+    <table class="tbl">
+      <thead><tr><th>Prop</th><th>Tipo</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td>hotel</td><td><code>Hotel</code></td><td>Entidade já resolvida do catálogo (id, nome, cityId, rating, price, perks).</td></tr>
+        <tr><td>appliedState</td><td><code>BookingStatus</code></td><td><code>none | held | booked</code> nesta viagem — controla o rótulo do CTA.</td></tr>
+        <tr><td>status</td><td><code>LoadState</code></td><td>Para listas: skeleton enquanto busca.</td></tr>
+        <tr><td>selectable</td><td><code>boolean</code></td><td>Se permite aplicar ao roteiro.</td></tr>
+      </tbody>
+    </table>
+    <h4>Outputs</h4>
+    <table class="tbl">
+      <thead><tr><th>Evento</th><th>Payload</th><th>Quando</th></tr></thead>
+      <tbody>
+        <tr><td>onApply</td><td><code>{ hotelId }</code></td><td>“Aplicar ao roteiro” — container chama API <code>applyHotel</code>.</td></tr>
+        <tr><td>onOpen</td><td><code>{ hotelId }</code></td><td>Abrir detalhe.</td></tr>
+      </tbody>
+    </table>
+    <div class="states">
+      <span class="pill"><b>loading</b> · skeleton do card</span>
+      <span class="pill"><b>empty</b> · busca sem resultado (lista)</span>
+      <span class="pill"><b>success</b> · hotel renderizado; CTA reflete <code>appliedState</code></span>
+      <span class="pill"><b>error</b> · falha ao carregar/aplicar → retry, sem sumir</span>
+    </div>
+
+    <!-- FLIGHT -->
+    <h2 id="flight"><span class="h2num">03</span>FlightCard</h2>
+    <h4>Inputs</h4>
+    <table class="tbl">
+      <thead><tr><th>Prop</th><th>Tipo</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td>flight</td><td><code>Flight</code></td><td>Segmentos (aeroportos por id), preço, milhas, cabine.</td></tr>
+        <tr><td>appliedState</td><td><code>BookingStatus</code></td><td>Estado nesta viagem.</td></tr>
+        <tr><td>milesContext</td><td><code>MilesHint | null</code></td><td>Sugestão de milhas (ex.: “3× TAP”) — null se não houver.</td></tr>
+        <tr><td>status</td><td><code>LoadState</code></td><td>—</td></tr>
+      </tbody>
+    </table>
+    <h4>Outputs</h4>
+    <table class="tbl">
+      <thead><tr><th>Evento</th><th>Payload</th><th>Quando</th></tr></thead>
+      <tbody>
+        <tr><td>onApply</td><td><code>{ flightId }</code></td><td>Aplicar voo ao roteiro.</td></tr>
+        <tr><td>onOpen</td><td><code>{ flightId }</code></td><td>Detalhe / regras de tarifa.</td></tr>
+      </tbody>
+    </table>
+    <div class="states">
+      <span class="pill"><b>loading</b> · skeleton</span>
+      <span class="pill"><b>empty</b> · sem voos no trecho</span>
+      <span class="pill"><b>success</b> · segmentos + preço/milhas reais</span>
+      <span class="pill"><b>error</b> · falha de busca → retry</span>
+    </div>
+    <div class="note risk">
+      <div class="lbl">Não deve</div>
+      <p>Calcular preço ou milhas por conta própria. Esses números chegam prontos do backend; o card só os exibe. Inventar conversão de milhas no cliente é justamente como surgem “dados inventados”.</p>
+    </div>
+
+    <!-- TOUR -->
+    <h2 id="tour"><span class="h2num">04</span>TourCard</h2>
+    <h4>Inputs</h4>
+    <table class="tbl">
+      <thead><tr><th>Prop</th><th>Tipo</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td>tour</td><td><code>Tour</code></td><td>Nome, cityId, categoria, duração, preço.</td></tr>
+        <tr><td>appliedState</td><td><code>BookingStatus</code></td><td>Estado nesta viagem.</td></tr>
+        <tr><td>dayOptions</td><td><code>TripDayRef[]</code></td><td>Dias a que pode ser anexado (já vindos do store).</td></tr>
+        <tr><td>status</td><td><code>LoadState</code></td><td>—</td></tr>
+      </tbody>
+    </table>
+    <h4>Outputs</h4>
+    <table class="tbl">
+      <thead><tr><th>Evento</th><th>Payload</th><th>Quando</th></tr></thead>
+      <tbody>
+        <tr><td>onApply</td><td><code>{ tourId, dayId?, slot? }</code></td><td>Aplicar passeio (opcionalmente a um dia/slot).</td></tr>
+        <tr><td>onOpen</td><td><code>{ tourId }</code></td><td>Detalhe.</td></tr>
+      </tbody>
+    </table>
+    <div class="states">
+      <span class="pill"><b>loading</b> · skeleton</span>
+      <span class="pill"><b>empty</b> · sem passeios na cidade</span>
+      <span class="pill"><b>success</b> · passeio renderizado</span>
+      <span class="pill"><b>error</b> · falha → retry</span>
+    </div>
+
+    <!-- TRIP -->
+    <h2 id="trip"><span class="h2num">05</span>TripCard</h2>
+    <p>Resumo de uma viagem em listas (Minhas Viagens, Home). Reflete <code class="k">status</code> e <code class="k">progress</code> reais da Trip.</p>
+    <h4>Inputs</h4>
+    <table class="tbl">
+      <thead><tr><th>Prop</th><th>Tipo</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td>trip</td><td><code>TripSummary</code></td><td>id, title, status, dateRange, travelersCount, progress, coverRef.</td></tr>
+        <tr><td>isActive</td><td><code>boolean</code></td><td>Se é a trip atualmente aberta.</td></tr>
+        <tr><td>status</td><td><code>LoadState</code></td><td>—</td></tr>
+      </tbody>
+    </table>
+    <h4>Outputs</h4>
+    <table class="tbl">
+      <thead><tr><th>Evento</th><th>Payload</th><th>Quando</th></tr></thead>
+      <tbody>
+        <tr><td>onOpen</td><td><code>{ tripId }</code></td><td>Define <code>activeTripId</code> e navega para o roteiro.</td></tr>
+      </tbody>
+    </table>
+    <div class="states">
+      <span class="pill"><b>loading</b> · skeleton do card</span>
+      <span class="pill"><b>empty</b> · (na lista) “nenhuma viagem” — vira estado vazio da tela</span>
+      <span class="pill"><b>success</b> · resumo real; badge = <code>trip.status</code></span>
+      <span class="pill"><b>error</b> · falha ao carregar resumo</span>
+    </div>
+
+    <!-- ITINERARY -->
+    <h2 id="itinerary"><span class="h2num">06</span>TripItinerary</h2>
+    <p>A linha do tempo editável da viagem. É o componente onde o <strong>Risco 2</strong> (clonar <code class="k">days</code> para estado local) precisa morrer: ele lê do store via selectors e <strong>emite intenções de edição</strong>, sem manter cópia própria.</p>
+    <h4>Inputs</h4>
+    <table class="tbl">
+      <thead><tr><th>Prop</th><th>Tipo</th><th>Descrição</th></tr></thead>
+      <tbody>
+        <tr><td>tripId</td><td><code>TripId</code></td><td>Identidade — os dias vêm do store por selector, não por prop clonada.</td></tr>
+        <tr><td>days</td><td><code>TripDay[]</code></td><td>Já resolvidos do store (read-only para o componente).</td></tr>
+        <tr><td>status</td><td><code>LoadState</code></td><td><code>loading</code> durante geração da IA; <code>saving</code> em mutações.</td></tr>
+        <tr><td>editable</td><td><code>boolean</code></td><td>Depende de <code>trip.status</code> (não edita <code>completed</code>).</td></tr>
+      </tbody>
+    </table>
+    <h4>Outputs (intenções → mutations do store)</h4>
+    <table class="tbl">
+      <thead><tr><th>Evento</th><th>Payload</th><th>Vira</th></tr></thead>
+      <tbody>
+        <tr><td>onAddItem</td><td><code>{ dayId, slot, draft }</code></td><td>mutation <code>addItem</code></td></tr>
+        <tr><td>onMoveItem</td><td><code>{ itemId, toDayId, toSlot }</code></td><td>mutation <code>moveItem</code></td></tr>
+        <tr><td>onEditItem</td><td><code>{ itemId, patch }</code></td><td>mutation <code>updateItem</code></td></tr>
+        <tr><td>onRemoveItem</td><td><code>{ itemId }</code></td><td>mutation <code>removeItem</code></td></tr>
+        <tr><td>onToggleLock</td><td><code>{ itemId }</code></td><td>protege da IA</td></tr>
+      </tbody>
+    </table>
+    <div class="states">
+      <span class="pill"><b>loading</b> · IA gerando os dias (skeleton da timeline)</span>
+      <span class="pill"><b>empty</b> · roteiro sem itens → CTA “gerar / adicionar”</span>
+      <span class="pill"><b>success</b> · dias e itens; <code>locked</code>/<code>confidence</code> visíveis</span>
+      <span class="pill"><b>error</b> · geração ou save falhou → preserva o que existe + retry</span>
+    </div>
+    <div class="note decision">
+      <div class="lbl">Decisão</div>
+      <p>O <code class="k">TripItinerary</code> nunca clona dados. Editar = emitir intenção → o store aplica (otimista) → o servidor confirma com nova <code class="k">version</code>. Trocar de tela e voltar mostra <em>exatamente</em> o mesmo estado, porque só existe um. Fim do “contexto perdido”.</p>
+    </div>
+
+    <!-- MATRIZ -->
+    <h2 id="estados"><span class="h2num">07</span>Matriz de estados</h2>
+    <p>Nenhum componente fica de fora dos quatro estados. Resumo do que cada um desenha:</p>
+    <table class="tbl">
+      <thead><tr><th>Componente</th><th>loading</th><th>empty</th><th>error</th></tr></thead>
+      <tbody>
+        <tr><td>GuidedWizard</td><td>IA gerando</td><td>passo inicial</td><td>validação/geração → retry</td></tr>
+        <tr><td>HotelCard</td><td>skeleton</td><td>busca vazia</td><td>retry, não some</td></tr>
+        <tr><td>FlightCard</td><td>skeleton</td><td>sem voos</td><td>retry</td></tr>
+        <tr><td>TourCard</td><td>skeleton</td><td>sem passeios</td><td>retry</td></tr>
+        <tr><td>TripCard</td><td>skeleton</td><td>vira estado vazio da tela</td><td>resumo indisponível</td></tr>
+        <tr><td>TripItinerary</td><td>timeline skeleton</td><td>“gerar/adicionar”</td><td>preserva + retry</td></tr>
+      </tbody>
+    </table>
+
+    <div class="adr">
+      <div class="adr-head"><span class="adr-tag">Decisão recomendada</span><span class="adr-id">ADR-06 · Estados</span></div>
+      <h4 class="adr-title">Loading / empty / error / success são obrigatórios — não opcionais</h4>
+      <div class="adr-grid">
+        <div class="adr-row"><div class="adr-k">Decisão</div><div class="adr-v">Todo componente que depende de dado remoto recebe um <code>status: LoadState</code> e desenha os quatro casos explicitamente. “Sem dado” é um estado projetado, nunca um dado vazio inventado.</div></div>
+        <div class="adr-row"><div class="adr-k">Justificativa</div><div class="adr-v">A ausência de estados explícitos é o que faz a UI mostrar lixo durante carregamento/erro ou “fabricar” conteúdo. Tornar os 4 estados parte do contrato fecha essa porta.</div></div>
+        <div class="adr-row"><div class="adr-k">Riscos</div><div class="adr-v">Mais superfície de design por componente; risco de estados inconsistentes entre telas (mitigar com primitivos compartilhados de skeleton/empty/error).</div></div>
+        <div class="adr-row deny"><div class="adr-k">Não deve acontecer</div><div class="adr-v">Renderizar <code>success</code> com dados parciais; sumir com o componente em <code>error</code> (deve preservar e oferecer retry); tratar <code>empty</code> como <code>error</code>.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Frontend</div><div class="adr-v">Criar primitivos <code>&lt;Skeleton/&gt; &lt;EmptyState/&gt; &lt;ErrorState/&gt;</code> reutilizados; status derivado do estado de query/store.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Backend</div><div class="adr-v">Distinguir claramente <code>vazio</code> (200 + lista vazia) de <code>erro</code> (4xx/5xx + envelope de erro) para o cliente mapear o estado certo.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Codex</div><div class="adr-v">Gerar cada componente com switch nos 4 estados; teste/snapshot por estado; falhar o build se faltar <code>empty</code> ou <code>error</code> em componente data-driven.</div></div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>Gaid · Component Contracts V1 · proposta</span>
+      <span><a href="01 Data Architecture.html">← 01 · Data</a> &nbsp;·&nbsp; <a href="03 API Contracts.html">03 · API →</a></span>
+    </div>
+
+  </article>
+  </main>
+</div>
+</body>
+</html>

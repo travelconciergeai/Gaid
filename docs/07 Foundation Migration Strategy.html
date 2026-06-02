@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Gaid · Foundation Migration Strategy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
+<link href="gaid-docs.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="rail">
+    <div class="brand">
+      <div class="logo">V</div>
+      <div>
+        <div class="who">Gaid · Arquitetura</div>
+        <div class="sub">Sprint de arquitetura · V1</div>
+      </div>
+    </div>
+
+    <div class="rail-label">Documentos</div>
+    <nav class="doc-switch">
+      <a href="01 Data Architecture.html"><span class="num">01</span><span class="t">Data Architecture</span></a>
+      <a href="02 Component Contracts.html"><span class="num">02</span><span class="t">Component Contracts</span></a>
+      <a href="03 API Contracts.html"><span class="num">03</span><span class="t">API Contracts</span></a>
+      <a href="04 MVP Implementation Plan.html"><span class="num">04</span><span class="t">MVP Plan</span></a>
+      <a href="05 Final Architecture Review.html"><span class="num">05</span><span class="t">Final Review</span></a>
+      <a href="06 Real Data Ready Props.html"><span class="num">06</span><span class="t">RDR · Props</span></a>
+      <a class="active" href="07 Foundation Migration Strategy.html"><span class="num">07</span><span class="t">Migration Strategy</span></a>
+      <a href="08 Phase 0 Screen Data Inventory.html"><span class="num">08</span><span class="t">Fase 0 · Inventário</span></a>
+      <a href="09 Phase 0 Executive Summary.html"><span class="num">09</span><span class="t">Fase 0 · Resumo Exec.</span></a>
+      <a href="10 Phase 1 Foundation Design.html"><span class="num">10</span><span class="t">Fase 1 · Fundação</span></a>
+    </nav>
+
+    <div class="rail-label">Nesta página</div>
+    <nav class="toc">
+      <a href="#principio">Princípio</a>
+      <a href="#diagnostico">00 · Por que migrar</a>
+      <a href="#duas-camadas">01 · Duas camadas</a>
+      <a href="#padrao">02 · Padrão de migração</a>
+      <a href="#template">03 · Trip vs TripTemplate</a>
+      <a href="#reaproveitar">04 · O que reaproveitar</a>
+      <a href="#fases">05 · Fases da migração</a>
+      <a href="#riscos">06 · Riscos & reversão</a>
+      <a href="#garantia">Garantia</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+  <article class="doc">
+
+    <div class="eyebrow">Documento 07 — estratégia de migração · sem implementação</div>
+    <h1 class="title">Foundation Migration Strategy</h1>
+    <p class="lede"><strong>Mesma Gaid. Nova fundação.</strong> Como reconstruir a base de dados (Trip, TripTemplate, TripStore, ActiveTripContext, contracts, tripApi) <em>sem tocar</em> em uma linha da UI, UX, navegação ou componentes aprovados — e quais partes da estrutura atual entram de novo sem risco.</p>
+    <div class="meta">
+      <span><b>Regra</b> · apresentação congelada</span>
+      <span><b>Método</b> · fundação isolada + estrangulamento gradual</span>
+      <span><b>Entrega</b> · estratégia — nada implementado</span>
+    </div>
+
+    <!-- PRINCIPIO -->
+    <h2 id="principio"><span class="h2num">00</span>O princípio em uma frase</h2>
+    <p>A experiência aprovada não é o problema — o <strong>alicerce de dados embaixo dela</strong> é. Então não enxertamos dados novos no emaranhado atual (foi ele que gerou as regressões). Construímos uma fundação limpa <strong>em paralelo</strong>, validada isolada, e só então redirecionamos cada tela para ela — uma de cada vez, com volta atrás imediata. A UI nunca é reescrita; ela apenas troca <em>de onde lê</em>.</p>
+
+    <!-- DIAGNOSTICO -->
+    <h2 id="diagnostico"><span class="h2num">00</span>Por que a fundação precisa mudar (e a UI não)</h2>
+    <p>As regressões da semana têm origem estrutural, não visual. Três acoplamentos no código atual explicam quase tudo:</p>
+    <div class="note risk">
+      <div class="lbl">Acoplamento 1 — indireção por <code>dataKey</code></div>
+      <p>Hoje a viagem é resolvida em três saltos: <code class="k">acct.trips</code> (ou <code class="k">mockData.trips</code>) → <code class="k">meta.dataKey</code> → <code class="k">mockData[dataKey]</code>. A "mesma" viagem existe como <em>meta</em> em um lugar e como <em>itinerário</em> em outro, ligados por uma string. Trocar/errar essa string é como "Porto vira Paris".</p>
+    </div>
+    <div class="note risk">
+      <div class="lbl">Acoplamento 2 — telas lendo o catálogo direto</div>
+      <p>Componentes importam <code class="k">mockData</code> e leem dele na renderização. Dado de catálogo, dado do usuário e dado de exemplo se misturam no mesmo nível — sem fronteira, qualquer ajuste vaza para telas que não deviam mudar.</p>
+    </div>
+    <div class="note risk">
+      <div class="lbl">Acoplamento 3 — cópias locais de estado</div>
+      <p>Telas de roteiro clonam os dados da viagem para estado próprio. Edição vive na memória do componente; ao navegar ou regenerar, o clone diverge da origem — o "wizard divergiu do roteiro" e o "contexto se perdeu".</p>
+    </div>
+    <p>Repare: <strong>nada disso é a UI</strong>. São caminhos de dados por trás dela. A migração corta esses três caminhos e os substitui por um só — preservando os pixels.</p>
+
+    <!-- DUAS CAMADAS -->
+    <h2 id="duas-camadas"><span class="h2num">01</span>Duas camadas, uma fronteira</h2>
+    <p>A estratégia inteira depende de separar limpo o que está <strong>congelado</strong> do que é <strong>novo</strong>, com uma fina camada-tradutora no meio que garante que a apresentação não precise mudar.</p>
+
+    <div class="flow">
+      <div class="stage">
+        <div class="node"><div class="nl">Congelado</div><div class="nt">Apresentação</div><div class="nd">screens + ui.jsx aprovados</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="nl">Nova · fina</div><div class="nt">View-models</div><div class="nd">tradutor (anti-corrupção)</div></div>
+        <div class="arrow">→</div>
+        <div class="node solid"><div class="nl">Nova · fundação</div><div class="nt">TripStore</div><div class="nd">fonte única</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="nl">Seam</div><div class="nt">tripApi</div><div class="nd">backend pluga aqui</div></div>
+      </div>
+    </div>
+
+    <table class="tbl">
+      <thead><tr><th>Camada</th><th>Papel</th><th>Muda?</th></tr></thead>
+      <tbody>
+        <tr><td>Apresentação</td><td>As telas e componentes aprovados (Sidebar, Home/chatbar, Plan, cards…)</td><td><strong>Não</strong> — congelada</td></tr>
+        <tr><td>View-models (tradutor)</td><td>Selectors que entregam aos componentes <em>exatamente</em> as formas que eles já consomem hoje</td><td>Nova — fina e descartável</td></tr>
+        <tr><td>Fundação</td><td>contracts · Trip · TripTemplate · TripStore · ActiveTripContext</td><td>Nova — construída isolada</td></tr>
+        <tr><td>Seam</td><td><code>tripApi</code>: única porta de dados; hoje fixtures, amanhã backend</td><td>Nova</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note">
+      <div class="lbl">A peça que protege a experiência: o tradutor (Anti-Corruption Layer)</div>
+      <p>Os componentes aprovados esperam formas específicas (ex.: a Home lê <code class="k">liveTrip.title</code>, <code class="k">dates</code>, <code class="k">travelers</code>, <code class="k">progress</code>, <code class="k">budget</code>, <code class="k">coverSeed</code>, <code class="k">insights[]</code>). O tradutor mapeia <em>Trip da nova fundação → essa forma antiga</em>. Assim a fundação pode ser limpa e canônica <strong>sem</strong> exigir que nenhuma tela mude. Quando (e se) quisermos modernizar um componente, removemos o mapeamento dele — nunca antes.</p>
+    </div>
+
+    <!-- PADRAO -->
+    <h2 id="padrao"><span class="h2num">02</span>O padrão de migração: estrangular, não reescrever</h2>
+    <p>Adotamos o <strong>Strangler-Fig</strong>: a fundação nova cresce ao redor da antiga e vai assumindo uma tela por vez, até a estrutura velha não alimentar mais nada e poder ser removida. Nunca há um "big bang".</p>
+    <div class="adr">
+      <div class="adr-head"><span class="adr-tag">Decisão de método</span><span class="adr-id">ADR-10 · Strangler</span></div>
+      <h4 class="adr-title">Fundação isolada + corte por tela atrás de um flag</h4>
+      <div class="adr-grid">
+        <div class="adr-row"><div class="adr-k">Decisão</div><div class="adr-v">Construir a fundação <strong>sem UI</strong> e validá-la sozinha; depois redirecionar cada tela do caminho antigo (<code>mockData</code>/<code>account</code>) para o novo (<code>TripStore</code> via view-model), <strong>uma por vez</strong>, protegida por um <code>source flag</code> reversível.</div></div>
+        <div class="adr-row"><div class="adr-k">Justificativa</div><div class="adr-v">Isola o risco: enquanto a fundação é construída, o app aprovado segue intacto. Cada corte é pequeno, verificável e reversível — o oposto da semana de regressões.</div></div>
+        <div class="adr-row deny"><div class="adr-k">Não fazer</div><div class="adr-v">Reescrever telas; trocar tudo de uma vez; misturar a fundação nova com os <code>dataKey</code>/clones antigos; modernizar visual "de passagem".</div></div>
+        <div class="adr-row impact"><div class="adr-k">Reversão</div><div class="adr-v">Cada tela tem o flag: ligado lê a fundação, desligado volta ao caminho atual. Regressão → desliga aquela tela, sem afetar as outras.</div></div>
+      </div>
+    </div>
+
+    <!-- TEMPLATE -->
+    <h2 id="template"><span class="h2num">03</span>Trip vs TripTemplate — separando catálogo de instância</h2>
+    <p>Boa parte da confusão atual vem de tratar "roteiro pronto/inspiração" e "viagem do usuário" como a mesma coisa (o nó <code class="k">dataKey</code>). A fundação separa os dois — é o que o <code class="k">TripTemplate</code> resolve.</p>
+    <div class="grid2">
+      <div class="kv"><div class="kvh">TripTemplate — catálogo</div><div class="kvb">Roteiro editorial/inspiração, <strong>imutável e compartilhado</strong>: o que hoje vive espalhado em <code>mockData</code> (routes, itinerários por <code>dataKey</code>). Ninguém "possui"; serve de ponto de partida.</div></div>
+      <div class="kv"><div class="kvh">Trip — instância</div><div class="kvb">A viagem <strong>do usuário</strong>: tem dono, status e ciclo de vida. Pode nascer vazia, de um template, ou da conversa com a Gaid. É a <strong>fonte única da verdade</strong> de "minha viagem".</div></div>
+    </div>
+    <div class="code">
+      <span class="cap">Relação (declarativa) — nenhuma indireção por string solta</span>
+<b>TripTemplate</b>  <span class="c">// catálogo, read-only</span>
+   └─ usado para semear →  <b>Trip</b>  <span class="c">// instância do usuário, fonte da verdade</span>
+
+<span class="c">// Hoje:  trip.meta → dataKey (string) → mockData[dataKey]   ❌ frágil</span>
+<span class="c">// Novo:  Trip referencia templateId? e carrega seus próprios dados  ✓</span>
+    </div>
+    <p>Isso elimina o salto <code class="k">dataKey</code>: a Trip não "aponta para um objeto de catálogo em runtime" — ela é criada a partir de um template (cópia controlada) e a partir daí tem vida própria. Catálogo muda? Não afeta viagens já criadas.</p>
+
+    <!-- REAPROVEITAR -->
+    <h2 id="reaproveitar"><span class="h2num">04</span>O que reaproveitar — e como, sem risco</h2>
+    <p>Boa notícia: a maior parte do código atual é <em>apresentação</em> e entra de volta sem tocar. O risco mora só nos caminhos de dados.</p>
+
+    <h3>Reaproveitar 100% — risco zero (é apresentação)</h3>
+    <table class="tbl">
+      <thead><tr><th>Parte atual</th><th>Por quê é seguro</th></tr></thead>
+      <tbody>
+        <tr><td><code>src/ui.jsx</code> — Sidebar, Topbar, SectionHeader, CmdPalette, Button, Card, SmartImg, Portrait, Toast</td><td>Pura apresentação. Navegação (Busca ⌘K, Início, Experts, Explorar, Minhas viagens, Reservar, Sua Gaid) e visual permanecem idênticos.</td></tr>
+        <tr><td>Todas as telas em <code>src/screens/*</code> (Home/chatbar, Plan, Trips, Explore, Experts, Wallet, Miles, Hotels, Flights, Tours, Plans, Profile)</td><td>Layouts, copy, hierarquia e fluxos aprovados. Só trocam a <em>origem</em> dos dados, via view-model.</td></tr>
+        <tr><td><code>src/icons.jsx</code>, estilos/tokens, <code>EmptyStates.jsx</code></td><td>Sem dependência de dados; os empty states aprovados continuam sendo os oficiais.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Reaproveitar com adaptação — baixo risco</h3>
+    <table class="tbl">
+      <thead><tr><th>Parte atual</th><th>Adaptação</th></tr></thead>
+      <tbody>
+        <tr><td><code>src/account.jsx</code></td><td>Dividir responsabilidades: <strong>mantém</strong> sessão/auth/perfil/onboarding (estável, baixo risco). <strong>Cede</strong> a posse de viagens (<code>trips[]</code>) e <code>activeTripId</code> para a fundação. Vira "conta do usuário", não "dono dos dados de viagem".</td></tr>
+        <tr><td><code>App.jsx</code> — shell/rotas</td><td>Mantém shell, rotas e atalhos. <strong>Remove</strong> a função <code>tripFor()</code>/<code>dataKey</code> (a resolução passa a vir do <code>TripStore</code> via <code>activeTripId</code>).</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Reaproveitar só como semente — não manter o acoplamento</h3>
+    <table class="tbl">
+      <thead><tr><th>Parte atual</th><th>Destino</th></tr></thead>
+      <tbody>
+        <tr><td><code>src/mockData.jsx</code></td><td>Vira <strong>fonte de fixtures atrás do <code>tripApi</code></strong>: alimenta o catálogo de <code>TripTemplate</code> e viagens de exemplo. Os componentes <strong>param de importá-lo</strong>. Removido de vez quando o backend entrar.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Não reaproveitar — é a fonte das regressões</h3>
+    <div class="note risk">
+      <div class="lbl">Aposentar conscientemente</div>
+      <p>(1) A indireção <code class="k">meta → dataKey → mockData[dataKey]</code>. (2) Leituras diretas de <code class="k">mockData</code> dentro de telas. (3) Clones locais de dados de viagem em estado de componente. Esses três padrões não migram — são substituídos pela fonte única.</p>
+    </div>
+
+    <!-- FASES -->
+    <h2 id="fases"><span class="h2num">05</span>Fases da migração</h2>
+    <p>Cada fase tem critério de saída e é reversível. Nada avança sem a anterior verde.</p>
+
+    <h3>Fase 0 — Congelar & inventariar</h3>
+    <p>Snapshot visual de cada tela aprovada (linha de base). Inventário do <strong>contrato de fato</strong>: que campos cada tela lê hoje (ex.: o objeto que a Home e a Plan consomem). Esse inventário vira a especificação do tradutor.</p>
+    <div class="note"><div class="lbl">Saída</div><p>Lista de "formas esperadas" por tela + baseline visual para comparar paridade depois.</p></div>
+
+    <h3>Fase 1 — Construir a fundação isolada</h3>
+    <p><code class="k">contracts</code>, <code class="k">Trip</code>, <code class="k">TripTemplate</code>, <code class="k">TripStore</code> (cache único + selectors + ações), <code class="k">ActiveTripContext</code> (só <code>activeTripId</code>) e <code class="k">tripApi</code> (com fixtures vindas do <code>mockData</code> repackaged). <strong>Sem UI ligada.</strong></p>
+    <div class="note"><div class="lbl">Saída</div><p>Fundação validada por conta própria (dados entram/saem coerentes), sem nenhum risco para o app — porque ainda não está conectada.</p></div>
+
+    <h3>Fase 2 — Tradutor (view-models)</h3>
+    <p>Implementar os selectors que convertem <code class="k">Trip</code> → formas do inventário da Fase 0. Conferir, campo a campo, que a saída do tradutor é idêntica à que as telas recebem hoje.</p>
+    <div class="note"><div class="lbl">Saída</div><p>Para cada tela, um view-model que produz props equivalentes às atuais — pronto para plugar.</p></div>
+
+    <h3>Fase 3 — Estrangular, tela por tela (atrás de flag)</h3>
+    <p>Redirecionar uma tela de cada vez, da <strong>menor para a maior superfície de risco</strong>. Verificar paridade visual contra a baseline antes de seguir.</p>
+    <table class="tbl">
+      <thead><tr><th>Ordem</th><th>Tela</th><th>Risco</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>Explorar / Experts (catálogo, read-only)</td><td>Baixo — sem estado do usuário</td></tr>
+        <tr><td>2</td><td>Minhas viagens (lista)</td><td>Baixo — leitura de resumo</td></tr>
+        <tr><td>3</td><td>Home (resumo da viagem ativa + chatbar intacta)</td><td>Médio</td></tr>
+        <tr><td>4</td><td>Roteiro / Plan (itinerário)</td><td>Alto — epicentro dos clones</td></tr>
+      </tbody>
+    </table>
+    <div class="note"><div class="lbl">Saída</div><p>Todas as telas lendo da fundação, cada corte verificado isolado. Flag por tela permite voltar qualquer uma.</p></div>
+
+    <h3>Fase 4 — Transferir a posse & cortar a indireção</h3>
+    <p>Mover <code class="k">trips[]</code>/<code class="k">activeTripId</code> do <code>account</code> para a fundação; remover <code class="k">tripFor()</code>/<code>dataKey</code>; eliminar os clones locais. A partir daqui, fonte única de verdade de fato.</p>
+
+    <h3>Fase 5 — Remover o acoplamento de mock</h3>
+    <p><code class="k">mockData</code> deixa de ser lido por componentes; permanece só como fixtures atrás do <code>tripApi</code> (ou dá lugar ao backend). Caminhos mortos deletados.</p>
+
+    <!-- RISCOS -->
+    <h2 id="riscos"><span class="h2num">06</span>Riscos & reversão</h2>
+    <table class="tbl">
+      <thead><tr><th>Risco</th><th>Mitigação</th></tr></thead>
+      <tbody>
+        <tr><td>Tradutor não reproduz a forma exata → tela quebra/visual muda</td><td>Inventário da Fase 0 + comparação de paridade campo a campo antes de cada corte</td></tr>
+        <tr><td>Regressão ao migrar uma tela</td><td>Flag por tela: desliga só ela, volta ao caminho atual, sem afetar as demais</td></tr>
+        <tr><td>Roteiro/Plan (clones) voltar a divergir</td><td>Migrar por último, já com fonte única madura; proibir estado local de dados de viagem</td></tr>
+        <tr><td>account e fundação disputarem a posse da viagem</td><td>Transição explícita na Fase 4; durante a migração, fundação é leitura e account ainda detém escrita até o corte</td></tr>
+        <tr><td>Catálogo (template) vazar para instância</td><td>Trip é cópia semeada do template, nunca referência viva ao objeto de catálogo</td></tr>
+      </tbody>
+    </table>
+
+    <!-- GARANTIA -->
+    <h2 id="garantia"><span class="h2num">✓</span>Garantia</h2>
+    <div class="note decision">
+      <div class="lbl">O que esta estratégia promete</div>
+      <ol>
+        <li><strong>Mesma Gaid:</strong> UI, UX, navegação, hierarquia, copy e componentes aprovados permanecem 100% intactos.</li>
+        <li><strong>Nova fundação:</strong> Trip · TripTemplate · TripStore · ActiveTripContext · contracts · tripApi, construídos isolados e canônicos.</li>
+        <li><strong>Sem big bang:</strong> corte tela por tela, atrás de flag, cada um reversível.</li>
+        <li><strong>Reaproveitamento máximo:</strong> toda a apresentação volta sem risco; só os 3 acoplamentos problemáticos são aposentados.</li>
+        <li><strong>Backend depois:</strong> ao final, plugar o backend é trocar o corpo do <code>tripApi</code> — nada na UI muda.</li>
+      </ol>
+      <p>Próximo passo sugerido (ainda sem código): aprovar esta estratégia e a separação <em>Trip × TripTemplate</em>; então eu detalho a <strong>Fase 0</strong> — o inventário de "formas esperadas" por tela — que é o que blinda a paridade visual antes de qualquer corte.</p>
+    </div>
+
+    <div class="footer">
+      <span>Gaid · Foundation Migration Strategy · estratégia (sem implementação)</span>
+      <span><a href="06 Real Data Ready Props.html">← 06 · RDR Props</a> &nbsp;·&nbsp; <a href="05 Final Architecture Review.html">05 · Final Review</a></span>
+    </div>
+
+  </article>
+  </main>
+</div>
+</body>
+</html>

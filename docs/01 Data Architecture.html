@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Gaid · Data Architecture V1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet"/>
+<link href="gaid-docs.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="shell">
+
+  <!-- RAIL -->
+  <aside class="rail">
+    <div class="brand">
+      <div class="logo">V</div>
+      <div>
+        <div class="who">Gaid · Arquitetura</div>
+        <div class="sub">Sprint de arquitetura · V1</div>
+      </div>
+    </div>
+
+    <div class="rail-label">Documentos</div>
+    <nav class="doc-switch">
+      <a class="active" href="01 Data Architecture.html"><span class="num">01</span><span class="t">Data Architecture</span></a>
+      <a href="02 Component Contracts.html"><span class="num">02</span><span class="t">Component Contracts</span></a>
+      <a href="03 API Contracts.html"><span class="num">03</span><span class="t">API Contracts</span></a>
+      <a href="04 MVP Implementation Plan.html"><span class="num">04</span><span class="t">MVP Plan</span></a>
+      <a href="05 Final Architecture Review.html"><span class="num">05</span><span class="t">Final Review</span></a>
+      <a href="06 Real Data Ready Props.html"><span class="num">06</span><span class="t">RDR · Props</span></a>
+      <a href="07 Foundation Migration Strategy.html"><span class="num">07</span><span class="t">Migration Strategy</span></a>
+      <a href="08 Phase 0 Screen Data Inventory.html"><span class="num">08</span><span class="t">Fase 0 · Inventário</span></a>
+      <a href="09 Phase 0 Executive Summary.html"><span class="num">09</span><span class="t">Fase 0 · Resumo Exec.</span></a>
+      <a href="10 Phase 1 Foundation Design.html"><span class="num">10</span><span class="t">Fase 1 · Fundação</span></a>
+    </nav>
+
+    <div class="rail-label">Nesta página</div>
+    <nav class="toc">
+      <a href="#diagnostico">00 · Diagnóstico</a>
+      <a href="#modelo">01 · O que é uma viagem</a>
+      <a class="sub" href="#entidades">Entidades</a>
+      <a class="sub" href="#referencia">Dados de referência</a>
+      <a href="#verdade">02 · Fonte única da verdade</a>
+      <a href="#context">03 · ActiveTripContext</a>
+      <a href="#ciclo">04 · Ciclo da viagem</a>
+      <a href="#decisoes">05 · Decisões & simplificações</a>
+    </nav>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+  <article class="doc">
+
+    <div class="eyebrow">Documento 01 — fundação</div>
+    <h1 class="title">Gaid Data Architecture V1</h1>
+    <p class="lede">A camada de dados que decide o que <em>existe</em>, quem <em>manda</em> e como a informação flui entre wizard, telas e backend. Tudo que vem depois — componentes e API — se apoia neste documento.</p>
+    <div class="meta">
+      <span><b>Status</b> · proposta para aprovação</span>
+      <span><b>Escopo</b> · modelo, fonte da verdade, contexto ativo, ciclo de vida</span>
+      <span><b>Regra de ouro</b> · nenhum dado é inventado no cliente</span>
+    </div>
+
+    <!-- ============ 00 DIAGNÓSTICO ============ -->
+    <h2 id="diagnostico"><span class="h2num">00</span>Diagnóstico da arquitetura atual</h2>
+    <p>Os sintomas relatados — <strong>“Porto virando Paris”, dados inventados, estados conflitantes, regressões, contexto perdido entre telas, roteiros inconsistentes</strong> — não são bugs isolados de UI. São o sintoma clássico de uma única doença: <strong>não existe uma fonte única da verdade</strong>. Hoje a mesma viagem vive, simultaneamente, em quatro lugares que discordam entre si.</p>
+
+    <div class="note risk">
+      <div class="lbl">Risco 1 — múltiplas fontes da verdade</div>
+      <p>A viagem é montada a partir de um <em>catálogo estático</em> (<code class="k">mockData.trips</code> → <code class="k">dataKey</code> → <code class="k">mockData.disneyTrip</code>…), enquanto o que o usuário possui vive na <em>account store</em>, enquanto a tela de planejamento mantém <em>a sua própria cópia</em>. Três representações da “mesma” viagem, nenhuma autoritativa.</p>
+    </div>
+
+    <div class="note risk">
+      <div class="lbl">Risco 2 — estado duplicado e clonado</div>
+      <p>A tela de roteiro faz <code class="k">JSON.parse(JSON.stringify(trip.days))</code> para o estado local e <em>re-semeia o chat</em> a partir de <code class="k">mockData.chatSeed</code> sempre que o <code class="k">tripId</code> muda. Edições passam a existir só na memória do componente; ao trocar de tela ou regenerar, o clone é descartado e a viagem “volta no tempo”. É exatamente o <em>contexto se perdendo</em> e a <em>regressão</em>.</p>
+    </div>
+
+    <div class="note risk">
+      <div class="lbl">Risco 3 — lugares como texto livre</div>
+      <p>Destinos e cidades trafegam como <em>strings</em> (“Porto”, “Lisboa”, “warm”) acopladas a seeds de imagem e a chaves posicionais. Sem um identificador canônico, qualquer regeneração ou recálculo pode trocar “Porto” por “Paris” sem nada detectar o erro — o sistema não sabe que são entidades diferentes.</p>
+    </div>
+
+    <div class="note risk">
+      <div class="lbl">Risco 4 — IA sem fronteira de dados</div>
+      <p>A geração de roteiro produz objetos livres. Sem um <em>schema</em> e uma fronteira clara (“a IA propõe; o store valida e persiste”), o modelo pode emitir campos, preços ou lugares que ninguém pediu — os “dados inventados”.</p>
+    </div>
+
+    <p>O resto deste documento elimina cada um desses riscos pela raiz: <strong>um modelo de dados normalizado</strong>, <strong>uma única fonte da verdade</strong>, <strong>um contexto que só aponta — não copia</strong>, e <strong>um ciclo de vida onde a viagem nasce real no servidor desde a primeira resposta do wizard</strong>.</p>
+
+    <!-- ============ 01 MODELO ============ -->
+    <h2 id="modelo"><span class="h2num">01</span>O que é uma viagem?</h2>
+    <p>Uma <strong>Trip</strong> é a <em>raiz de agregação</em>: a unidade que tem dono, ciclo de vida e versão. Ela não <em>contém</em> cópias de hotéis, voos e passeios — ela os <strong>referencia por id</strong>. As entidades de catálogo (Hotel, Flight, Tour, Destination) vivem em suas próprias coleções e são imutáveis do ponto de vista da viagem. Isto é o que impede “Porto” de virar “Paris”: o dia aponta para um <code class="k">destinationId</code> estável, não para uma palavra.</p>
+
+    <h3 id="entidades">Entidades centrais</h3>
+
+    <div class="code">
+      <span class="cap">Trip — raiz de agregação</span>
+<span class="c">// A única coisa que o usuário "possui". Tudo pendura aqui.</span>
+<b>Trip</b> {
+  id: <span class="ty">TripId</span>                  <span class="c">// id real do servidor, desde o draft</span>
+  ownerId: <span class="ty">UserId</span>
+  title: <span class="ty">string</span>               <span class="c">// "Portugal — Lisboa & Porto"</span>
+  status: <span class="ty">TripStatus</span>           <span class="c">// draft | planning | active | completed | archived</span>
+  source: <span class="ty">TripSource</span>           <span class="c">// wizard | manual | expert | template</span>
+
+  destinations: <span class="ty">DestinationId[]</span>  <span class="c">// canônicos, ordenados</span>
+  dateRange: { start: <span class="ty">ISODate</span>, end: <span class="ty">ISODate</span> } | <span class="ty">null</span>
+  travelers: <span class="ty">Traveler[]</span>
+  budget: { currency: <span class="ty">string</span>, min: <span class="ty">number</span>, max: <span class="ty">number</span>, estimated: <span class="ty">number</span> }
+  expertId: <span class="ty">ExpertId</span> | <span class="ty">null</span>
+
+  days: <span class="ty">TripDay[]</span>             <span class="c">// itinerário, ordenado por dayIndex</span>
+  bookings: <span class="ty">BookingRef[]</span>      <span class="c">// hotéis/voos/passeios aplicados</span>
+  coverRef: <span class="ty">ImageRef</span> | <span class="ty">null</span>
+
+  version: <span class="ty">number</span>             <span class="c">// concorrência otimista — sobe a cada update</span>
+  createdAt: <span class="ty">ISODateTime</span>
+  updatedAt: <span class="ty">ISODateTime</span>
+}
+    </div>
+
+    <div class="code">
+      <span class="cap">TripDay & ItineraryItem — o itinerário</span>
+<b>TripDay</b> {
+  id: <span class="ty">TripDayId</span>
+  tripId: <span class="ty">TripId</span>
+  dayIndex: <span class="ty">number</span>            <span class="c">// 0-based, ordem canônica</span>
+  date: <span class="ty">ISODate</span> | <span class="ty">null</span>
+  cityId: <span class="ty">DestinationId</span>       <span class="c">// onde o dia acontece — nunca texto livre</span>
+  items: <span class="ty">ItineraryItem[]</span>     <span class="c">// ordenados</span>
+  note: <span class="ty">string</span> | <span class="ty">null</span>
+}
+
+<b>ItineraryItem</b> {
+  id: <span class="ty">ItemId</span>
+  dayId: <span class="ty">TripDayId</span>
+  slot: <span class="ty">Slot</span>                  <span class="c">// manha | tarde | noite</span>
+  kind: <span class="ty">ItemKind</span>              <span class="c">// activity | meal | tour | transfer | checkin | flight</span>
+  refKind: <span class="ty">RefKind</span> | <span class="ty">null</span>     <span class="c">// tour | flight | hotel — se houver entidade ligada</span>
+  refId: <span class="ty">EntityId</span> | <span class="ty">null</span>      <span class="c">// id da entidade de catálogo</span>
+  title: <span class="ty">string</span>
+  placeId: <span class="ty">PlaceId</span> | <span class="ty">null</span>
+  durationMin: <span class="ty">number</span> | <span class="ty">null</span>
+  status: <span class="ty">ItemStatus</span>          <span class="c">// suggested | confirmed | booked</span>
+  confidence: <span class="ty">number</span>          <span class="c">// 0..1 — quão segura a IA está</span>
+  locked: <span class="ty">boolean</span>             <span class="c">// usuário fixou; IA não pode sobrescrever</span>
+}
+    </div>
+
+    <p>Dois campos resolvem a inconsistência dos roteiros: <strong><code class="k">locked</code></strong> protege o que o usuário decidiu de qualquer regeneração da IA, e <strong><code class="k">confidence</code></strong> deixa explícito o que é palpite versus o que é fato — a UI pode tratar os dois de forma diferente em vez de apresentar tudo como verdade.</p>
+
+    <div class="code">
+      <span class="cap">Traveler — quem viaja</span>
+<b>Traveler</b> {
+  id: <span class="ty">TravelerId</span>
+  kind: <span class="ty">TravelerKind</span>         <span class="c">// adult | child | infant | pet</span>
+  name: <span class="ty">string</span> | <span class="ty">null</span>
+  ageBand: <span class="ty">string</span> | <span class="ty">null</span>     <span class="c">// "0-3" | "4-7" ... (crianças)</span>
+  petSize: <span class="ty">string</span> | <span class="ty">null</span>     <span class="c">// pequeno | medio | grande</span>
+  documents: <span class="ty">TravelerDoc[]</span>    <span class="c">// passaporte, autorização, vacina pet…</span>
+}
+    </div>
+
+    <div class="code">
+      <span class="cap">Catálogo — Hotel · Flight · Tour (referenciados, imutáveis na Trip)</span>
+<b>Hotel</b> {
+  id: <span class="ty">HotelId</span>
+  name: <span class="ty">string</span>
+  cityId: <span class="ty">DestinationId</span>
+  rating: <span class="ty">number</span>
+  style: <span class="ty">string</span>               <span class="c">// boutique | resort | …</span>
+  perks: <span class="ty">string[]</span>
+  price: <span class="ty">Money</span>                 <span class="c">// por noite</span>
+  provider: <span class="ty">string</span>
+}
+
+<b>Flight</b> {
+  id: <span class="ty">FlightId</span>
+  segments: <span class="ty">FlightSegment[]</span>   <span class="c">// from/to (airportId), carrier, no, depart/arrive, cabin</span>
+  price: <span class="ty">Money</span>
+  miles: { program: <span class="ty">string</span>, amount: <span class="ty">number</span> } | <span class="ty">null</span>
+  provider: <span class="ty">string</span>
+}
+
+<b>Tour</b> {
+  id: <span class="ty">TourId</span>
+  name: <span class="ty">string</span>
+  cityId: <span class="ty">DestinationId</span>
+  category: <span class="ty">string</span>
+  durationMin: <span class="ty">number</span>
+  price: <span class="ty">Money</span>
+  provider: <span class="ty">string</span>
+}
+    </div>
+
+    <div class="code">
+      <span class="cap">Booking — a ponte entre desejo e reserva</span>
+<span class="c">// Aplicar um hotel/voo/passeio ao roteiro cria um BookingRef.</span>
+<span class="c">// É o que separa "sugerido" de "reservado de verdade".</span>
+<b>BookingRef</b> {
+  id: <span class="ty">BookingId</span>
+  tripId: <span class="ty">TripId</span>
+  refKind: <span class="ty">RefKind</span>            <span class="c">// hotel | flight | tour</span>
+  refId: <span class="ty">EntityId</span>
+  status: <span class="ty">BookingStatus</span>       <span class="c">// none | held | booked | cancelled</span>
+  price: <span class="ty">Money</span>
+  confirmationCode: <span class="ty">string</span> | <span class="ty">null</span>
+  appliedToItemIds: <span class="ty">ItemId[]</span>  <span class="c">// onde aparece no itinerário</span>
+}
+    </div>
+
+    <h3 id="referencia">Dados de referência (canônicos)</h3>
+    <p>Estas entidades existem <em>antes</em> de qualquer viagem e são compartilhadas por todas. São a defesa contra dados inventados: o frontend e a IA só podem referenciar ids que já existem aqui.</p>
+    <div class="code">
+      <span class="cap">Destination · Place · Airport — vocabulário fechado</span>
+<b>Destination</b> { id: <span class="ty">DestinationId</span>, city: <span class="ty">string</span>, region: <span class="ty">string</span>, country: <span class="ty">string</span>, geo: <span class="ty">LatLng</span> }
+<b>Place</b>       { id: <span class="ty">PlaceId</span>, name: <span class="ty">string</span>, cityId: <span class="ty">DestinationId</span>, geo: <span class="ty">LatLng</span>, kind: <span class="ty">string</span> }
+<b>Airport</b>     { id: <span class="ty">AirportId</span>, iata: <span class="ty">string</span>, cityId: <span class="ty">DestinationId</span> }
+    </div>
+    <div class="note">
+      <div class="lbl">Por que isto mata o bug “Porto → Paris”</div>
+      <p>“Porto” deixa de ser uma string repetida em dez lugares e passa a ser <code class="k">{ id: "dst_porto", city: "Porto", country: "PT" }</code>. Um dia aponta para <code class="k">dst_porto</code>. Para isso virar Paris, alguém teria que trocar o <em>id</em> — uma operação explícita, rastreável e validável contra a lista de destinos da viagem. A confusão silenciosa fica impossível.</p>
+    </div>
+
+    <div class="adr">
+      <div class="adr-head"><span class="adr-tag">Decisão recomendada</span><span class="adr-id">ADR-04 · Dados</span></div>
+      <h4 class="adr-title">Lugares são entidades canônicas com id — nunca texto livre</h4>
+      <div class="adr-grid">
+        <div class="adr-row"><div class="adr-k">Decisão</div><div class="adr-v">Destinos, cidades, aeroportos e lugares vivem em coleções de referência com <code>id</code> estável. Trip, TripDay e ItineraryItem referenciam esses ids; nenhuma string de lugar trafega no estado ou na API.</div></div>
+        <div class="adr-row"><div class="adr-k">Justificativa</div><div class="adr-v">Causa raiz de “Porto → Paris”: lugar como string repetida e acoplada a seeds/chaves posicionais. Com id canônico, trocar de lugar vira uma operação explícita e validável.</div></div>
+        <div class="adr-row"><div class="adr-k">Riscos</div><div class="adr-v">Exige um catálogo de referência mantido e um passo de resolução (texto do usuário → id) no wizard. Texto sem correspondência precisa de tratamento (sugerir/criar).</div></div>
+        <div class="adr-row deny"><div class="adr-k">Não deve acontecer</div><div class="adr-v">Persistir nome de cidade como verdade; a IA emitir um lugar que não existe na tabela de referência; comparar lugares por string.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Frontend</div><div class="adr-v">Telas exibem o nome resolvido a partir do id; selects/autocomplete devolvem <code>DestinationId</code>. Imagens deixam de depender de strings de “tone”.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Backend</div><div class="adr-v">Expor catálogo de referência; validar todo id recebido; rejeitar patches da IA com ids inexistentes (400).</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Codex</div><div class="adr-v">Gerar tipos <code>DestinationId/AirportId/PlaceId</code> como branded types; proibir <code>city: string</code> em entidades de viagem; teste que falha se um item de itinerário guardar nome em vez de id.</div></div>
+      </div>
+    </div>
+
+    <!-- ============ 02 FONTE DA VERDADE ============ -->
+    <h2 id="verdade"><span class="h2num">02</span>Qual é a fonte única da verdade?</h2>
+    <p>Decisão: <strong>o backend é a fonte canônica; a <em>Trip</em> persistida é a entidade autoritativa</strong>. No cliente existe exatamente <strong>um cache normalizado dessa verdade</strong> — o <strong>Trip Store</strong>. Nenhum componente guarda cópia própria de dados de viagem. Telas <em>lêem</em> via selectors e <em>escrevem</em> via ações que passam pelo store e sincronizam com o servidor.</p>
+
+    <div class="flow">
+      <div class="stage">
+        <div class="node solid"><div class="nl">Canônico</div><div class="nt">Backend / Trip</div><div class="nd">verdade durável + versão</div></div>
+        <div class="arrow">↔</div>
+        <div class="node"><div class="nl">Cliente</div><div class="nt">Trip Store</div><div class="nd">cache normalizado único</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="nl">Leitura</div><div class="nt">Selectors</div><div class="nd">derivam, não copiam</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="nl">UI</div><div class="nt">Componentes</div><div class="nd">puros, sem estado de dados</div></div>
+      </div>
+    </div>
+
+    <h4>Por que o backend, e não a Trip em memória ou um contexto</h4>
+    <ul>
+      <li><strong>Durabilidade & multi-dispositivo.</strong> A viagem precisa sobreviver a refresh, a outro device e ao expert humano editando junto. Só o servidor garante isso.</li>
+      <li><strong>Versão = fim das regressões.</strong> Cada escrita carrega <code class="k">version</code>. Se duas origens tentarem salvar em cima da mesma versão, o servidor rejeita (409) e o cliente re-sincroniza — em vez de uma sobrescrever a outra silenciosamente.</li>
+      <li><strong>Fronteira para a IA.</strong> A IA propõe um <em>patch</em>; o servidor valida contra o schema e os ids de referência antes de persistir. Dado inventado não entra.</li>
+    </ul>
+
+    <div class="adr">
+      <div class="adr-head"><span class="adr-tag">Decisão recomendada</span><span class="adr-id">ADR-01 · Verdade</span></div>
+      <h4 class="adr-title">O servidor é canônico; o cliente tem um único cache espelho</h4>
+      <div class="adr-grid">
+        <div class="adr-row"><div class="adr-k">Decisão</div><div class="adr-v">O backend é a fonte canônica da Trip. No cliente existe <strong>exatamente um</strong> cache normalizado (o Trip Store) que espelha o servidor. Telas <strong>lêem por selectors</strong> e <strong>escrevem por ações</strong> que sincronizam — nunca guardam cópia própria.</div></div>
+        <div class="adr-row"><div class="adr-k">Justificativa</div><div class="adr-v">Todos os sintomas (Porto→Paris, conflitos, regressões, contexto perdido) são de múltiplas fontes da verdade. Durabilidade, multi-dispositivo e edição conjunta com o expert exigem o servidor. <code>version</code> por escrita elimina sobrescrita silenciosa.</div></div>
+        <div class="adr-row"><div class="adr-k">Riscos</div><div class="adr-v">Latência percebida (mitigar com update otimista + rollback); complexidade de invalidação de cache; necessidade de reconciliar <code>409</code>.</div></div>
+        <div class="adr-row deny"><div class="adr-k">Não deve acontecer</div><div class="adr-v">Nenhuma tela mantém <code>days/itinerary</code> em <code>useState</code>; nenhum dado de viagem vive só na memória de um componente; nunca existirem “duas verdades” (catálogo + clone local).</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Frontend</div><div class="adr-v">Introduzir <code>tripStore</code> + selectors; remover os clones atuais (PlanScreen <code>days/chat/prep</code>); telas viram leitoras + emissoras de intenção.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Backend</div><div class="adr-v">Trip como agregado com <code>version</code>; toda resposta devolve a Trip inteira; suportar <code>If-Match</code> e responder <code>409</code> em conflito.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Codex</div><div class="adr-v">Gerar um único módulo de store + hooks de selector; regra de lint/teste que <strong>proíbe</strong> <code>useState</code> contendo dados de viagem; toda mutação obrigada a passar por action→API; teste que falha se um componente faz <code>fetch</code> direto.</div></div>
+      </div>
+    </div>
+
+    <!-- ============ 03 ACTIVE TRIP CONTEXT ============ -->
+    <h2 id="context"><span class="h2num">03</span>O que é o ActiveTripContext?</h2>
+    <p>É a <strong>lente</strong> sobre a viagem em foco. Ele guarda <em>a identidade</em> (qual trip está aberta) e expõe leitura + ações para ela. Ele <strong>não é</strong> uma segunda cópia da viagem.</p>
+
+    <div class="grid2">
+      <div class="kv"><div class="kvh">Objetivo</div><div class="kvb">Saber qual é a trip ativa e dar às telas acesso ergonômico a ela sem prop-drilling.</div></div>
+      <div class="kv"><div class="kvh">Ciclo de vida</div><div class="kvb">Nasce ao abrir/criar uma trip; persiste na navegação; é reidratado da URL (<code class="k">/trip/:id</code>) no load; some no logout.</div></div>
+    </div>
+
+    <h4>Responsabilidades</h4>
+    <ul>
+      <li>Manter <code class="k">activeTripId</code> (só o id).</li>
+      <li>Expor selectors: <code class="k">useActiveTrip()</code>, <code class="k">useTripDay(index)</code>, <code class="k">useItem(id)</code> — que lêem do Trip Store.</li>
+      <li>Despachar <em>intenções</em>: <code class="k">addItem</code>, <code class="k">moveItem</code>, <code class="k">lockItem</code>, <code class="k">applyHotel</code>, <code class="k">applyFlight</code>, <code class="k">applyTour</code> — que viram mutations no store/servidor.</li>
+      <li>Expor status de sincronização: <code class="k">loading | ready | saving | error | stale</code>.</li>
+    </ul>
+
+    <div class="note risk">
+      <div class="lbl">O que o ActiveTripContext NÃO deve fazer</div>
+      <p>Não armazenar a viagem (só o id). Não buscar catálogo. Não transformar/mesclar dados. Não inventar defaults. Não duplicar o estado do wizard. Não conter lógica de apresentação. Se ele começar a guardar <code class="k">days</code>, voltamos ao Risco 2.</p>
+    </div>
+
+    <div class="adr">
+      <div class="adr-head"><span class="adr-tag">Decisão recomendada</span><span class="adr-id">ADR-03 · Contexto</span></div>
+      <h4 class="adr-title">ActiveTripContext guarda identidade, não dados</h4>
+      <div class="adr-grid">
+        <div class="adr-row"><div class="adr-k">Decisão</div><div class="adr-v">O contexto carrega apenas <code>activeTripId</code> e expõe selectors + ações que operam sobre o Trip Store. É reidratado da URL (<code>/trip/:id</code>). Zero dados de viagem dentro dele.</div></div>
+        <div class="adr-row"><div class="adr-k">Justificativa</div><div class="adr-v">Separar “qual trip está ativa” de “os dados da trip” evita a segunda cópia (a raiz do contexto perdido). Deep-link e refresh passam a ser triviais e seguros.</div></div>
+        <div class="adr-row"><div class="adr-k">Riscos</div><div class="adr-v">Tentação de cachear a trip “para conveniência” dentro do provider — o que recria o problema. Precisa de disciplina/lint para conter.</div></div>
+        <div class="adr-row deny"><div class="adr-k">Não deve acontecer</div><div class="adr-v">Guardar <code>days</code>; buscar catálogo; transformar/mesclar dados; duplicar o estado do wizard; conter lógica de apresentação.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Frontend</div><div class="adr-v">Hooks <code>useActiveTrip()</code>, <code>useTripDay(i)</code>, <code>useItem(id)</code>; navegação por id; status de sync exposto (<code>loading/ready/saving/error/stale</code>).</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Backend</div><div class="adr-v">Nenhum direto (é client-side). Só requer <code>GET /trips/:id</code> idempotente para reidratar pela URL.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Codex</div><div class="adr-v">Gerar o provider com superfície mínima (id + selectors + dispatch); teste que falha se o provider armazenar qualquer entidade de viagem; proibir props de dados de viagem atravessando o contexto.</div></div>
+      </div>
+    </div>
+
+    <!-- ============ 04 CICLO ============ -->
+    <h2 id="ciclo"><span class="h2num">04</span>Como funciona o ciclo da viagem?</h2>
+    <p>A viagem nasce <strong>real no servidor</strong> já na primeira resposta do wizard — como <code class="k">draft</code>, com id verdadeiro e destino canônico. Nada de “objeto solto na memória que depois vira viagem”. Isso elimina a categoria inteira de bugs de “dado que existia na tela mas não no sistema”.</p>
+
+    <div class="flow">
+      <div class="stage">
+        <div class="node"><div class="nl">Entrada</div><div class="nt">Usuário</div><div class="nd">intenção bruta</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="nl">Coleta</div><div class="nt">GuidedWizard</div><div class="nd">destino, datas, travelers</div></div>
+        <div class="arrow">→</div>
+        <div class="node solid"><div class="nl">Servidor</div><div class="nt">Trip · draft</div><div class="nd">id real + destino canônico</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="nl">IA</div><div class="nt">Geração</div><div class="nd">patch validado de days</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="nl">Revisão</div><div class="nt">Trip · planning</div><div class="nd">edição = mutations</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="nl">Saída</div><div class="nt">Minhas Viagens</div><div class="nd">active → completed</div></div>
+      </div>
+    </div>
+
+    <table class="tbl">
+      <thead><tr><th>Status</th><th>Quando</th><th>Quem pode escrever</th></tr></thead>
+      <tbody>
+        <tr><td><code>draft</code></td><td>Wizard iniciado; ainda incompleta</td><td>Wizard + IA</td></tr>
+        <tr><td><code>planning</code></td><td>Confirmada pelo usuário; em edição</td><td>Usuário, IA (só itens não-<code>locked</code>), Expert</td></tr>
+        <tr><td><code>active</code></td><td>Dentro do <code>dateRange</code> — viagem acontecendo</td><td>Usuário (ajustes), sistema (status de booking)</td></tr>
+        <tr><td><code>completed</code></td><td>Após a data final</td><td>Ninguém (somente memórias/avaliações)</td></tr>
+        <tr><td><code>archived</code></td><td>Arquivada pelo usuário</td><td>—</td></tr>
+      </tbody>
+    </table>
+
+    <div class="adr">
+      <div class="adr-head"><span class="adr-tag">Decisão recomendada</span><span class="adr-id">ADR-02 · Ciclo</span></div>
+      <h4 class="adr-title">A Trip nasce real (draft) no servidor desde a 1ª resposta do wizard</h4>
+      <div class="adr-grid">
+        <div class="adr-row"><div class="adr-k">Decisão</div><div class="adr-v">A Trip é criada como <code>draft</code> no servidor já no início do wizard, com <code>id</code> real e destino canônico. Estados seguem uma máquina: <code>draft → planning → active → completed → archived</code>. A geração de dias pela IA é um passo separado sobre o draft.</div></div>
+        <div class="adr-row"><div class="adr-k">Justificativa</div><div class="adr-v">Elimina o “objeto solto na memória que depois vira viagem” e a categoria de bugs de dado que existe na tela mas não no sistema. Permite retomar, compartilhar e sincronizar desde o primeiro passo.</div></div>
+        <div class="adr-row"><div class="adr-k">Riscos</div><div class="adr-v">Drafts órfãos/abandonados (mitigar com TTL e limpeza); custo de criar cedo. Transições mal definidas geram escrita em estado errado.</div></div>
+        <div class="adr-row deny"><div class="adr-k">Não deve acontecer</div><div class="adr-v">Criar viagem só no cliente; pular o draft; editar uma trip <code>completed</code>; a IA escrever em itens <code>locked</code> num <code>generate</code>.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Frontend</div><div class="adr-v">Wizard chama <code>POST /trips</code> no início; permissões de edição derivam de <code>trip.status</code>; “Minhas Viagens” lista por status real.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Backend</div><div class="adr-v">Criação de draft barata; transições de status validadas server-side; regra de “quem pode escrever” por status; limpeza de drafts.</div></div>
+        <div class="adr-row impact"><div class="adr-k">Impacto · Codex</div><div class="adr-v">Implementar a máquina de estados como módulo único (fonte da verdade das transições); guarda central que rejeita mutação fora do status; gerar o fluxo wizard→draft→generate como passos explícitos.</div></div>
+      </div>
+    </div>
+
+    <!-- ============ 05 DECISÕES ============ -->
+    <h2 id="decisoes"><span class="h2num">05</span>Decisões & simplificações</h2>
+    <ol>
+      <li><strong>Uma fonte da verdade:</strong> servidor canônico + um cache normalizado no cliente. Apague qualquer terceira cópia (estado local de tela que duplique dados de viagem).</li>
+      <li><strong>Tudo por id:</strong> destinos, lugares, aeroportos, hotéis, voos e passeios são entidades de referência. Itinerário aponta para ids, nunca para texto livre.</li>
+      <li><strong>Draft-first:</strong> a Trip existe no servidor desde a 1ª resposta do wizard. O cliente nunca “segura” uma viagem que o backend desconhece.</li>
+      <li><strong>Versão em toda escrita:</strong> concorrência otimista (<code class="k">version</code> / <code class="k">If-Match</code>) elimina regressões por sobrescrita.</li>
+      <li><strong>IA com fronteira:</strong> a IA emite <em>patches</em> validados contra schema + ids existentes. <code class="k">locked</code> protege decisões do usuário; <code class="k">confidence</code> separa palpite de fato.</li>
+      <li><strong>Context só aponta:</strong> ActiveTripContext carrega o id e expõe selectors/ações — nunca dados.</li>
+    </ol>
+
+    <div class="note decision">
+      <div class="lbl">Resultado</div>
+      <p>Com isto, “Porto vira Paris”, “dados inventados” e “regressões” deixam de ser possíveis <em>por construção</em> — não por disciplina. O próximo documento (<strong>Component Contracts</strong>) traduz este modelo em props/eventos; o terceiro (<strong>API Contracts</strong>) o traduz em payloads compartilhados front↔back.</p>
+    </div>
+
+    <div class="footer">
+      <span>Gaid · Data Architecture V1 · proposta</span>
+      <span>Próximo → <a href="02 Component Contracts.html">02 · Component Contracts</a></span>
+    </div>
+
+  </article>
+  </main>
+</div>
+</body>
+</html>
