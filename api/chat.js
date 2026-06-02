@@ -67,8 +67,16 @@ export default async function handler(req, res) {
       });
     }
 
+    if (!data.output_text) {
+      return res.status(502).json({
+        text: 'Não consegui obter uma resposta da IA agora. Tente novamente em instantes.',
+        source: 'openai-error',
+        detail: data,
+      });
+    }
+
     return res.status(200).json({
-      text: data.output_text || 'Estou aqui. Me conte um pouco mais sobre a viagem que voce quer planejar.',
+      text: data.output_text,
       source: 'openai',
     });
   } catch (error) {
