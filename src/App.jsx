@@ -65,7 +65,7 @@ const AppShell = () => {
   })();
 
   if (!acct.authed) {
-    return <LoginDesktop onAuthed={({ email }) => acct.login({ email })} />;
+    return <LoginDesktop onAuthed={({ email, password }) => acct.login({ email, password })} />;
   }
   if (acct.needsOnboarding) {
     return <OnboardingDesktop initial={acct.profile} onDone={(prof) => { acct.finishOnboarding(prof); setRoute('home'); }} />;

@@ -2,6 +2,7 @@ import React from 'react';
 import { tripApi } from './tripApi.jsx';
 import { has, TRIP_VISIBLE } from './contracts.jsx';
 import { toTripSummary, toTripDetail } from './projections.jsx';
+import { supabase, hasSupabaseConfig } from './supabaseClient.js';
 // ============================================================================
 // Gaid Production — STORE
 // ----------------------------------------------------------------------------
@@ -10,7 +11,7 @@ import { toTripSummary, toTripDetail } from './projections.jsx';
 //    is no visual state-control bar anywhere).
 //  • SessionProvider / useAccount — auth + user + TravelProfile only. Keeps the
 //    SAME surface ui.jsx/screens already use (acct.user, acct.profile, login…),
-//    so the approved components work untouched. Persisted to localStorage.
+//    now backed by Supabase Auth.
 //  • ActiveTripProvider / useActiveTrip — holds ONLY activeTripId.
 //  • TripStoreProvider — the single cache of trips; selectors return projections.
 //
@@ -35,7 +36,6 @@ function useQuery(fetcher, deps = []) {
 }
 
 // ---------------- Session (auth + user + travel profile) ----------------
-const SESS_KEY = 'gaid:prod:session:v1';
 const AccountContext = React.createContext(null);
 const useAccount = () => React.useContext(AccountContext);
 
@@ -84,26 +84,86 @@ function nameFromEmail(email) {
   const local = email.split('@')[0].replace(/[._-]+/g, ' ').trim();
   return local.replace(/\b\w/g, c => c.toUpperCase());
 }
+function sessionFromUser(user, profile = null) {
+  const nm = profile?.display_name || user?.user_metadata?.name || user?.user_metadata?.full_name || nameFromEmail(user?.email);
+  return {
+    ...emptySession(),
+    authed: Boolean(user),
+    needsOnboarding: !profile,
+    profile,
+    user: {
+      ...emptySession().user,
+      email: user?.email || profile?.email || '',
+      name: nm || '',
+      firstName: firstNameFrom(nm),
+      avatar: profile?.avatar_url || user?.user_metadata?.avatar_url || null,
+    },
+  };
+}
 
 const SessionProvider = ({ children }) => {
-  const [sess, setSess] = React.useState(() => {
-    try { return JSON.parse(localStorage.getItem(SESS_KEY)) || emptySession(); }
-    catch { return emptySession(); }
-  });
-  React.useEffect(() => { try { localStorage.setItem(SESS_KEY, JSON.stringify(sess)); } catch {} }, [sess]);
+  const [sess, setSess] = React.useState(emptySession);
+  const [authSession, setAuthSession] = React.useState(null);
   const update = (patch) => setSess(prev => ({ ...prev, ...(typeof patch === 'function' ? patch(prev) : patch) }));
 
+  const loadSupabaseSession = React.useCallback(async (session) => {
+    const user = session?.user;
+    if (!user) {
+      setAuthSession(null);
+      setSess(emptySession());
+      return;
+    }
+    setAuthSession(session);
+    let profile = null;
+    try {
+      profile = await supabase.profiles.getProfile(user.id, session.access_token);
+    } catch (_error) {
+      profile = null;
+    }
+    setSess(sessionFromUser(user, profile));
+  }, []);
+
+  React.useEffect(() => {
+    let alive = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (alive) loadSupabaseSession(data?.session || null);
+    });
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      loadSupabaseSession(session);
+    });
+    return () => {
+      alive = false;
+      data?.subscription?.unsubscribe?.();
+    };
+  }, [loadSupabaseSession]);
+
   const actions = React.useMemo(() => ({
-    login: ({ email } = {}) => {
-      const nm = nameFromEmail(email);
-      setSess({ ...emptySession(), authed: true, needsOnboarding: true,
-        user: { ...emptySession().user, email: email || '', name: nm, firstName: firstNameFrom(nm) } });
+    login: async ({ email, password } = {}) => {
+      if (!hasSupabaseConfig) throw new Error('Supabase environment variables are missing.');
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      await loadSupabaseSession(data?.session || null);
+      return data;
     },
-    finishOnboarding: (profile) => update({ needsOnboarding: false, profile: profile || null }),
+    finishOnboarding: async (profile) => {
+      let nextProfile = profile || null;
+      if (authSession?.user && authSession?.access_token) {
+        try {
+          nextProfile = await supabase.profiles.updateProfile(authSession.user.id, {
+            display_name: sess.user.name || null,
+          }, authSession.access_token) || nextProfile;
+        } catch (_error) {}
+      }
+      update({ needsOnboarding: false, profile: nextProfile });
+    },
     setProfile: (profile) => update({ profile }),
     editProfile: () => update({ needsOnboarding: true }),
-    logout: () => setSess(emptySession()),
-  }), []);
+    logout: async () => {
+      await supabase.auth.signOut();
+      setAuthSession(null);
+      setSess(emptySession());
+    },
+  }), [authSession, loadSupabaseSession, sess.user.name]);
 
   const value = React.useMemo(() => ({ ...sess, ...actions }), [sess, actions]);
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;

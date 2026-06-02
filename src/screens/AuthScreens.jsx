@@ -13,13 +13,26 @@ const LoginDesktop = ({ onAuthed, onDemo }) => {
   const [stage, setStage] = useState('choices'); // choices | email | loading
   const [provider, setProvider] = useState(null);
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
 
-  const authWith = (prov, isNew) => {
+  const authWith = async (prov, isNew) => {
+    if (prov !== 'e-mail') {
+      setError('Nesta fase, entre com e-mail e senha.');
+      setStage('email');
+      return;
+    }
     setProvider(prov);
     setStage('loading');
-    setTimeout(() => onAuthed && onAuthed({ provider: prov, isNew, email: prov === 'e-mail' ? email : undefined }), 1300);
+    setError('');
+    try {
+      await onAuthed?.({ provider: prov, isNew, email, password });
+    } catch (err) {
+      setError(err?.message || 'Não foi possível entrar. Confira e-mail e senha.');
+      setStage('email');
+    }
   };
-  const valid = /\S+@\S+\.\S+/.test(email);
+  const valid = /\S+@\S+\.\S+/.test(email) && password.length > 0;
 
   return (
     <AuthShell>
@@ -53,11 +66,19 @@ const LoginDesktop = ({ onAuthed, onDemo }) => {
                   placeholder="seu@email.com"
                   className="flex-1 h-full bg-transparent outline-none text-[15px] placeholder:text-ink-400"/>
               </div>
+              <div className="bg-white border-half rounded-2xl h-[52px] px-4 flex items-center gap-2.5">
+                <Icon.Lock size={16} className="text-ink-500"/>
+                <input type="password" value={password} onChange={e=>setPassword(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && valid && authWith('e-mail', true)}
+                  placeholder="senha"
+                  className="flex-1 h-full bg-transparent outline-none text-[15px] placeholder:text-ink-400"/>
+              </div>
               <button onClick={() => authWith('e-mail', true)} disabled={!valid}
                 className="w-full h-[52px] rounded-2xl bg-ink-900 text-paper text-[14.5px] font-medium flex items-center justify-center gap-2 hover:bg-ink-800 transition-colors disabled:opacity-40">
                 Continuar <Icon.ArrowRight size={16}/>
               </button>
-              <p className="text-[11.5px] text-ink-500 text-center pt-1">Enviamos um link mágico — sem senha.</p>
+              {error && <p className="text-[11.5px] text-coral-700 text-center pt-1">{error}</p>}
+              <p className="text-[11.5px] text-ink-500 text-center pt-1">Entre com a senha da sua conta Gaid.</p>
             </div>
           ) : (
             <div className="space-y-2.5">
