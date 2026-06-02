@@ -81,6 +81,32 @@ function rowToTrip(row) {
   };
 }
 
+async function archiveTripRow(id) {
+  if (!id) return null;
+  const user = await getAuthenticatedUser();
+  const { data, error } = await supabase
+    .from('trips')
+    .update({ status: 'archived' })
+    .eq('id', id)
+    .eq('user_id', user.id)
+    .select('*')
+    .maybeSingle();
+  if (error) throw error;
+  return rowToTrip(data);
+}
+
+async function deleteTripRow(id) {
+  if (!id) return { success: false };
+  const user = await getAuthenticatedUser();
+  const { error } = await supabase
+    .from('trips')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', user.id);
+  if (error) throw error;
+  return { success: true, id };
+}
+
 function normalizeChatRole(role) {
   return role === 'assistant' ? 'assistant' : 'user';
 }
@@ -155,6 +181,8 @@ const _emptyAdapter = {
   },
   async createTripFromTemplate(_templateId) { return null; },
   async patchTrip(_id, _ops) { return null; },
+  async archiveTrip(id) { return archiveTripRow(id); },
+  async deleteTrip(id) { return deleteTripRow(id); },
   async listChatMessages(tripId) {
     if (!tripId) return [];
     await getAuthenticatedUser();
