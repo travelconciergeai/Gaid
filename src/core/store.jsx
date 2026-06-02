@@ -116,7 +116,12 @@ const SessionProvider = ({ children }) => {
     setAuthSession(session);
     let profile = null;
     try {
-      profile = await supabase.profiles.getProfile(user.id, session.access_token);
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      profile = data || null;
     } catch (_error) {
       profile = null;
     }
@@ -149,9 +154,13 @@ const SessionProvider = ({ children }) => {
       let nextProfile = profile || null;
       if (authSession?.user && authSession?.access_token) {
         try {
-          nextProfile = await supabase.profiles.updateProfile(authSession.user.id, {
-            display_name: sess.user.name || null,
-          }, authSession.access_token) || nextProfile;
+          const { data } = await supabase
+            .from('profiles')
+            .update({ display_name: sess.user.name || null })
+            .eq('user_id', authSession.user.id)
+            .select('*')
+            .maybeSingle();
+          nextProfile = data || nextProfile;
         } catch (_error) {}
       }
       update({ needsOnboarding: false, profile: nextProfile });
