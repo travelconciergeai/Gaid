@@ -33,7 +33,7 @@ function toTripSummary(trip) {
 //   status, cover, coverSeed, coverLabel, progress, days[], insights[] }
 function toTripDetail(trip) {
   if (!trip) return null;
-  const days = Array.isArray(trip.days)
+  const validDays = Array.isArray(trip.days)
     ? trip.days
       .filter(d => d && typeof d === 'object' && !Array.isArray(d))
       .map((d, idx) => ({
@@ -56,13 +56,22 @@ function toTripDetail(trip) {
           : [],
       }))
     : [];
+  const destination = trip.destination || trip.tripContext?.destination || '';
+  const dates = trip.dates || trip.tripContext?.dates || null;
+  const days = validDays.length > 0
+    ? validDays
+    : buildPlaceholderDays({
+      count: inferPlaceholderDayCount(trip, dates),
+      dates,
+      city: destination || TBD,
+    });
   const insights = Array.isArray(trip.insights)
     ? trip.insights.filter(it => it && typeof it === 'object' && !Array.isArray(it))
     : [];
   return {
     id: trip.id,
     title: orTBD(trip.title),
-    destination: trip.destination || trip.tripContext?.destination || '',
+    destination,
     blurb: trip.blurb || '',
     dates: has(trip.dates) ? fmtDateLong(trip.dates) : TBD,
     nights: has(trip.nights) ? trip.nights : null,
@@ -82,6 +91,42 @@ function toTripDetail(trip) {
 }
 
 const SLOT_PT = { manha: 'manhã', tarde: 'tarde', noite: 'noite' };
+function inferPlaceholderDayCount(trip, dates) {
+  const nights = Number(trip.nights ?? trip.tripContext?.nights);
+  if (Number.isFinite(nights) && nights > 0) return Math.min(Math.floor(nights), 30);
+  const start = dates?.start ? new Date(dates.start) : null;
+  const end = dates?.end ? new Date(dates.end) : null;
+  if (start && end && !isNaN(start) && !isNaN(end) && end >= start) {
+    const diffDays = Math.round((end - start) / 86400000);
+    if (diffDays > 0) return Math.min(diffDays, 30);
+  }
+  return 3;
+}
+
+function buildPlaceholderDays({ count, dates, city }) {
+  const start = dates?.start ? new Date(dates.start) : null;
+  const hasStart = start && !isNaN(start);
+  return Array.from({ length: count }, (_, idx) => ({
+    d: idx + 1,
+    date: hasStart ? fmtDayDate(addDays(start, idx)) : TBD,
+    city: city || TBD,
+    flight: false,
+    items: [],
+  }));
+}
+
+function addDays(date, count) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + count);
+  return next;
+}
+
+function fmtDayDate(date) {
+  if (!date || isNaN(date)) return TBD;
+  const MONTHS_SHORT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  return `${date.getDate()} ${MONTHS_SHORT[date.getMonth()]}`;
+}
+
 function fmtDateLong(dates) {            // "12–22 outubro"
   if (!has(dates) || !has(dates.start)) return TBD;
   const MONTHS_LONG = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
