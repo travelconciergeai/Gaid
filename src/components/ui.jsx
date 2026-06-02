@@ -37,10 +37,10 @@ const Button = ({ variant = 'primary', size = 'md', children, icon: IconC, iconR
     lg: 'h-12 px-5 text-[15px] rounded-xl',
   }[size];
   const variants = {
-    primary:   'bg-ink-900 text-paper hover:bg-ink-800',
+    primary:   'bg-brand-700 text-paper hover:bg-brand-900',
     secondary: 'bg-white border border-edge text-ink-900 hover:border-ink-400 hover:bg-ink-50',
     ghost:     'text-ink-700 hover:bg-ink-100 hover:text-ink-900',
-    accent:    'bg-brand-600 text-white hover:bg-brand-700',
+    accent:    'bg-gold-500 text-ink-900 hover:bg-gold-700 hover:text-white',
     soft:      'bg-ink-100 text-ink-900 hover:bg-ink-200',
     danger:    'bg-coral-500 text-white hover:bg-coral-700',
   }[variant];
@@ -61,8 +61,9 @@ const Tag = ({ children, tone = 'ink', className = '' }) => {
     sage:  'bg-sage-50 text-sage-700 border-sage-50',
     coral: 'bg-coral-50 text-coral-700 border-coral-50',
     gold:  'bg-gold-50 text-gold-700 border-gold-50',
+    muted: 'bg-ink-100 text-ink-700 border-ink-200',
     white: 'bg-white/90 text-ink-800 border-edge backdrop-blur',
-  }[tone];
+  }[tone] || 'bg-ink-100 text-ink-700 border-ink-200';
   return (
     <span className={`inline-flex items-center gap-1.5 px-2 h-6 text-[11px] tracking-wide rounded-full border whitespace-nowrap ${tones} ${className}`}>
       {children}
@@ -73,7 +74,7 @@ const Tag = ({ children, tone = 'ink', className = '' }) => {
 // ---------- Card ----------
 const Card = ({ className = '', children, hover = false, ...rest }) => (
   <div {...rest}
-    className={`bg-white border hairline rounded-2xl shadow-soft ${hover ? 'card-h cursor-pointer' : ''} ${className}`}>
+    className={`bg-white border hairline rounded-2xl shadow-soft ${hover ? 'card-h cursor-pointer hover:border-brand-100 hover:shadow-lift' : ''} ${className}`}>
     {children}
   </div>
 );
@@ -162,7 +163,7 @@ const Sidebar = ({ route, setRoute, openCmd }) => {
       <button
         onClick={() => setRoute(it.id)}
         className={`group w-full flex items-center gap-3 px-3 h-9 rounded-lg text-[13px] transition-colors
-                    ${active ? 'bg-ink-900 text-paper' : 'text-ink-700 hover:bg-ink-100 hover:text-ink-900'}`}>
+                    ${active ? 'bg-brand-700 text-paper' : 'text-ink-700 hover:bg-brand-50 hover:text-brand-900'}`}>
         <ActiveIcon size={16}/>
         <span>{it.label}</span>
       </button>
@@ -171,7 +172,7 @@ const Sidebar = ({ route, setRoute, openCmd }) => {
   return (
     <aside className="w-[248px] shrink-0 h-screen sticky top-0 border-r hairline bg-paper flex flex-col">
       <div className="px-5 pt-6 pb-4 flex items-center gap-2">
-        <div className="h-8 w-8 rounded-lg bg-ink-900 text-paper flex items-center justify-center">
+        <div className="h-8 w-8 rounded-lg bg-brand-700 text-paper flex items-center justify-center">
           <Icon.Logo size={18}/>
         </div>
         <div className="flex-1">

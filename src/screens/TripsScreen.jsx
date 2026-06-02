@@ -5,19 +5,44 @@ import { EmptyState, EmptyInline } from './EmptyStates.jsx';
 import { Async, CardSkeleton, CatalogCarousel, Carousel, Skeleton, ErrorState, CarouselSkeleton } from '../core/states.jsx';
 import { useAccount, useTrips, useCatalog, deriveTraits, profileCompletion } from '../core/store.jsx';
 import { TBD, has, orTBD, fmtDuration, fmtMoney } from '../core/contracts.jsx';
+import { tripApi } from '../core/tripApi.jsx';
 // My Trips — list across states: active, planning, idea, completed.
 // Clicking a trip card sets it as the active trip and navigates to Plan.
 
 const TripsScreen = ({ setRoute, activeTripId, setActiveTripId }) => {
   const acct = useAccount();
   const [filter, setFilter] = useState('todas');
-  const { summaries, status } = useTrips();
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const { summaries, status, reload } = useTrips();
   const allTrips = summaries || [];
   const list = allTrips.filter(t => filter === 'todas' || mapState(t.state) === filter);
 
   const openTrip = (t) => {
     setActiveTripId && setActiveTripId(t.id);
     setRoute('plan');
+  };
+
+  const requestDelete = (event, trip) => {
+    event.stopPropagation();
+    setDeleteTarget(trip);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await tripApi.archiveTrip(deleteTarget.id);
+      if (activeTripId === deleteTarget.id) {
+        setActiveTripId && setActiveTripId(null);
+      }
+      setDeleteTarget(null);
+      reload && reload();
+    } catch (error) {
+      console.error('[TripsScreen] Failed to archive trip', error);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -61,10 +86,10 @@ const TripsScreen = ({ setRoute, activeTripId, setActiveTripId }) => {
                 <SmartImg seed={`trip-${t.id}`} tone={t.tone} label={t.cover} w={400} h={400} className="min-h-[180px]"/>
                 <div className="p-5 flex flex-col">
                   <div className="flex items-center justify-between gap-2">
-                    <Tag tone={mapState(t.state) === 'ativas' ? 'sage' : mapState(t.state) === 'feitas' ? 'ink' : 'brand'}>
+                    <Tag tone={tagToneForState(t.state)}>
                       <span className="h-1.5 w-1.5 rounded-full bg-current"/> {t.state}
                     </Tag>
-                    {isActive && <Tag tone="ink">aberto agora</Tag>}
+                    {isActive && <Tag tone="brand">aberto agora</Tag>}
                   </div>
                   <div className="text-[17px] font-medium tracking-tight text-ink-900 mt-3 leading-snug">{t.title}</div>
                   <div className="text-[12.5px] text-ink-500 mt-1">{t.dates} · {t.travelers} viajantes</div>
@@ -74,8 +99,30 @@ const TripsScreen = ({ setRoute, activeTripId, setActiveTripId }) => {
                       <span>Progresso</span><span>{t.progress}%</span>
                     </div>
                     <div className="h-1 rounded-full bg-ink-100 overflow-hidden">
-                      <div className="h-full bg-ink-900 transition-all" style={{ width: `${t.progress}%` }}/>
+                      <div className="h-full bg-brand-700 transition-all" style={{ width: `${t.progress}%` }}/>
                     </div>
+                  </div>
+
+                  <div className="mt-4 flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      className="flex-1"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openTrip(t);
+                      }}
+                    >
+                      Editar roteiro
+                    </Button>
+                    <button
+                      type="button"
+                      title="Excluir viagem"
+                      aria-label={`Excluir viagem ${t.title}`}
+                      onClick={(event) => requestDelete(event, t)}
+                      className="h-8 w-8 rounded-lg border border-edge bg-white text-ink-600 hover:border-coral-50 hover:bg-coral-50 hover:text-coral-700 transition-colors flex items-center justify-center"
+                    >
+                      <Icon.Trash size={14}/>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -98,6 +145,23 @@ const TripsScreen = ({ setRoute, activeTripId, setActiveTripId }) => {
       </div>
       </>
       )}
+      <Modal
+        open={!!deleteTarget}
+        onClose={() => !deleting && setDeleteTarget(null)}
+        title="Excluir viagem?"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancelar</Button>
+            <Button variant="danger" icon={Icon.Trash} onClick={confirmDelete} disabled={deleting}>
+              {deleting ? 'Excluindo...' : 'Excluir viagem'}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-[13.5px] leading-relaxed text-ink-600">
+          Essa viagem será removida das suas viagens. Você poderá recriar um roteiro quando quiser.
+        </p>
+      </Modal>
     </div>
   );
 };
@@ -108,6 +172,14 @@ function mapState(s) {
   if (s === 'Idéia') return 'ideias';
   if (s === 'Concluído') return 'feitas';
   return 'todas';
+}
+
+function tagToneForState(s) {
+  if (s === 'Roteiro vivo') return 'brand';
+  if (s === 'Em planejamento') return 'gold';
+  if (s === 'Idéia') return 'gold';
+  if (s === 'Concluído') return 'sage';
+  return 'muted';
 }
 
 
