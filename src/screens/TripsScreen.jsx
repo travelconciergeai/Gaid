@@ -14,6 +14,7 @@ const TripsScreen = ({ setRoute, activeTripId, setActiveTripId }) => {
   const [filter, setFilter] = useState('todas');
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const { summaries, status, reload } = useTrips();
   const allTrips = summaries || [];
   const list = allTrips.filter(t => filter === 'todas' || mapState(t.state) === filter);
@@ -25,14 +26,16 @@ const TripsScreen = ({ setRoute, activeTripId, setActiveTripId }) => {
 
   const requestDelete = (event, trip) => {
     event.stopPropagation();
+    setDeleteError('');
     setDeleteTarget(trip);
   };
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
+    setDeleteError('');
     try {
-      await tripApi.archiveTrip(deleteTarget.id);
+      await tripApi.deleteTrip(deleteTarget.id);
       if (activeTripId === deleteTarget.id) {
         setActiveTripId && setActiveTripId(null);
       }
@@ -40,6 +43,7 @@ const TripsScreen = ({ setRoute, activeTripId, setActiveTripId }) => {
       reload && reload();
     } catch (error) {
       console.error('[TripsScreen] Failed to archive trip', error);
+      setDeleteError('Não foi possível excluir esta viagem agora. Tente novamente em instantes.');
     } finally {
       setDeleting(false);
     }
@@ -161,6 +165,11 @@ const TripsScreen = ({ setRoute, activeTripId, setActiveTripId }) => {
         <p className="text-[13.5px] leading-relaxed text-ink-600">
           Essa viagem será removida das suas viagens. Você poderá recriar um roteiro quando quiser.
         </p>
+        {deleteError && (
+          <div className="mt-4 rounded-xl border border-coral-50 bg-coral-50 px-3 py-2 text-[12.5px] leading-relaxed text-coral-700">
+            {deleteError}
+          </div>
+        )}
       </Modal>
     </div>
   );
