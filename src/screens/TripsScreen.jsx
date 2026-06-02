@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Icon } from '../components/icons.jsx';
-import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer } from '../components/ui.jsx';
+import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer } from '../components/ui.jsx';
 import { EmptyState, EmptyInline } from './EmptyStates.jsx';
 import { Async, CardSkeleton, CatalogCarousel, Carousel, Skeleton, ErrorState, CarouselSkeleton } from '../core/states.jsx';
 import { useAccount, useTrips, useCatalog, deriveTraits, profileCompletion } from '../core/store.jsx';
@@ -14,14 +14,8 @@ const TripsScreen = ({ setRoute, activeTripId, setActiveTripId }) => {
   const { summaries, status } = useTrips();
   const allTrips = summaries || [];
   const list = allTrips.filter(t => filter === 'todas' || mapState(t.state) === filter);
-  const toast = useToast();
 
   const openTrip = (t) => {
-    if (!t.hasItinerary) {
-      toast({ title: 'Esta viagem ainda é uma ideia', desc: 'Converse com a Gaid para começar a montar', tone: 'info' });
-      setRoute('home');
-      return;
-    }
     setActiveTripId && setActiveTripId(t.id);
     setRoute('plan');
   };
