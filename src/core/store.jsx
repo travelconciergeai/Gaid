@@ -132,9 +132,11 @@ const SessionProvider = ({ children }) => {
     let alive = true;
     supabase.auth.getSession().then(({ data }) => {
       if (alive) loadSupabaseSession(data?.session || null);
+    }).catch(() => {
+      if (alive) setSess(emptySession());
     });
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      loadSupabaseSession(session);
+      loadSupabaseSession(session).catch(() => setSess(emptySession()));
     });
     return () => {
       alive = false;

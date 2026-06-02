@@ -30,6 +30,32 @@ function toTripSummary(trip) {
 //   status, cover, coverSeed, coverLabel, progress, days[], insights[] }
 function toTripDetail(trip) {
   if (!trip) return null;
+  const days = Array.isArray(trip.days)
+    ? trip.days
+      .filter(d => d && typeof d === 'object' && !Array.isArray(d))
+      .map((d, idx) => ({
+        d: d.d ?? idx + 1,
+        date: d.date || TBD,
+        city: d.city || TBD,
+        flight: d.flight || null,
+        items: Array.isArray(d.items)
+          ? d.items
+            .filter(it => it && typeof it === 'object' && !Array.isArray(it))
+            .map(it => ({
+              t: SLOT_PT[it.slot] || it.t || 'item',
+              title: it.title || TBD,
+              place: it.place || TBD,
+              dur: it.dur || TBD,
+              tag: it.tag || 'item',
+              vibe: it.vibe || '',
+              conf: !!it.conf,
+            }))
+          : [],
+      }))
+    : [];
+  const insights = Array.isArray(trip.insights)
+    ? trip.insights.filter(it => it && typeof it === 'object' && !Array.isArray(it))
+    : [];
   return {
     id: trip.id,
     title: orTBD(trip.title),
@@ -47,14 +73,8 @@ function toTripDetail(trip) {
     expert: trip.expertName || null,
     tripContext: trip.tripContext || {},
     metadata: trip.metadata || {},
-    days: (trip.days || []).map(d => ({
-      d: d.d, date: d.date, city: d.city, flight: d.flight,
-      items: (d.items || []).map(it => ({
-        t: SLOT_PT[it.slot] || it.t || 'item',
-        title: it.title, place: it.place, dur: it.dur, tag: it.tag, vibe: it.vibe, conf: !!it.conf,
-      })),
-    })),
-    insights: trip.insights || [],
+    days,
+    insights,
   };
 }
 
