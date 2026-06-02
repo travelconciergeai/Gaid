@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ErrorBoundary } from './components/ErrorBoundary.jsx';
 import { Sidebar, CmdPalette, ToastProvider } from './components/ui.jsx';
 import { SessionProvider, ActiveTripProvider, TripStoreProvider, useAccount, useActiveTrip, useTripStore, useActiveTripDetail } from './core/store.jsx';
 import './core/editorial.jsx';
@@ -90,7 +91,9 @@ const App = () => (
     <ActiveTripProvider>
       <TripStoreProvider>
         <ToastProvider>
-          <AppShell />
+          <ErrorBoundary>
+            <AppShell />
+          </ErrorBoundary>
         </ToastProvider>
       </TripStoreProvider>
     </ActiveTripProvider>
