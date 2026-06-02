@@ -40,6 +40,24 @@ const _emptyAdapter = {
   async listDestinations(_q) { return {}; },     // curated destinations (grouped by region)
   // perfil / sessão (TravelProfile vem do onboarding; backend confirma)
   async getTravelProfile() { return null; },
+  async sendChatMessage({ message, history = [], context = {} } = {}) {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, history, context }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      return {
+        text: data?.text || 'Não consegui falar com a Gaid agora. Tente novamente em instantes.',
+        source: data?.source || 'error',
+      };
+    }
+    return {
+      text: data?.text || 'Estou aqui. Me conte um pouco mais sobre a viagem que você quer planejar.',
+      source: data?.source || 'error',
+    };
+  },
 };
 
 let _adapter = _emptyAdapter;

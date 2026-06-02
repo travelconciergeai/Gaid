@@ -5,6 +5,7 @@ import { EmptyState, EmptyInline } from './EmptyStates.jsx';
 import { Async, CardSkeleton, CatalogCarousel, Carousel, Skeleton, ErrorState, CarouselSkeleton } from '../core/states.jsx';
 import { useAccount, useTrips, useCatalog, deriveTraits, profileCompletion } from '../core/store.jsx';
 import { TBD, has, orTBD, fmtDuration, fmtMoney } from '../core/contracts.jsx';
+import { tripApi } from '../core/tripApi.jsx';
 // Plan screen — chat at left, live timeline at right.
 // Itinerary is fully editable: add/remove items, change time slot, replace activity.
 
@@ -102,33 +103,59 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
   // If user came from Home with a starter
   useEffect(() => {
     if (!kickoff) return;
-    setChat(c => [...c, { who: 'user', text: kickoff }]);
+    const userMsg = { who: 'user', text: kickoff };
+    setChat(c => [...c, userMsg]);
     setTyping(true);
-    const t = setTimeout(() => {
+    let alive = true;
+    tripApi.sendChatMessage({
+      message: kickoff,
+      history: [userMsg].map(m => ({ role: 'user', text: m.text })),
+      context: { surface: 'plan', tripTitle: tripData.title },
+    }).then((response) => {
+      if (!alive) return;
       setTyping(false);
-      setChat(c => [...c, { who: 'gaid', text: replyFor(kickoff) }]);
+      setChat(c => [...c, { who: 'gaid', text: response.text, source: response.source }]);
       clearKickoff && clearKickoff();
-    }, 1100);
-    return () => clearTimeout(t);
+    }).catch(() => {
+      if (!alive) return;
+      setTyping(false);
+      setChat(c => [...c, { who: 'gaid', text: 'Não consegui responder agora. Tente novamente em instantes.', source: 'error' }]);
+      clearKickoff && clearKickoff();
+    });
+    return () => { alive = false; };
   }, [kickoff]);
 
-  const send = (txt) => {
+  const send = async (txt) => {
     const t = (txt || draft).trim();
     if (!t) return;
-    setChat(c => [...c, { who: 'user', text: t }]);
+    const userMsg = { who: 'user', text: t };
+    const nextChat = [...chat, userMsg];
+    setChat(nextChat);
     setDraft('');
     setTyping(true);
     // First: did the user report resolving a prep item?
     const resolved = resolvePrepFromText(t);
-    setTimeout(() => {
+    if (resolved) {
       setTyping(false);
-      if (resolved) {
-        toast({ title: 'Atualizei seu checklist', desc: resolved, tone: 'success' });
-        setChat(c => [...c, { who: 'gaid', text: `Maravilha! Marquei “${resolved}” como resolvido no seu checklist. Pode contar comigo pro resto.` }]);
-      } else {
-        setChat(c => [...c, { who: 'gaid', text: replyFor(t) }]);
-      }
-    }, 950);
+      toast({ title: 'Atualizei seu checklist', desc: resolved, tone: 'success' });
+      setChat(c => [...c, { who: 'gaid', text: `Maravilha! Marquei “${resolved}” como resolvido no seu checklist. Pode contar comigo pro resto.` }]);
+      return;
+    }
+
+    try {
+      const response = await tripApi.sendChatMessage({
+        message: t,
+        history: nextChat
+          .filter(m => m.text)
+          .map(m => ({ role: m.who === 'user' ? 'user' : 'assistant', text: m.text })),
+        context: { surface: 'plan', tripTitle: tripData.title, tab },
+      });
+      setChat(c => [...c, { who: 'gaid', text: response.text, source: response.source }]);
+    } catch (_error) {
+      setChat(c => [...c, { who: 'gaid', text: 'Não consegui responder agora. Tente novamente em instantes.', source: 'error' }]);
+    } finally {
+      setTyping(false);
+    }
   };
 
   // Neutral conversational replies until the real chat/AI backend exists.

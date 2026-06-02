@@ -5,6 +5,7 @@ import { EmptyState, EmptyInline } from './EmptyStates.jsx';
 import { Async, CardSkeleton, CatalogCarousel, Carousel, Skeleton, ErrorState, CarouselSkeleton } from '../core/states.jsx';
 import { useAccount, useTrips, useCatalog, deriveTraits, profileCompletion } from '../core/store.jsx';
 import { TBD, has, orTBD, fmtDuration, fmtMoney } from '../core/contracts.jsx';
+import { tripApi } from '../core/tripApi.jsx';
 // Home — conversational landing.
 // Two modes:
 //   • 'idle': hero with centered chatbar + starters carousel + cards below
@@ -76,32 +77,57 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     }, 700);
   };
 
+  const sendToGaid = async (message, baseChat = []) => {
+    setThinking(true);
+    try {
+      const response = await tripApi.sendChatMessage({
+        message,
+        history: baseChat
+          .filter(m => m.text)
+          .map(m => ({ role: m.who === 'user' ? 'user' : 'assistant', text: m.text })),
+        context: { surface: 'home' },
+      });
+      setChat(c => [...c, { id: `a-${Date.now()}`, who: 'agent', text: response.text, source: response.source }]);
+    } catch (_error) {
+      setChat(c => [...c, {
+        id: `a-${Date.now()}`,
+        who: 'agent',
+        text: 'Não consegui responder agora. Tente novamente em instantes.',
+        source: 'error',
+      }]);
+    } finally {
+      setThinking(false);
+    }
+  };
+
   const submit = (text) => {
     const t = (text || input).trim();
     if (!t) return;
     setInput('');
 
-    // From idle: detect a guided flow → enter chat; else go straight to plan
+    // From idle: open the concierge chat and ask the backend.
     if (mode === 'idle') {
-      const f = null;   // empty-first: chatbar always routes to the concierge / plan
+      const f = null;   // guided flows remain backend-driven
       if (f) {
         startFlow(t, f);
       } else {
-        setThinking(true);
-        setTimeout(() => {
-          kickoffPlan && kickoffPlan(t);
-          setRoute('plan');
-        }, 600);
+        const nextChat = [{ id: `u-${Date.now()}`, who: 'user', text: t }];
+        setMode('chat');
+        setChat(nextChat);
+        setPhase('done');
+        sendToGaid(t, nextChat);
       }
       return;
     }
 
-    // In chat mode: if currently asking a wizard question, free-text counts as answer
-    if (phase === 'asking') {
+    // In chat mode: if currently asking a wizard question, free-text counts as answer.
+    if (phase === 'asking' && wizard.length > 0) {
       answerWizard('custom', t);
     } else {
-      // After generation already done — just push as a chat message
-      setChat(c => [...c, { who: 'user', text: t }]);
+      const userMsg = { id: `u-${Date.now()}`, who: 'user', text: t };
+      const nextChat = [...chat, userMsg];
+      setChat(nextChat);
+      sendToGaid(t, nextChat);
     }
   };
 
