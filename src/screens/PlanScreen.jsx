@@ -48,6 +48,15 @@ function normalizeTripForPlan(trip) {
     insights: normalizeInsights(base.insights),
   };
 }
+function storedMessageToBubble(message) {
+  if (!message || !message.content) return null;
+  return {
+    id: message.id,
+    who: message.role === 'user' ? 'user' : 'gaid',
+    text: message.content,
+    source: message.source || message.metadata?.source,
+  };
+}
 
 const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
   const toast = useToast();
@@ -65,15 +74,44 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
   const [activeMode, setActiveMode] = useState(null);
   const [prep, setPrep] = useState(() => tripData.prep ? JSON.parse(JSON.stringify(tripData.prep)) : null);
   const chatEndRef = useRef(null);
+  const kickoffKeyRef = useRef(null);
+
+  const persistPlanMessage = (role, text, metadata = {}) => {
+    if (!tripData.id || !text) return Promise.resolve(null);
+    return tripApi.createChatMessage({
+      tripId: tripData.id,
+      role,
+      text,
+      metadata: { surface: 'plan', ...metadata },
+    }).catch((error) => {
+      console.error('[PlanScreen] Failed to persist chat message', error);
+      return null;
+    });
+  };
 
   // If trip changes (user opened a different trip), reset state.
   useEffect(() => {
     setDays(safeClone(tripData.days));
-    setChat([]);
     setActiveMode(null);
     setEditing(null);
     setAdding(null);
     setPrep(tripData.prep ? JSON.parse(JSON.stringify(tripData.prep)) : null);
+    let alive = true;
+    if (!tripData.id) {
+      setChat([]);
+      return () => { alive = false; };
+    }
+    tripApi.listChatMessages(tripData.id)
+      .then((messages) => {
+        if (!alive) return;
+        const restored = (messages || []).map(storedMessageToBubble).filter(Boolean);
+        if (restored.length > 0 || !kickoff) setChat(restored);
+      })
+      .catch((error) => {
+        console.error('[PlanScreen] Failed to load chat history', error);
+        if (alive && !kickoff) setChat([]);
+      });
+    return () => { alive = false; };
   }, [tripData.id]);
 
   // Toggle a prep checklist item done/undone.
@@ -129,9 +167,13 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
 
   // If user came from Home with a starter
   useEffect(() => {
-    if (!kickoff) return;
+    if (!kickoff || !tripData.id) return;
+    const kickoffKey = `${tripData.id}:${kickoff}`;
+    if (kickoffKeyRef.current === kickoffKey) return;
+    kickoffKeyRef.current = kickoffKey;
     const userMsg = { who: 'user', text: kickoff };
-    setChat(c => [...c, userMsg]);
+    setChat(c => c.some(m => m.who === 'user' && m.text === kickoff) ? c : [...c, userMsg]);
+    persistPlanMessage('user', kickoff);
     setTyping(true);
     let alive = true;
     tripApi.sendChatMessage({
@@ -142,15 +184,18 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       if (!alive) return;
       setTyping(false);
       setChat(c => [...c, { who: 'gaid', text: response.text, source: response.source }]);
+      persistPlanMessage('assistant', response.text, { source: response.source });
       clearKickoff && clearKickoff();
     }).catch(() => {
       if (!alive) return;
       setTyping(false);
-      setChat(c => [...c, { who: 'gaid', text: 'Não consegui responder agora. Tente novamente em instantes.', source: 'error' }]);
+      const fallback = 'Não consegui responder agora. Tente novamente em instantes.';
+      setChat(c => [...c, { who: 'gaid', text: fallback, source: 'error' }]);
+      persistPlanMessage('assistant', fallback, { source: 'error' });
       clearKickoff && clearKickoff();
     });
     return () => { alive = false; };
-  }, [kickoff]);
+  }, [kickoff, tripData.id]);
 
   const send = async (txt) => {
     const t = (txt || draft).trim();
@@ -160,12 +205,15 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     setChat(nextChat);
     setDraft('');
     setTyping(true);
+    persistPlanMessage('user', t);
     // First: did the user report resolving a prep item?
     const resolved = resolvePrepFromText(t);
     if (resolved) {
       setTyping(false);
       toast({ title: 'Atualizei seu checklist', desc: resolved, tone: 'success' });
-      setChat(c => [...c, { who: 'gaid', text: `Maravilha! Marquei “${resolved}” como resolvido no seu checklist. Pode contar comigo pro resto.` }]);
+      const localReply = `Maravilha! Marquei “${resolved}” como resolvido no seu checklist. Pode contar comigo pro resto.`;
+      setChat(c => [...c, { who: 'gaid', text: localReply, source: 'local' }]);
+      persistPlanMessage('assistant', localReply, { source: 'local' });
       return;
     }
 
@@ -178,8 +226,11 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         context: { surface: 'plan', tripTitle: tripData.title, tab },
       });
       setChat(c => [...c, { who: 'gaid', text: response.text, source: response.source }]);
+      persistPlanMessage('assistant', response.text, { source: response.source });
     } catch (_error) {
-      setChat(c => [...c, { who: 'gaid', text: 'Não consegui responder agora. Tente novamente em instantes.', source: 'error' }]);
+      const fallback = 'Não consegui responder agora. Tente novamente em instantes.';
+      setChat(c => [...c, { who: 'gaid', text: fallback, source: 'error' }]);
+      persistPlanMessage('assistant', fallback, { source: 'error' });
     } finally {
       setTyping(false);
     }

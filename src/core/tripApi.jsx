@@ -81,6 +81,24 @@ function rowToTrip(row) {
   };
 }
 
+function normalizeChatRole(role) {
+  return role === 'assistant' ? 'assistant' : 'user';
+}
+
+function rowToChatMessage(row) {
+  if (!row) return null;
+  const metadata = normalizeTripContext(row.metadata);
+  return {
+    id: row.id,
+    tripId: row.trip_id,
+    role: normalizeChatRole(row.role),
+    content: row.content || '',
+    source: row.source || metadata.source || null,
+    metadata,
+    createdAt: row.created_at,
+  };
+}
+
 // Default adapter: the product, zeroed. Every collection empty, every lookup null.
 const _emptyAdapter = {
   // viagens (Trip = fonte da verdade)
@@ -137,6 +155,61 @@ const _emptyAdapter = {
   },
   async createTripFromTemplate(_templateId) { return null; },
   async patchTrip(_id, _ops) { return null; },
+  async listChatMessages(tripId) {
+    if (!tripId) return [];
+    await getAuthenticatedUser();
+    const { data, error } = await supabase
+      .from('chat_messages')
+      .select('*')
+      .eq('trip_id', tripId)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return (data || []).map(rowToChatMessage).filter(Boolean);
+  },
+  async createChatMessage({ tripId, role, text, metadata = {} } = {}) {
+    if (!tripId || !text) return null;
+    await getAuthenticatedUser();
+    const safeRole = normalizeChatRole(role);
+    const safeMetadata = normalizeTripContext(metadata);
+    const { data, error } = await supabase
+      .from('chat_messages')
+      .insert({
+        trip_id: tripId,
+        role: safeRole,
+        content: text,
+        metadata: safeMetadata,
+      })
+      .select('*')
+      .single();
+    if (error) throw error;
+    return rowToChatMessage(data);
+  },
+  async saveChatTurn({ tripId, userText, assistantText, source, metadata = {} } = {}) {
+    if (!tripId) return [];
+    await getAuthenticatedUser();
+    const safeMetadata = normalizeTripContext(metadata);
+    const rows = [
+      userText ? {
+        trip_id: tripId,
+        role: 'user',
+        content: userText,
+        metadata: { ...safeMetadata, surface: safeMetadata.surface || 'plan' },
+      } : null,
+      assistantText ? {
+        trip_id: tripId,
+        role: 'assistant',
+        content: assistantText,
+        metadata: { ...safeMetadata, source, surface: safeMetadata.surface || 'plan' },
+      } : null,
+    ].filter(Boolean);
+    if (rows.length === 0) return [];
+    const { data, error } = await supabase
+      .from('chat_messages')
+      .insert(rows)
+      .select('*');
+    if (error) throw error;
+    return (data || []).map(rowToChatMessage).filter(Boolean);
+  },
   async applyHotel(_tripId, _hotelId, _nights) { return null; },
   async applyFlight(_tripId, _flightId, _dayId) { return null; },
   async applyTour(_tripId, _tourId, _dayId, _slot) { return null; },
