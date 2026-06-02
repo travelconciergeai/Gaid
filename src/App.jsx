@@ -87,17 +87,17 @@ const AppShell = () => {
 };
 
 const App = () => (
-  <SessionProvider>
-    <ActiveTripProvider>
-      <TripStoreProvider>
-        <ToastProvider>
-          <ErrorBoundary>
+  <ErrorBoundary>
+    <SessionProvider>
+      <ActiveTripProvider>
+        <TripStoreProvider>
+          <ToastProvider>
             <AppShell />
-          </ErrorBoundary>
-        </ToastProvider>
-      </TripStoreProvider>
-    </ActiveTripProvider>
-  </SessionProvider>
+          </ToastProvider>
+        </TripStoreProvider>
+      </ActiveTripProvider>
+    </SessionProvider>
+  </ErrorBoundary>
 );
 
 export default App;

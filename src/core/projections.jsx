@@ -10,18 +10,21 @@ import { TBD, has, orTBD, TRIP_STATUS_LABEL, fmtMoney } from './contracts.jsx';
 // Trip (canônica) → TripSummary (card de Minhas Viagens / Home).
 // Shape consumed today: { id, title, dates, state, travelers, tone, cover, progress }
 function toTripSummary(trip) {
-  if (!trip) return null;
+  if (!trip || typeof trip !== 'object' || Array.isArray(trip)) return null;
+  const tripContext = trip.tripContext && typeof trip.tripContext === 'object' && !Array.isArray(trip.tripContext) ? trip.tripContext : {};
+  const destination = trip.destination || tripContext.destination || '';
+  const status = trip.status || 'planning';
   return {
-    id: trip.id,
-    title: orTBD(trip.title),
+    id: trip.id || '',
+    title: orTBD(trip.title || (destination ? `Viagem para ${destination}` : '')),
     dates: fmtDateRangeShort(trip.dates),
-    state: TRIP_STATUS_LABEL[trip.status] || 'Em planejamento',
-    _status: trip.status,                       // raw, for filtering
+    state: TRIP_STATUS_LABEL[status] || 'Em planejamento',
+    _status: status,                       // raw, for filtering
     travelers: has(trip.travelers) ? trip.travelers : 0,
     tone: trip.cover || 'warm',
-    cover: trip.coverShort || (trip.cities && trip.cities[0]) || trip.title || '',
+    cover: trip.coverShort || destination || (Array.isArray(trip.cities) && trip.cities[0]) || trip.title || '',
     progress: has(trip.progress) ? trip.progress : 0,
-    hasItinerary: has(trip.days),
+    hasItinerary: Array.isArray(trip.days) && trip.days.length > 0,
   };
 }
 

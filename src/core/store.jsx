@@ -223,13 +223,23 @@ const TripStoreProvider = ({ children }) => {
 // Trips list → TripSummary[] (visible statuses only)
 function useTrips() {
   const q = useQuery(() => tripApi.listTrips(), []);
-  const summaries = (q.data || []).map(toTripSummary).filter(s => TRIP_VISIBLE.has(s._status));
+  const summaries = (q.data || []).map(toTripSummary).filter(Boolean).filter(s => TRIP_VISIBLE.has(s._status));
   return { ...q, summaries };
 }
 // Active trip detail → TripDetail | null
 function useActiveTripDetail() {
-  const { activeTripId } = useActiveTrip();
-  const q = useQuery(() => (activeTripId ? tripApi.getTrip(activeTripId) : Promise.resolve(null)), [activeTripId]);
+  const { activeTripId, setActiveTripId } = useActiveTrip();
+  const q = useQuery(async () => {
+    if (!activeTripId) return null;
+    try {
+      const trip = await tripApi.getTrip(activeTripId);
+      if (!trip) setActiveTripId(null);
+      return trip;
+    } catch (_error) {
+      setActiveTripId(null);
+      return null;
+    }
+  }, [activeTripId]);
   return { ...q, trip: q.data ? toTripDetail(q.data) : null, activeTripId };
 }
 // Generic catalog hook for carousels: useCatalog('hotels') etc.
