@@ -70,17 +70,17 @@ function classifyGaidIntent(message) {
     const barePlaceRe = /^[a-z\s\u00C0-\u017F]{2,32}$/i;
 
     if (recommendationRe.test(text) && !/\b(roteiro|planej|planejar|monte|montar|criar|crie)\b/.test(text)) {
-      return { intent: 'GET_RECOMMENDATION', confidence: 0.84, reason: 'Pedido de indicação rápida de lugar ou atividade.' };
+      return { intent: 'GET_RECOMMENDATION', confidence: 0.84, requiresTrip: false, nextTool: 'Discovery Engine', reason: 'Pedido de indicação rápida de lugar ou atividade.' };
     }
     if (planRe.test(text)) {
-      return { intent: 'PLAN_TRIP', confidence: 0.86, reason: 'Pedido de roteiro, viagem completa ou planejamento.' };
+      return { intent: 'PLAN_TRIP', confidence: 0.86, requiresTrip: false, nextTool: 'Trip Planner', reason: 'Pedido de roteiro, viagem completa ou planejamento.' };
     }
     if (barePlaceRe.test(String(message || '').trim())) {
-      return { intent: 'UNCLEAR', confidence: 0.58, reason: 'Destino isolado sem intenção clara.' };
+      return { intent: 'UNCLEAR', confidence: 0.58, requiresTrip: false, nextTool: 'Intent Router', reason: 'Destino isolado sem intenção clara.' };
     }
-    return { intent: 'UNCLEAR', confidence: 0.5, reason: 'Mensagem sem intenção suficiente para criar viagem.' };
+    return { intent: 'UNCLEAR', confidence: 0.5, requiresTrip: false, nextTool: 'Intent Router', reason: 'Mensagem sem intenção suficiente para criar viagem.' };
   } catch (_error) {
-    return { intent: 'UNCLEAR', confidence: 0, reason: 'Falha local ao classificar intenção.' };
+    return { intent: 'UNCLEAR', confidence: 0, requiresTrip: false, nextTool: 'Intent Router', reason: 'Falha local ao classificar intenção.' };
   }
 }
 
