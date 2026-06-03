@@ -1390,36 +1390,42 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
 
         {/* Composer — pill chatbar, mesmo formato da Home */}
         <div className="p-5 pt-2">
-          {selectedEntry && (
-            <div className="mb-2 inline-flex max-w-full items-center gap-2 rounded-full border-half bg-white px-3 h-9 text-[12.5px] text-ink-800 shadow-soft">
-              <Icon.Edit size={12} className="text-brand-700 shrink-0"/>
-              <span className="truncate">
-                {selectedEntry.item.title} · Dia {selectedEntry.day.d} / {selectedEntry.item.t || 'item'}
-              </span>
-              <button
-                onClick={() => setSelectedItem(null)}
-                className="h-5 w-5 rounded-full hover:bg-ink-100 text-ink-500 flex items-center justify-center shrink-0"
-                title="Remover seleção">
-                <Icon.X size={12}/>
+          <div className={`bg-white border-half shadow-card transition-shadow hover:shadow-lift focus-within:shadow-lift focus-within:border-brand-200 focus-within:ring-4 focus-within:ring-brand-50 ${
+            selectedEntry
+              ? 'rounded-[28px] min-h-[92px] px-3 py-3 flex flex-col items-stretch gap-2'
+              : 'rounded-full h-[56px] pl-5 pr-[6px] flex items-center gap-2'
+          }`}>
+            {selectedEntry && (
+              <div className="inline-flex self-start max-w-full items-center gap-2 rounded-full border border-[var(--gaid-halo-focus)] bg-brand-50/70 px-3 h-8 text-[12px] text-ink-800">
+                <Icon.Edit size={12} className="text-brand-700 shrink-0"/>
+                <span className="truncate">
+                  {selectedEntry.item.title} · Dia {selectedEntry.day.d} / {selectedEntry.item.t || 'item'}
+                </span>
+                <button
+                  onClick={() => setSelectedItem(null)}
+                  className="h-5 w-5 rounded-full hover:bg-white/80 text-ink-500 flex items-center justify-center shrink-0"
+                  title="Remover seleção">
+                  <Icon.X size={12}/>
+                </button>
+              </div>
+            )}
+            <div className={selectedEntry ? 'flex items-center gap-2 w-full pl-2' : 'contents'}>
+              <Icon.Sparkles size={15} className="text-ink-500 shrink-0"/>
+              <input
+                value={draft}
+                onChange={e => setDraft(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+                placeholder="Pergunte qualquer coisa sobre sua viagem…"
+                className={`${selectedEntry ? 'h-10' : 'h-full'} flex-1 outline-none text-[14px] placeholder:text-ink-400 bg-transparent leading-none min-w-0`}/>
+              <button className="h-9 w-9 rounded-full hover:bg-ink-100 text-ink-600 flex items-center justify-center shrink-0" title="Anexar">
+                <Icon.Plus size={15}/>
+              </button>
+              <button onClick={() => send()}
+                className="h-11 px-5 rounded-full bg-ink-900 text-paper hover:bg-brand-700 focus-visible:ring-4 focus-visible:ring-brand-200 transition-colors flex items-center gap-2 text-[13.5px] font-medium shrink-0">
+                <Icon.Send size={14}/>
+                Enviar
               </button>
             </div>
-          )}
-          <div className="bg-white border-half rounded-full shadow-card h-[56px] pl-5 pr-[6px] flex items-center gap-2 transition-shadow hover:shadow-lift focus-within:shadow-lift focus-within:border-brand-200 focus-within:ring-4 focus-within:ring-brand-50">
-            <Icon.Sparkles size={15} className="text-ink-500 shrink-0"/>
-            <input
-              value={draft}
-              onChange={e => setDraft(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-              placeholder="Pergunte qualquer coisa sobre sua viagem…"
-              className="flex-1 h-full outline-none text-[14px] placeholder:text-ink-400 bg-transparent leading-none"/>
-            <button className="h-9 w-9 rounded-full hover:bg-ink-100 text-ink-600 flex items-center justify-center shrink-0" title="Anexar">
-              <Icon.Plus size={15}/>
-            </button>
-            <button onClick={() => send()}
-              className="h-11 px-5 rounded-full bg-ink-900 text-paper hover:bg-brand-700 focus-visible:ring-4 focus-visible:ring-brand-200 transition-colors flex items-center gap-2 text-[13.5px] font-medium shrink-0">
-              <Icon.Send size={14}/>
-              Enviar
-            </button>
           </div>
         </div>
       </section>
@@ -1789,7 +1795,9 @@ const ItemCard = ({ it, selected = false, onSelect, onEdit, onTogglePin, onRemov
         }
       }}
       className={`group bg-white border hairline rounded-xl p-4 focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-50 transition-colors flex items-start gap-3 ${
-        selected ? 'border-brand-200 ring-2 ring-brand-50' : 'hover:border-brand-200 focus-within:border-brand-200'
+        selected
+          ? 'border-[var(--gaid-halo)] ring-2 ring-[rgba(139,111,232,0.14)] shadow-[0_10px_28px_rgba(139,111,232,0.12)]'
+          : 'hover:border-brand-200 focus-within:border-brand-200'
       }`}>
       <div className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0
                        ${cfg.tone === 'brand' ? 'bg-brand-50 text-brand-700' :
