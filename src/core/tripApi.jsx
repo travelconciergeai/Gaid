@@ -53,12 +53,16 @@ function buildTripTitle({ title, destination, prompt }) {
 }
 
 function travelerCount(value) {
-  if (typeof value === 'number') return value;
+  if (typeof value === 'number') return value > 0 ? value : null;
+  if (typeof value === 'string') {
+    const count = Number(value.match(/\d+/)?.[0]);
+    return Number.isFinite(count) && count > 0 ? count : null;
+  }
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const count = Number(value.count);
-    return Number.isFinite(count) ? count : 0;
+    return Number.isFinite(count) && count > 0 ? count : null;
   }
-  return 0;
+  return null;
 }
 
 function rowToTrip(row) {
@@ -73,7 +77,7 @@ function rowToTrip(row) {
     status: row.status || 'planning',
     dates: tripContext.dates || metadata.dates || null,
     nights: tripContext.nights ?? metadata.nights ?? null,
-    travelers: travelerCount(tripContext.travelers ?? metadata.travelers),
+    travelers: travelerCount(tripContext.travelers) ?? travelerCount(tripContext.travelerCount) ?? travelerCount(metadata.travelers),
     budget: tripContext.budget || metadata.budget || null,
     cities: destination ? [destination] : [],
     cover: metadata.cover || tripContext.cover || 'warm',

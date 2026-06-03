@@ -13,14 +13,15 @@ function toTripSummary(trip) {
   if (!trip || typeof trip !== 'object' || Array.isArray(trip)) return null;
   const tripContext = trip.tripContext && typeof trip.tripContext === 'object' && !Array.isArray(trip.tripContext) ? trip.tripContext : {};
   const destination = trip.destination || tripContext.destination || '';
+  const dates = trip.dates || tripContext.dates || null;
   const status = trip.status || 'planning';
   return {
     id: trip.id || '',
     title: orTBD(trip.title || (destination ? `Viagem para ${destination}` : '')),
-    dates: fmtDateRangeShort(trip.dates),
+    dates: fmtSummaryDates(dates),
     state: TRIP_STATUS_LABEL[status] || 'Em planejamento',
     _status: status,                       // raw, for filtering
-    travelers: travelerCount(trip.travelers),
+    travelers: tripTravelerCount(trip),
     tone: trip.cover || 'warm',
     cover: trip.coverShort || destination || (Array.isArray(trip.cities) && trip.cities[0]) || trip.title || '',
     progress: has(trip.progress) ? trip.progress : 0,
@@ -73,10 +74,10 @@ function toTripDetail(trip) {
     title: orTBD(trip.title),
     destination,
     blurb: trip.blurb || '',
-    dates: fmtTripDates(trip.dates),
-    nights: has(trip.nights) ? trip.nights : null,
-    travelers: travelerCount(trip.travelers),
-    budget: fmtMoney(trip.budget),
+    dates: fmtTripDates(dates),
+    nights: tripNights(trip, dates),
+    travelers: tripTravelerCount(trip),
+    budget: fmtTripBudget(trip.budget),
     status: TRIP_STATUS_LABEL[trip.status] || 'Em planejamento',
     cover: trip.cover || 'warm',
     coverSeed: trip.coverSeed || `trip-${trip.id}`,
@@ -91,25 +92,44 @@ function toTripDetail(trip) {
 }
 
 const SLOT_PT = { manha: 'manhã', tarde: 'tarde', noite: 'noite' };
-function travelerCount(value) {
-  if (typeof value === 'number') return value;
+function numericCount(value) {
+  if (typeof value === 'number') return value > 0 ? value : null;
+  if (typeof value === 'string') {
+    const count = Number(value.match(/\d+/)?.[0]);
+    return Number.isFinite(count) && count > 0 ? count : null;
+  }
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const count = Number(value.count);
-    return Number.isFinite(count) ? count : 0;
+    return Number.isFinite(count) && count > 0 ? count : null;
   }
-  return has(value) ? value : 0;
+  return null;
+}
+
+function tripTravelerCount(trip) {
+  const tripContext = trip?.tripContext && typeof trip.tripContext === 'object' && !Array.isArray(trip.tripContext) ? trip.tripContext : {};
+  return numericCount(tripContext.travelers) ?? numericCount(tripContext.travelerCount) ?? numericCount(trip?.travelers) ?? TBD;
+}
+
+function tripNights(trip, dates) {
+  const nights = Number(trip?.nights ?? trip?.tripContext?.nights);
+  if (Number.isFinite(nights) && nights > 0) return Math.floor(nights);
+  return dateDiffDays(dates);
 }
 
 function inferPlaceholderDayCount(trip, dates) {
-  const nights = Number(trip.nights ?? trip.tripContext?.nights);
+  const nights = Number(tripNights(trip, dates));
   if (Number.isFinite(nights) && nights > 0) return Math.min(Math.floor(nights), 30);
+  return 3;
+}
+
+function dateDiffDays(dates) {
   const start = dates?.start ? new Date(dates.start) : null;
   const end = dates?.end ? new Date(dates.end) : null;
   if (start && end && !isNaN(start) && !isNaN(end) && end >= start) {
     const diffDays = Math.round((end - start) / 86400000);
     if (diffDays > 0) return Math.min(diffDays, 30);
   }
-  return 3;
+  return null;
 }
 
 function buildPlaceholderDays({ count, dates, city }) {
@@ -140,6 +160,17 @@ function fmtTripDates(dates) {
   if (has(dates?.start)) return fmtDateLong(dates);
   if (has(dates?.label)) return dates.label;
   return TBD;
+}
+
+function fmtSummaryDates(dates) {
+  if (has(dates?.start)) return fmtDateRangeShort(dates);
+  if (has(dates?.label)) return dates.label;
+  return TBD;
+}
+
+function fmtTripBudget(budget) {
+  if (budget && typeof budget === 'object' && !Array.isArray(budget) && has(budget.label)) return budget.label;
+  return fmtMoney(budget);
 }
 
 function fmtDateLong(dates) {            // "12–22 outubro"
