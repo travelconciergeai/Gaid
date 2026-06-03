@@ -261,8 +261,8 @@ function travelerCountFrom(answer) {
   return parseNumberFromText(
     answerId(answer, 'travelerCount') ||
     answerText(answer, 'travelerCount') ||
-    answerId(answer, 'travelers') ||
-    answerText(answer, 'travelers')
+    answerText(answer, 'travelers') ||
+    answerId(answer, 'travelers')
   );
 }
 
@@ -299,17 +299,29 @@ function parseTravelerComposition(value) {
 
 const PT_MONTHS = {
   janeiro: 1,
+  jan: 1,
   fevereiro: 2,
+  fev: 2,
   marco: 3,
+  mar: 3,
   abril: 4,
+  abr: 4,
   maio: 5,
+  mai: 5,
   junho: 6,
+  jun: 6,
   julho: 7,
+  jul: 7,
   agosto: 8,
+  ago: 8,
   setembro: 9,
+  set: 9,
   outubro: 10,
+  out: 10,
   novembro: 11,
+  nov: 11,
   dezembro: 12,
+  dez: 12,
 };
 
 function isoDate(year, month, day) {
@@ -360,6 +372,27 @@ function normalizeDates(answers, context) {
   return null;
 }
 
+function dateDiffNights(dates) {
+  if (!dates?.start || !dates?.end) return null;
+  const start = new Date(`${dates.start}T00:00:00`);
+  const end = new Date(`${dates.end}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  const diff = Math.round((end.getTime() - start.getTime()) / 86400000);
+  return diff > 0 ? diff : null;
+}
+
+function isClearDateLabel(value) {
+  const text = normText(value).trim();
+  if (!text) return false;
+  return ![
+    /^a definir$/,
+    /^datas flexiveis$/,
+    /^flexivel$/,
+    /^ainda nao sei$/,
+    /^nao sei$/,
+  ].some(pattern => pattern.test(text));
+}
+
 function isGenericInitialPrompt(value) {
   const text = normText(value).trim();
   if (!text) return true;
@@ -381,6 +414,30 @@ function initialDestinationAnswer(destination) {
   const label = filledString(destination);
   if (!label) return null;
   return { optId: 'custom', label };
+}
+
+function initialAnswersFromContext(context = {}) {
+  const next = {};
+  const destination = filledString(context.destination);
+  if (destination) next.destination = { optId: 'custom', label: destination };
+  const datesLabel = filledString(context.dates?.label, context.period);
+  if (datesLabel) next.period = { optId: 'custom', label: datesLabel };
+  const duration = filledString(context.duration) || (context.nights ? `${context.nights} noites` : '');
+  if (duration) next.duration = { optId: 'custom', label: duration };
+  const travelerCount = parseNumberFromText(context.travelers?.count);
+  const travelerComposition = filledString(context.travelers?.composition, context.travelerComposition);
+  if (travelerCount && travelerComposition) {
+    next.travelers = { optId: 'custom', label: `${travelerCount} ${travelerCount === 1 ? 'pessoa' : 'pessoas'} · ${travelerComposition}` };
+  } else if (travelerComposition) {
+    next.travelers = { optId: 'custom', label: travelerComposition };
+  }
+  const ages = Array.isArray(context.childrenAges)
+    ? context.childrenAges
+    : Array.isArray(context.travelers?.children?.ages)
+      ? context.travelers.children.ages
+      : [];
+  if (ages.length > 0) next.childrenAges = { optId: 'custom', label: ages.join(', ') };
+  return next;
 }
 
 function periodStepForDestination(destination) {
@@ -487,19 +544,78 @@ function hasClearTravelerComposition(answers) {
   return composition.composition === 'Família' && composition.count && (composition.children || composition.ages.length > 0);
 }
 
-function shouldSkipAiStep(step, answers) {
-  if (!step) return false;
-  return hasClearTravelerComposition(answers) && ['travelers', 'travelerCount', 'childrenAges'].includes(step.id);
+function fieldKnown(field, answers, context = {}) {
+  if (!field) return false;
+  const dates = normalizeDates(answers, context);
+  const parsedTravelers = parseTravelerComposition(`${answerText(answers, 'travelers')} ${answerText(answers, 'travelerCount')} ${answerText(answers, 'childrenAges')}`);
+  const travelerCount = travelerCountFrom(answers) ?? parsedTravelers.count ?? parseNumberFromText(context.travelers?.count);
+  const travelerComposition = filledString(travelerCompositionFrom(answers), parsedTravelers.composition, context.travelerComposition, context.travelers?.composition);
+  const childrenAges = parsedTravelers.ages.length > 0
+    ? parsedTravelers.ages
+    : Array.isArray(context.childrenAges)
+      ? context.childrenAges
+      : Array.isArray(context.travelers?.children?.ages)
+        ? context.travelers.children.ages
+        : [];
+
+  switch (field) {
+    case 'destination':
+      return !!filledString(answerText(answers, 'destination'), context.destination);
+    case 'period':
+    case 'dates':
+      return !!(dates?.start && dates?.end) || isClearDateLabel(dates?.label);
+    case 'duration':
+      return !!(parseNights(answers) ?? context.nights ?? parseNumberFromText(context.duration) ?? dateDiffNights(dates));
+    case 'travelers':
+    case 'travelerCount':
+      return !!(travelerCount && travelerComposition);
+    case 'childrenAges':
+      return childrenAges.length > 0 || hasClearTravelerComposition(answers);
+    case 'budget':
+      return !!filledString(answerText(answers, 'budget'), context.budget?.label, context.budget, context.comfortLevel);
+    default:
+      return false;
+  }
 }
 
-async function requestAiWizardQuestion({ prompt, answers, lastAnswer, stepCount }) {
+function shouldSkipWizardStep(step, answers, context = {}) {
+  if (!step) return false;
+  return fieldKnown(step.id, answers, context);
+}
+
+function nextUnknownStepIndex(steps, startIndex, answers, context = {}) {
+  return steps.findIndex((step, index) => index >= startIndex && !shouldSkipWizardStep(step, answers, context));
+}
+
+async function requestAiWizardQuestion({ prompt, answers, context, lastAnswer, stepCount }) {
   const response = await fetch('/api/wizard-next', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, answers, lastAnswer, stepCount }),
+    body: JSON.stringify({ prompt, answers, context, lastAnswer, stepCount }),
   });
   if (!response.ok) throw new Error('wizard-next failed');
   return response.json();
+}
+
+async function requestNextUnknownAiStep({ prompt, answers, context, lastAnswer, stepCount }) {
+  let nextContext = context || {};
+  let lastResponse = null;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const response = await requestAiWizardQuestion({
+      prompt,
+      answers,
+      context: nextContext,
+      lastAnswer,
+      stepCount: stepCount + attempt,
+    });
+    nextContext = mergeWizardContext(nextContext, response.normalizedPatch);
+    lastResponse = response;
+    const step = aiQuestionToStep(response);
+    if (response.isComplete || !shouldSkipWizardStep(step, answers, nextContext)) {
+      return { response, context: nextContext, step };
+    }
+  }
+  return { response: lastResponse, context: nextContext, step: null };
 }
 
 function buildWizardQa(answers, history = []) {
@@ -692,34 +808,46 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
 
       if (key === 'trip') {
         try {
-          const response = await requestAiWizardQuestion({
+          const result = await requestNextUnknownAiStep({
             prompt: userText,
             answers: {},
+            context: {},
             lastAnswer: null,
             stepCount: 0,
           });
-          initialContext = mergeWizardContext({}, response.normalizedPatch);
-          firstAiQuestion = response;
+          initialContext = result.context;
+          firstAiQuestion = result.response;
         } catch (_error) {
-          if (!isGenericInitialPrompt(userText)) {
-            initialContext = { destination: userText };
-          }
+          initialContext = {};
+        }
+        const promptDates = parseDateRange(userText);
+        if (!initialContext.dates && (promptDates?.start || isClearDateLabel(promptDates?.label))) {
+          initialContext = {
+            ...initialContext,
+            dates: promptDates,
+            period: promptDates.label,
+          };
+        }
+        if (!initialContext.destination && !promptDates?.start && !isClearDateLabel(promptDates?.label) && !isGenericInitialPrompt(userText)) {
+          initialContext = { ...initialContext, destination: userText };
         }
 
-        const initialDestination = filledString(initialContext.destination);
-        const destinationAnswer = initialDestinationAnswer(initialDestination);
-        if (destinationAnswer) {
-          initialAnswers = { destination: destinationAnswer };
-          initialHistory = [BASE_TRIP_WIZARD[0]];
-          firstWizardStep = 1;
+        initialAnswers = initialAnswersFromContext(initialContext);
+        const firstAiStep = aiQuestionToStep(firstAiQuestion);
+        const deterministic = buildAdaptiveTripWizard(initialAnswers);
+        const firstUnknownIndex = nextUnknownStepIndex(deterministic, 0, initialAnswers, initialContext);
+        if (firstUnknownIndex >= 0) {
+          firstWizardStep = firstUnknownIndex;
+          initialHistory = deterministic.slice(0, firstUnknownIndex + 1);
         }
 
-        const firstAiStep = destinationAnswer ? aiQuestionToStep(firstAiQuestion) : null;
-        if (destinationAnswer) {
-          const nextStep = firstAiStep && firstAiStep.id !== 'destination'
-            ? firstAiStep
-            : periodStepForDestination(destinationAnswer.label);
-          initialHistory = syncWizardHistory(initialHistory, 0, BASE_TRIP_WIZARD[0], nextStep);
+        if (firstAiStep && !shouldSkipWizardStep(firstAiStep, initialAnswers, initialContext)) {
+          initialHistory = syncWizardHistory(initialHistory, firstWizardStep - 1, initialHistory[firstWizardStep - 1], firstAiStep);
+        } else if (firstUnknownIndex < 0) {
+          const destinationAnswer = initialAnswers.destination;
+          const nextStep = destinationAnswer ? periodStepForDestination(destinationAnswer.label) : BASE_TRIP_WIZARD[0];
+          initialHistory = [nextStep];
+          firstWizardStep = 0;
         }
       }
 
@@ -804,20 +932,19 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
 
       if (flowKey === 'trip') {
         try {
-          const response = await requestAiWizardQuestion({
+          const result = await requestNextUnknownAiStep({
             prompt: initialPrompt,
             answers: nextAnswers,
+            context: wizardContext,
             lastAnswer: { field: step.id, value: optId, label },
             stepCount: wizardStep + 1,
           });
-          nextWizardContext = mergeWizardContext(wizardContext, response.normalizedPatch);
+          const response = result.response;
+          nextWizardContext = result.context;
           setWizardContext(nextWizardContext);
           setAiWizardQuestion(response);
           completedByAi = response.isComplete === true;
-          nextAiStep = aiQuestionToStep(response);
-          if (shouldSkipAiStep(nextAiStep, nextAnswers)) {
-            nextAiStep = null;
-          }
+          nextAiStep = result.step;
           if (nextAiStep) {
             nextWizard = syncWizardHistory(currentWizardHistory, wizardStep, step, nextAiStep);
             setWizardHistory(nextWizard);
@@ -831,8 +958,8 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       }
 
       setThinking(false);
-      if (!completedByAi && wizardStep < nextWizard.length - 1) {
-        const next = wizardStep + 1;
+      const next = nextUnknownStepIndex(nextWizard, wizardStep + 1, nextAnswers, nextWizardContext);
+      if (!completedByAi && next >= 0) {
         setWizardStep(next);
         setChat(c => [...c, { who: 'agent', wizardStep: next }]);
       } else {

@@ -12,6 +12,7 @@ Regras:
 - aja como uma consultora de viagens experiente
 - escolha a proxima pergunta mais util, nao uma pergunta generica
 - nao repita campos que ja estejam claros em answers ou normalizedPatch
+- Never ask again for information already clearly present in answers or normalized context.
 - faca no maximo uma pergunta por resposta
 - retorne 2 a 4 opcoes curtas
 - allowFreeText deve ser true salvo quando isComplete for true
@@ -121,6 +122,7 @@ function normalizeRequest(value) {
   return {
     prompt: asString(root.prompt).trim().slice(0, 1600),
     answers: asObject(root.answers),
+    context: asObject(root.context),
     lastAnswer: normalizeLastAnswer(root.lastAnswer),
     stepCount: clampStepCount(root.stepCount),
   };
