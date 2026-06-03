@@ -478,7 +478,7 @@ function inferReplanType(message) {
 }
 function isOutdoorLikeItem(item) {
   const text = normText(`${item?.tag || ''} ${item?.title || ''} ${item?.place || ''} ${item?.vibe || ''}`);
-  return /(praia|parque|jardim|mirante|trilha|caminhada|rua|bairro|centro historico|centro histórico|tour|passeio|ar livre|barco|monserrate|cristo|copacabana|ipanema|pelourinho)/.test(text);
+  return /(praia|parque|praca|praça|jardim|mirante|trilha|caminhada|rua|bairro|centro historico|centro histórico|tour|passeio|ar livre|barco|rooftop|monserrate|cristo|copacabana|ipanema|pelourinho|simón bolívar|simon bolivar)/.test(text);
 }
 function isChildFriendlyItem(item) {
   const text = normText(`${item?.tag || ''} ${item?.title || ''} ${item?.place || ''} ${item?.vibe || ''}`);
@@ -493,6 +493,55 @@ function itemPriorityScore(item) {
 }
 function indoorAlternativeFor(item, trip, day) {
   const destination = day?.city && day.city !== TBD ? day.city : knownTripDestination(trip) || item?.place || 'destino';
+  const key = normText(`${destination} ${trip?.destination || ''} ${trip?.tripContext?.destination || ''}`);
+  const slot = item?.t || 'tarde';
+  const cityAlternatives = [
+    {
+      match: /bogota|bogotá/,
+      options: {
+        manhã: { title: 'Museo del Oro', place: 'La Candelaria', tag: 'cultura', dur: '2h' },
+        tarde: { title: 'Museo Botero', place: 'La Candelaria', tag: 'cultura', dur: '2h' },
+        noite: { title: 'Cafés e jantar em Chapinero', place: 'Chapinero', tag: 'gastronomia', dur: '2h' },
+      },
+    },
+    {
+      match: /paris/,
+      options: {
+        manhã: { title: 'Musée d’Orsay', place: 'Saint-Germain', tag: 'museu', dur: '2h30' },
+        tarde: { title: 'Louvre', place: '1º arrondissement', tag: 'museu', dur: '3h' },
+        noite: { title: 'Jantar e cafés cobertos em Saint-Germain', place: 'Saint-Germain', tag: 'gastronomia', dur: '2h' },
+      },
+    },
+    {
+      match: /rio de janeiro|rio\b/,
+      options: {
+        manhã: { title: 'Museu do Amanhã', place: 'Centro', tag: 'cultura', dur: '2h' },
+        tarde: { title: 'CCBB Rio', place: 'Centro', tag: 'cultura', dur: '2h' },
+        noite: { title: 'Jantar coberto em Ipanema', place: 'Ipanema', tag: 'restaurante', dur: '2h' },
+      },
+    },
+    {
+      match: /orlando/,
+      options: {
+        manhã: { title: 'Disney Springs', place: 'Lake Buena Vista', tag: 'família', dur: '2h30' },
+        tarde: { title: 'Orlando International Premium Outlets', place: 'International Drive', tag: 'compras', dur: '3h' },
+        noite: { title: 'Jantar em Disney Springs', place: 'Disney Springs', tag: 'restaurante', dur: '2h' },
+      },
+    },
+  ];
+  const city = cityAlternatives.find(itemOption => itemOption.match.test(key));
+  const picked = city?.options?.[slot] || city?.options?.tarde;
+  if (picked) {
+    return {
+      ...item,
+      title: picked.title,
+      place: picked.place,
+      dur: picked.dur,
+      tag: picked.tag,
+      vibe: 'alternativa interna para manter o dia confortável com chuva',
+      conf: false,
+    };
+  }
   const category = itemCategory(item);
   const title = category === 'restaurante'
     ? `Jantar em restaurante acolhedor em ${destination}`
@@ -523,12 +572,19 @@ function familyAlternativeFor(item, trip, day) {
 }
 function gastronomyItemFor(slot, trip, day) {
   const destination = day?.city && day.city !== TBD ? day.city : knownTripDestination(trip) || 'destino';
+  const key = normText(`${destination} ${trip?.destination || ''} ${trip?.tripContext?.destination || ''}`);
   const isNight = slot === 'noite';
+  const cityFood = [
+    { match: /bogota|bogotá/, title: isNight ? 'Jantar no El Chato' : 'Café colombiano no Azahar Café', place: isNight ? 'Chapinero' : 'Chapinero' },
+    { match: /paris/, title: isNight ? 'Jantar no Le Comptoir du Relais' : 'Pausa gastronômica no Marais', place: isNight ? 'Saint-Germain' : 'Marais' },
+    { match: /rio de janeiro|rio\b/, title: isNight ? 'Jantar no Zazá Bistrô Tropical' : 'Café no Empório Jardim', place: isNight ? 'Ipanema' : 'Ipanema' },
+    { match: /orlando/, title: isNight ? 'Jantar no The Boathouse' : 'Pausa em Disney Springs', place: isNight ? 'Disney Springs' : 'Disney Springs' },
+  ].find(option => option.match.test(key));
   return {
     id: `food-${day?.d || 'd'}-${slot}-${Date.now()}`,
     t: slot,
-    title: isNight ? `Jantar gastronômico em ${destination}` : `Parada gastronômica em ${destination}`,
-    place: destination,
+    title: cityFood?.title || (isNight ? `Jantar gastronômico em ${destination}` : `Parada gastronômica em ${destination}`),
+    place: cityFood?.place || destination,
     dur: isNight ? '2h' : '1h30',
     tag: 'gastronomia',
     vibe: 'incluído para dar mais sabor local ao roteiro',
@@ -558,6 +614,52 @@ function targetDaysForReplan(message, days, type) {
   }
   return safeDays.slice(0, 1);
 }
+function makeStructuredChange({ type, day, slot, targetTitle = '', newTitle = '', reason = '', targetId = null, item = null }) {
+  return {
+    type,
+    day,
+    slot,
+    targetTitle,
+    newTitle,
+    reason,
+    targetId,
+    item,
+  };
+}
+function applyStructuredReplanChanges(days, changes) {
+  const nextDays = normalizeDays(days).map(day => ({ ...day, items: [...day.items] }));
+  changes.forEach((change) => {
+    const day = nextDays.find(item => item.d === change.day);
+    if (!day) return;
+    if (change.type === 'replace') {
+      const index = day.items.findIndex(item => (change.targetId && item.id === change.targetId) || normText(item.title) === normText(change.targetTitle));
+      if (index >= 0 && change.item) day.items[index] = { ...day.items[index], ...change.item, id: day.items[index].id, t: change.slot || day.items[index].t, conf: false };
+    }
+    if (change.type === 'remove') {
+      day.items = day.items.filter(item => !((change.targetId && item.id === change.targetId) || normText(item.title) === normText(change.targetTitle)));
+    }
+    if (change.type === 'add_rest') {
+      const item = change.item || freeTimeItem(change.slot || 'tarde', day, change.reason);
+      day.items.push({ ...item, t: change.slot || item.t || 'tarde' });
+    }
+    if (change.type === 'move') {
+      const sourceDay = nextDays.find(item => item.items.some(activity => (change.targetId && activity.id === change.targetId) || normText(activity.title) === normText(change.targetTitle)));
+      if (!sourceDay) return;
+      const index = sourceDay.items.findIndex(item => (change.targetId && item.id === change.targetId) || normText(item.title) === normText(change.targetTitle));
+      if (index < 0) return;
+      const [moved] = sourceDay.items.splice(index, 1);
+      day.items.push({ ...moved, t: change.slot || moved.t });
+    }
+    day.items = day.items.sort((a, b) => ['manhã', 'tarde', 'noite'].indexOf(a.t) - ['manhã', 'tarde', 'noite'].indexOf(b.t));
+  });
+  return nextDays.sort((a, b) => a.d - b.d);
+}
+function alternateDayForMove(days, currentDay) {
+  const safeDays = normalizeDays(days);
+  return safeDays.find(day => day.d !== currentDay?.d && day.items.length < 3) ||
+    safeDays.find(day => day.d !== currentDay?.d) ||
+    null;
+}
 function buildReplanPreview({ message, trip, days }) {
   const type = inferReplanType(message);
   const safeDays = normalizeDays(days).map(day => ({ ...day, items: [...day.items] }));
@@ -565,16 +667,39 @@ function buildReplanPreview({ message, trip, days }) {
   const targetNumbers = new Set(targets.map(day => day.d));
   const changes = [];
 
-  const nextDays = safeDays.map(day => {
+  safeDays.forEach(day => {
     if (!targetNumbers.has(day.d)) return { ...day, items: [...day.items] };
     let items = [...day.items];
 
     if (type === 'WEATHER') {
-      items = items.map(item => {
-        if (!isOutdoorLikeItem(item)) return item;
+      items.forEach(item => {
+        if (!isOutdoorLikeItem(item)) return;
         const replacement = indoorAlternativeFor(item, trip, day);
-        changes.push(`trocar ${item.title} por ${replacement.title} no Dia ${day.d}`);
-        return replacement;
+        if (replacement.title && !normText(replacement.title).includes('programa coberto')) {
+          changes.push(makeStructuredChange({
+            type: 'replace',
+            day: day.d,
+            slot: item.t,
+            targetTitle: item.title,
+            newTitle: replacement.title,
+            reason: 'chuva prevista; alternativa coberta no mesmo período',
+            targetId: item.id,
+            item: replacement,
+          }));
+        } else {
+          const moveDay = alternateDayForMove(safeDays, day);
+          if (moveDay) {
+            changes.push(makeStructuredChange({
+              type: 'move',
+              day: moveDay.d,
+              slot: item.t,
+              targetTitle: item.title,
+              newTitle: item.title,
+              reason: `chuva no Dia ${day.d}; mover passeio externo para o Dia ${moveDay.d}`,
+              targetId: item.id,
+            }));
+          }
+        }
       });
     }
 
@@ -582,27 +707,55 @@ function buildReplanPreview({ message, trip, days }) {
       const morning = items.filter(item => item.t === 'manhã');
       const removable = morning.sort((a, b) => itemPriorityScore(a) - itemPriorityScore(b))[0];
       if (removable) {
-        items = items.filter(item => item.id !== removable.id);
-        changes.push(`remover ${removable.title} da manhã do Dia ${day.d}`);
+        changes.push(makeStructuredChange({
+          type: 'remove',
+          day: day.d,
+          slot: removable.t,
+          targetTitle: removable.title,
+          reason: `manhã perdida; preservar itens de maior valor no Dia ${day.d}`,
+          targetId: removable.id,
+        }));
       }
-      if (!items.some(item => item.t === 'manhã')) {
-        items.unshift(freeTimeItem('manhã', day, 'ajuste para chegada mais tarde'));
-        changes.push(`reservar a manhã do Dia ${day.d} para chegada e respiro`);
+      if (morning.length <= 1) {
+        const rest = freeTimeItem('manhã', day, 'ajuste para chegada mais tarde');
+        changes.push(makeStructuredChange({
+          type: 'add_rest',
+          day: day.d,
+          slot: 'manhã',
+          newTitle: rest.title,
+          reason: `reservar a manhã do Dia ${day.d} para chegada e respiro`,
+          item: rest,
+        }));
       }
     }
 
     if (type === 'COMFORT') {
-      const sorted = [...items].sort((a, b) => itemPriorityScore(a) - itemPriorityScore(b));
+      const busiest = safeDays.reduce((best, item) => item.items.length > best.items.length ? item : best, safeDays[0] || day);
+      if (day.d !== busiest.d) return;
+      const sorted = [...day.items].sort((a, b) => itemPriorityScore(a) - itemPriorityScore(b));
       const removable = sorted.find(item => !item.conf) || sorted[0];
-      if (items.length > 2 && removable) {
-        items = items.filter(item => item.id !== removable.id);
-        changes.push(`tirar ${removable.title} para deixar o Dia ${day.d} mais leve`);
+      if (day.items.length > 2 && removable) {
+        changes.push(makeStructuredChange({
+          type: 'remove',
+          day: day.d,
+          slot: removable.t,
+          targetTitle: removable.title,
+          reason: `reduzir densidade do Dia ${day.d}`,
+          targetId: removable.id,
+        }));
       }
-      if (!items.some(item => item.tag === 'descanso')) {
-        const occupied = new Set(items.map(item => item.t));
+      if (!day.items.some(item => item.tag === 'descanso')) {
+        const occupied = new Set(day.items.map(item => item.t));
         const slot = ['manhã', 'tarde', 'noite'].find(value => !occupied.has(value)) || 'tarde';
-        items.push(freeTimeItem(slot, day, 'respiro para reduzir deslocamentos e cansaço'));
-        changes.push(`adicionar tempo livre no Dia ${day.d}`);
+        const rest = freeTimeItem(slot, day, 'respiro para reduzir deslocamentos e cansaço');
+        changes.push(makeStructuredChange({
+          type: 'add_rest',
+          day: day.d,
+          slot,
+          newTitle: rest.title,
+          reason: `criar respiro no Dia ${day.d}`,
+          item: rest,
+        }));
       }
     }
 
@@ -610,8 +763,16 @@ function buildReplanPreview({ message, trip, days }) {
       const target = items.find(item => !isChildFriendlyItem(item) && !item.conf) || items.find(item => !isChildFriendlyItem(item));
       if (target) {
         const replacement = familyAlternativeFor(target, trip, day);
-        items = items.map(item => item.id === target.id ? replacement : item);
-        changes.push(`trocar ${target.title} por uma atividade melhor para crianças no Dia ${day.d}`);
+        changes.push(makeStructuredChange({
+          type: 'replace',
+          day: day.d,
+          slot: target.t,
+          targetTitle: target.title,
+          newTitle: replacement.title,
+          reason: `mais adequado para crianças no Dia ${day.d}`,
+          targetId: target.id,
+          item: replacement,
+        }));
       }
     }
 
@@ -621,32 +782,46 @@ function buildReplanPreview({ message, trip, days }) {
         const occupied = new Set(items.map(item => item.t));
         const slot = ['noite', 'tarde', 'manhã'].find(value => !occupied.has(value)) || 'noite';
         const food = gastronomyItemFor(slot, trip, day);
-        items.push(food);
-        changes.push(`adicionar ${food.title} no Dia ${day.d}`);
+        changes.push(makeStructuredChange({
+          type: 'add_rest',
+          day: day.d,
+          slot,
+          newTitle: food.title,
+          reason: `trazer mais gastronomia ao Dia ${day.d}`,
+          item: food,
+        }));
       } else {
         const target = items.find(item => !/restaurante|gastronomia|cafe|café|jantar|almoco|almoço/.test(normText(`${item.tag} ${item.title}`)) && !item.conf);
         if (target) {
           const food = gastronomyItemFor(target.t, trip, day);
-          items = items.map(item => item.id === target.id ? food : item);
-          changes.push(`trocar ${target.title} por ${food.title} no Dia ${day.d}`);
+          changes.push(makeStructuredChange({
+            type: 'replace',
+            day: day.d,
+            slot: target.t,
+            targetTitle: target.title,
+            newTitle: food.title,
+            reason: `substituir item de menor valor por gastronomia no Dia ${day.d}`,
+            targetId: target.id,
+            item: food,
+          }));
         }
       }
     }
-
-    return { ...day, items: items.sort((a, b) => ['manhã', 'tarde', 'noite'].indexOf(a.t) - ['manhã', 'tarde', 'noite'].indexOf(b.t)) };
   });
+  const usefulChanges = changes.filter(change => change.targetTitle || change.newTitle);
+  const nextDays = usefulChanges.length ? applyStructuredReplanChanges(safeDays, usefulChanges) : safeDays;
 
-  if (changes.length === 0) {
+  if (usefulChanges.length === 0) {
     return {
       type,
-      changes: ['manter a estrutura atual e ajustar o ritmo com uma revisão manual'],
+      changes: [],
       nextDays,
-      summary: 'Posso revisar o roteiro, mas preciso de um pouco mais de detalhe sobre o que você quer mudar.',
+      summary: 'Consigo ajustar, mas preciso de um roteiro com atividades mais definidas.',
     };
   }
   return {
     type,
-    changes,
+    changes: usefulChanges,
     nextDays,
     summary: replanSummaryText(type, targetNumbers),
   };
@@ -662,7 +837,14 @@ function replanSummaryText(type, targetNumbers) {
   return `Posso reorganizar ${dayLabel}.`;
 }
 function previewTextForReplan(preview) {
-  const bullets = preview.changes.slice(0, 3).map(item => `- ${item}`).join('\n');
+  if (!Array.isArray(preview.changes) || preview.changes.length === 0) return preview.summary;
+  const bullets = preview.changes.slice(0, 3).map((item) => {
+    if (item.type === 'replace') return `- trocar “${item.targetTitle}” por “${item.newTitle}”`;
+    if (item.type === 'move') return `- mover “${item.targetTitle}” para o Dia ${item.day}, ${item.slot}`;
+    if (item.type === 'remove') return `- remover “${item.targetTitle}” de ${item.slot || 'um período'} do Dia ${item.day}`;
+    if (item.type === 'add_rest') return `- adicionar “${item.newTitle}” no Dia ${item.day}, ${item.slot}`;
+    return `- ${item.reason}`;
+  }).join('\n');
   return `${preview.summary}\n\nPosso fazer estas mudanças:\n\n${bullets}\n\nAplicar?`;
 }
 function buildLocalItineraryItem(message, trip, targetDay, dayContext = null) {
@@ -1056,7 +1238,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       intent: 'REPLAN_ITINERARY',
       replanType: action.payload?.replanType,
       replanSummary: action.payload?.summary,
-      changes: action.payload?.changes,
+      changes: action.payload?.changes?.map(({ item, ...change }) => change),
     });
     toast({ title: 'Roteiro reorganizado', desc: action.payload?.summary || 'Mudanças aplicadas.', tone: 'success' });
     return 'applied';
@@ -1466,6 +1648,11 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       }
       const preview = buildReplanPreview({ message: t, trip: tripData, days });
       const text = previewTextForReplan(preview);
+      if (!Array.isArray(preview.changes) || preview.changes.length === 0) {
+        setChat(c => [...c, { who: 'gaid', text, source: 'replanning-engine' }]);
+        persistPlanMessage('assistant', text, { source: 'replanning-engine', intent: planIntent.intent, replanType: preview.type });
+        return;
+      }
       setChat(c => [...c, {
         who: 'gaid',
         text,
@@ -1486,7 +1673,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         source: 'replanning-engine',
         intent: planIntent.intent,
         replanType: preview.type,
-        changes: preview.changes,
+        changes: preview.changes.map(({ item, ...change }) => change),
       });
       return;
     }
