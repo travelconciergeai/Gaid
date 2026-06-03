@@ -103,7 +103,7 @@ function suggestionsHavePlacement(suggestions) {
 }
 function isApplyIntent(value) {
   const text = normText(value);
-  return /(aplicar|adicionar ao roteiro|aplicar ao roteiro|pode adicionar|pode aplicar|pode fazer|coloca no roteiro|incluir no roteiro|gostei,\s*adiciona|gostei.*adiciona|gostei.*coloca)/.test(text);
+  return /(aplicar|adicionar ao roteiro|aplicar ao roteiro|pode adicionar|pode aplicar|pode fazer|faz isso|coloca no roteiro|incluir no roteiro|gostei\b|gostei,\s*adiciona|gostei.*adiciona|gostei.*coloca)/.test(text);
 }
 function isAddDayIntent(value) {
   const text = normText(value);
@@ -128,6 +128,10 @@ function isReplaceActivityIntent(value) {
 function isOptimizeItineraryIntent(value) {
   const text = normText(value);
   return /(otimizar|reorganizar|melhorar|deixar mais leve|mais barato|menos corrido|mais premium|ajustar ritmo|reduzir custo)/.test(text);
+}
+function isReplanItineraryIntent(value) {
+  const text = normText(value);
+  return /(vai chover|previsao de chuva|previsão de chuva|chuva|perdi a manha|perdi a manhã|cheguei atrasado|estou cansado|to cansado|tô cansado|algo mais leve|ritmo mais tranquilo|reduzir deslocamentos|menos deslocamento|mais gastronomia|mais coisas para criancas|mais coisas para crianças|melhor para criancas|melhor para crianças|mais conforto)/.test(text);
 }
 function isRecommendationIntent(value) {
   const text = normText(value);
@@ -189,6 +193,15 @@ function classifyPlanChatIntent(message, currentTrip, lastAssistantMessage) {
       requiresTrip: true,
       nextTool: 'Itinerary Editor',
       reason: 'Usuário quer trocar uma atividade do roteiro.',
+    };
+  }
+  if (isReplanItineraryIntent(message)) {
+    return {
+      intent: 'REPLAN_ITINERARY',
+      confidence: 0.86,
+      requiresTrip: true,
+      nextTool: 'Replanning Engine',
+      reason: 'Usuário trouxe uma nova restrição que exige reorganizar múltiplos itens.',
     };
   }
   if (isOptimizeItineraryIntent(message)) {
@@ -454,6 +467,204 @@ function localReplacementSuggestion(message, trip, target) {
     vibe: `substitui "${target.item.title}" mantendo o mesmo período do roteiro`,
   };
 }
+function inferReplanType(message) {
+  const text = normText(message);
+  if (/chuva|chover/.test(text)) return 'WEATHER';
+  if (/perdi a manha|perdi a manhã|cheguei atrasado|atrasado/.test(text)) return 'TIME_LOSS';
+  if (/cansado|mais leve|ritmo mais tranquilo|mais conforto|menos corrido|reduzir deslocamentos|menos deslocamento/.test(text)) return 'COMFORT';
+  if (/crianca|criança|filho|joaquim|familia|família/.test(text)) return 'CHILD_FRIENDLY';
+  if (/gastronom|restaurante|comida|jantar|almoco|almoço/.test(text)) return 'GASTRONOMY';
+  return 'COMFORT';
+}
+function isOutdoorLikeItem(item) {
+  const text = normText(`${item?.tag || ''} ${item?.title || ''} ${item?.place || ''} ${item?.vibe || ''}`);
+  return /(praia|parque|jardim|mirante|trilha|caminhada|rua|bairro|centro historico|centro histórico|tour|passeio|ar livre|barco|monserrate|cristo|copacabana|ipanema|pelourinho)/.test(text);
+}
+function isChildFriendlyItem(item) {
+  const text = normText(`${item?.tag || ''} ${item?.title || ''} ${item?.place || ''} ${item?.vibe || ''}`);
+  return /(crianca|criança|familia|família|kids|parque|aquario|aquário|zoo|jardim|ciencia|ciência|disney|universal|ludic|lúdico)/.test(text);
+}
+function itemPriorityScore(item) {
+  const text = normText(`${item?.tag || ''} ${item?.title || ''} ${item?.place || ''}`);
+  let score = item?.conf ? 4 : 1;
+  if (/restaurante|jantar|almoco|almoço|museu|cultura|classico|clássico|essencial/.test(text)) score += 1;
+  if (/tempo livre|descanso|leve/.test(text)) score -= 1;
+  return score;
+}
+function indoorAlternativeFor(item, trip, day) {
+  const destination = day?.city && day.city !== TBD ? day.city : knownTripDestination(trip) || item?.place || 'destino';
+  const category = itemCategory(item);
+  const title = category === 'restaurante'
+    ? `Jantar em restaurante acolhedor em ${destination}`
+    : category === 'café'
+      ? `Pausa em café especial em ${destination}`
+      : category === 'museu' || category === 'cultura'
+        ? `Museu ou centro cultural em ${destination}`
+        : `Programa coberto em ${destination}`;
+  return {
+    ...item,
+    title,
+    place: destination,
+    tag: category === 'restaurante' || category === 'café' ? category : 'cultura',
+    vibe: 'alternativa interna para manter o dia confortável',
+    conf: false,
+  };
+}
+function familyAlternativeFor(item, trip, day) {
+  const destination = day?.city && day.city !== TBD ? day.city : knownTripDestination(trip) || item?.place || 'destino';
+  return {
+    ...item,
+    title: `Atividade leve para crianças em ${destination}`,
+    place: destination,
+    tag: 'família',
+    vibe: 'mais fácil para crianças, com ritmo menos cansativo',
+    conf: false,
+  };
+}
+function gastronomyItemFor(slot, trip, day) {
+  const destination = day?.city && day.city !== TBD ? day.city : knownTripDestination(trip) || 'destino';
+  const isNight = slot === 'noite';
+  return {
+    id: `food-${day?.d || 'd'}-${slot}-${Date.now()}`,
+    t: slot,
+    title: isNight ? `Jantar gastronômico em ${destination}` : `Parada gastronômica em ${destination}`,
+    place: destination,
+    dur: isNight ? '2h' : '1h30',
+    tag: 'gastronomia',
+    vibe: 'incluído para dar mais sabor local ao roteiro',
+    conf: false,
+  };
+}
+function freeTimeItem(slot, day, reason = 'respiro no roteiro') {
+  return {
+    id: `free-${day?.d || 'd'}-${slot}-${Date.now()}`,
+    t: slot,
+    title: 'Tempo livre para descanso',
+    place: day?.city || TBD,
+    dur: '1h30',
+    tag: 'descanso',
+    vibe: reason,
+    conf: false,
+  };
+}
+function targetDaysForReplan(message, days, type) {
+  const safeDays = normalizeDays(days);
+  const explicit = parseTargetDay(message, safeDays);
+  if (explicit) return safeDays.filter(day => day.d === explicit);
+  if (/\bamanha\b|\bamanhã\b/.test(normText(message)) && safeDays[1]) return [safeDays[1]];
+  if (type === 'WEATHER') {
+    const rainy = safeDays.filter(day => day.items.some(isOutdoorLikeItem));
+    return rainy.length ? rainy.slice(0, 1) : safeDays.slice(0, 1);
+  }
+  return safeDays.slice(0, 1);
+}
+function buildReplanPreview({ message, trip, days }) {
+  const type = inferReplanType(message);
+  const safeDays = normalizeDays(days).map(day => ({ ...day, items: [...day.items] }));
+  const targets = targetDaysForReplan(message, safeDays, type);
+  const targetNumbers = new Set(targets.map(day => day.d));
+  const changes = [];
+
+  const nextDays = safeDays.map(day => {
+    if (!targetNumbers.has(day.d)) return { ...day, items: [...day.items] };
+    let items = [...day.items];
+
+    if (type === 'WEATHER') {
+      items = items.map(item => {
+        if (!isOutdoorLikeItem(item)) return item;
+        const replacement = indoorAlternativeFor(item, trip, day);
+        changes.push(`trocar ${item.title} por ${replacement.title} no Dia ${day.d}`);
+        return replacement;
+      });
+    }
+
+    if (type === 'TIME_LOSS') {
+      const morning = items.filter(item => item.t === 'manhã');
+      const removable = morning.sort((a, b) => itemPriorityScore(a) - itemPriorityScore(b))[0];
+      if (removable) {
+        items = items.filter(item => item.id !== removable.id);
+        changes.push(`remover ${removable.title} da manhã do Dia ${day.d}`);
+      }
+      if (!items.some(item => item.t === 'manhã')) {
+        items.unshift(freeTimeItem('manhã', day, 'ajuste para chegada mais tarde'));
+        changes.push(`reservar a manhã do Dia ${day.d} para chegada e respiro`);
+      }
+    }
+
+    if (type === 'COMFORT') {
+      const sorted = [...items].sort((a, b) => itemPriorityScore(a) - itemPriorityScore(b));
+      const removable = sorted.find(item => !item.conf) || sorted[0];
+      if (items.length > 2 && removable) {
+        items = items.filter(item => item.id !== removable.id);
+        changes.push(`tirar ${removable.title} para deixar o Dia ${day.d} mais leve`);
+      }
+      if (!items.some(item => item.tag === 'descanso')) {
+        const occupied = new Set(items.map(item => item.t));
+        const slot = ['manhã', 'tarde', 'noite'].find(value => !occupied.has(value)) || 'tarde';
+        items.push(freeTimeItem(slot, day, 'respiro para reduzir deslocamentos e cansaço'));
+        changes.push(`adicionar tempo livre no Dia ${day.d}`);
+      }
+    }
+
+    if (type === 'CHILD_FRIENDLY') {
+      const target = items.find(item => !isChildFriendlyItem(item) && !item.conf) || items.find(item => !isChildFriendlyItem(item));
+      if (target) {
+        const replacement = familyAlternativeFor(target, trip, day);
+        items = items.map(item => item.id === target.id ? replacement : item);
+        changes.push(`trocar ${target.title} por uma atividade melhor para crianças no Dia ${day.d}`);
+      }
+    }
+
+    if (type === 'GASTRONOMY') {
+      const hasFood = items.some(item => /restaurante|gastronomia|cafe|café|jantar|almoco|almoço/.test(normText(`${item.tag} ${item.title}`)));
+      if (!hasFood) {
+        const occupied = new Set(items.map(item => item.t));
+        const slot = ['noite', 'tarde', 'manhã'].find(value => !occupied.has(value)) || 'noite';
+        const food = gastronomyItemFor(slot, trip, day);
+        items.push(food);
+        changes.push(`adicionar ${food.title} no Dia ${day.d}`);
+      } else {
+        const target = items.find(item => !/restaurante|gastronomia|cafe|café|jantar|almoco|almoço/.test(normText(`${item.tag} ${item.title}`)) && !item.conf);
+        if (target) {
+          const food = gastronomyItemFor(target.t, trip, day);
+          items = items.map(item => item.id === target.id ? food : item);
+          changes.push(`trocar ${target.title} por ${food.title} no Dia ${day.d}`);
+        }
+      }
+    }
+
+    return { ...day, items: items.sort((a, b) => ['manhã', 'tarde', 'noite'].indexOf(a.t) - ['manhã', 'tarde', 'noite'].indexOf(b.t)) };
+  });
+
+  if (changes.length === 0) {
+    return {
+      type,
+      changes: ['manter a estrutura atual e ajustar o ritmo com uma revisão manual'],
+      nextDays,
+      summary: 'Posso revisar o roteiro, mas preciso de um pouco mais de detalhe sobre o que você quer mudar.',
+    };
+  }
+  return {
+    type,
+    changes,
+    nextDays,
+    summary: replanSummaryText(type, targetNumbers),
+  };
+}
+function replanSummaryText(type, targetNumbers) {
+  const days = [...targetNumbers].sort((a, b) => a - b);
+  const dayLabel = days.length ? `o Dia ${days.join(', ')}` : 'o roteiro';
+  if (type === 'WEATHER') return `Percebi que a chuva pode impactar ${dayLabel}.`;
+  if (type === 'TIME_LOSS') return `Entendi que houve perda de tempo em ${dayLabel}.`;
+  if (type === 'COMFORT') return `Vou deixar ${dayLabel} mais leve e confortável.`;
+  if (type === 'CHILD_FRIENDLY') return `Vou ajustar ${dayLabel} para funcionar melhor com crianças.`;
+  if (type === 'GASTRONOMY') return `Vou trazer mais gastronomia para ${dayLabel}.`;
+  return `Posso reorganizar ${dayLabel}.`;
+}
+function previewTextForReplan(preview) {
+  const bullets = preview.changes.slice(0, 3).map(item => `- ${item}`).join('\n');
+  return `${preview.summary}\n\nPosso fazer estas mudanças:\n\n${bullets}\n\nAplicar?`;
+}
 function buildLocalItineraryItem(message, trip, targetDay, dayContext = null) {
   const text = normText(message);
   const destination = dayContext?.city && dayContext.city !== TBD ? dayContext.city : knownTripDestination(trip) || 'destino';
@@ -502,6 +713,18 @@ function latestSuggestionMessageIndex(messages) {
   }
   return -1;
 }
+function latestPendingActionMessageIndex(messages, type) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    const action = message?.pendingAction;
+    const userTurnsAfter = messages.slice(index + 1).filter(item => item?.who === 'user').length;
+    const expiresAfterTurns = Number(action?.expiresAfterTurns ?? 3);
+    if (message?.who === 'gaid' && !message.ctaApplied && action?.type === type && userTurnsAfter <= expiresAfterTurns) {
+      return index;
+    }
+  }
+  return -1;
+}
 function getMessageSuggestions(message) {
   return normalizeItinerarySuggestions(message?.pendingAction?.payload?.itinerarySuggestions || message?.itinerarySuggestions);
 }
@@ -525,6 +748,9 @@ function validateItineraryAction({ action, trip, days, suggestions = [], targetD
   }
   if (action === 'REPLACE_ACTIVITY' || action === 'OPTIMIZE_ITINERARY') {
     if (safeDays.length === 0) return 'Ainda não há roteiro suficiente para essa alteração.';
+  }
+  if (action === 'REPLAN_ITINERARY') {
+    if (safeDays.length === 0 || safeDays.every(day => day.items.length === 0)) return 'Ainda não há roteiro suficiente para reorganizar. Abra uma viagem com atividades no roteiro.';
   }
   if (targetDay && action !== 'ADD_DAY' && !safeDays.some(day => day.d === targetDay)) {
     return `Não encontrei o dia ${targetDay} no roteiro.`;
@@ -811,6 +1037,29 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     setSelectedItem(null);
     await commitTimelineDays(safeDays);
     return true;
+  };
+  const applyPendingReplan = async (messageIndex) => {
+    const message = chat[messageIndex];
+    const action = message?.pendingAction;
+    if (action?.type !== 'PENDING_REPLAN') return 'none';
+    const nextDays = normalizeDays(action.payload?.nextDays);
+    if (nextDays.length === 0) return 'none';
+    await commitTimelineDays(nextDays);
+    setChat(current => current.map((item, index) => index === messageIndex
+      ? { ...item, cta: ['Aplicado'], ctaApplied: true }
+      : item
+    ));
+    const reply = 'Pronto — reorganizei o roteiro com essas mudanças.';
+    setChat(current => [...current, { who: 'gaid', text: reply, source: 'replanning-engine' }]);
+    persistPlanMessage('assistant', reply, {
+      source: 'replanning-engine',
+      intent: 'REPLAN_ITINERARY',
+      replanType: action.payload?.replanType,
+      replanSummary: action.payload?.summary,
+      changes: action.payload?.changes,
+    });
+    toast({ title: 'Roteiro reorganizado', desc: action.payload?.summary || 'Mudanças aplicadas.', tone: 'success' });
+    return 'applied';
   };
 
   // If trip changes (user opened a different trip), reset state.
@@ -1100,6 +1349,20 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       return;
     }
 
+    if (isApplyIntent(t)) {
+      const replanIndex = latestPendingActionMessageIndex(nextChat, 'PENDING_REPLAN');
+      if (replanIndex >= 0) {
+        setTyping(false);
+        const result = await applyPendingReplan(replanIndex);
+        if (result === 'none') {
+          const reply = 'Não encontrei uma reorganização pendente para aplicar.';
+          setChat(c => [...c, { who: 'gaid', text: reply, source: 'state-guard' }]);
+          persistPlanMessage('assistant', reply, { source: 'state-guard', intent: 'REPLAN_ITINERARY' });
+        }
+        return;
+      }
+    }
+
     if (planIntent.intent === 'MOVE_ACTIVITY') {
       setTyping(false);
       if (!tripData.id) {
@@ -1186,6 +1449,45 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         from: { day: source.day.d, slot: source.item.t },
       });
       toast({ title: 'Item removido', desc: source.item.title, tone: 'success' });
+      return;
+    }
+
+    if (planIntent.intent === 'REPLAN_ITINERARY') {
+      setTyping(false);
+      const guard = validateItineraryAction({
+        action: 'REPLAN_ITINERARY',
+        trip: tripData,
+        days,
+      });
+      if (guard) {
+        setChat(c => [...c, { who: 'gaid', text: guard, source: 'state-guard' }]);
+        persistPlanMessage('assistant', guard, { source: 'state-guard', intent: planIntent.intent });
+        return;
+      }
+      const preview = buildReplanPreview({ message: t, trip: tripData, days });
+      const text = previewTextForReplan(preview);
+      setChat(c => [...c, {
+        who: 'gaid',
+        text,
+        source: 'replanning-engine',
+        pendingAction: {
+          type: 'PENDING_REPLAN',
+          payload: {
+            replanType: preview.type,
+            nextDays: preview.nextDays,
+            changes: preview.changes,
+            summary: preview.summary,
+          },
+          expiresAfterTurns: 3,
+        },
+        cta: ['Aplicar'],
+      }]);
+      persistPlanMessage('assistant', text, {
+        source: 'replanning-engine',
+        intent: planIntent.intent,
+        replanType: preview.type,
+        changes: preview.changes,
+      });
       return;
     }
 
