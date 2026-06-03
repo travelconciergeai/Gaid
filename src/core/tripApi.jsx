@@ -52,36 +52,75 @@ function buildTripTitle({ title, destination, prompt }) {
   return 'Nova viagem';
 }
 
-function destinationCoverQuery(destination = '') {
-  const value = firstFilled(destination);
-  if (!value) return 'travel destination';
-  const normalized = value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const countryHints = [
-    [/bogota|bogotá/, 'Bogotá Colombia'],
-    [/paris/, 'Paris France'],
-    [/orlando|disney/, 'Orlando Florida'],
-    [/tokyo|toquio|tóquio/, 'Tokyo Japan'],
-    [/kyoto|quioto/, 'Kyoto Japan'],
-    [/lisboa|porto/, `${value} Portugal`],
-    [/rio de janeiro/, 'Rio de Janeiro Brazil'],
-    [/bahia|salvador|trancoso|itacare|itacaré/, `${value} Brazil`],
-  ];
-  return countryHints.find(([pattern]) => pattern.test(normalized))?.[1] || value;
-}
+const STATIC_COVER_IMAGES = [
+  {
+    match: /orlando|disney/,
+    label: 'Orlando Florida',
+    url: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=1200&h=800&q=80',
+  },
+  {
+    match: /paris/,
+    label: 'Paris France',
+    url: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?auto=format&fit=crop&w=1200&h=800&q=80',
+  },
+  {
+    match: /bogota|bogotá/,
+    label: 'Bogotá Colombia',
+    url: 'https://images.unsplash.com/photo-1605649487212-47bdab064df7?auto=format&fit=crop&w=1200&h=800&q=80',
+  },
+  {
+    match: /rio de janeiro/,
+    label: 'Rio de Janeiro Brazil',
+    url: 'https://images.unsplash.com/photo-1483729558449-99ef09a8c325?auto=format&fit=crop&w=1200&h=800&q=80',
+  },
+  {
+    match: /bahia|salvador|trancoso|itacare|itacaré/,
+    label: 'Bahia Brazil',
+    url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1200&h=800&q=80',
+  },
+  {
+    match: /japao|japan|tokyo|toquio|tóquio|kyoto|quioto/,
+    label: 'Tokyo Japan',
+    url: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?auto=format&fit=crop&w=1200&h=800&q=80',
+  },
+  {
+    match: /lisboa|porto|portugal/,
+    label: 'Lisboa Portugal',
+    url: 'https://images.unsplash.com/photo-1501927023255-9063be98970c?auto=format&fit=crop&w=1200&h=800&q=80',
+  },
+  {
+    match: /peru|lima|cusco|machu picchu/,
+    label: 'Peru',
+    url: 'https://images.unsplash.com/photo-1526392060635-9d6019884377?auto=format&fit=crop&w=1200&h=800&q=80',
+  },
+];
 
-function unsplashSourceUrl(query, w = 1200, h = 800) {
-  const safeQuery = firstFilled(query, 'travel destination');
-  return `https://source.unsplash.com/${w}x${h}/?${encodeURIComponent(safeQuery)}`;
+const GENERIC_COVER_IMAGE = {
+  label: 'Travel destination',
+  url: 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&h=800&q=80',
+};
+
+function destinationCoverEntry(destination = '') {
+  const normalized = firstFilled(destination).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return STATIC_COVER_IMAGES.find(entry => entry.match.test(normalized)) || GENERIC_COVER_IMAGE;
 }
 
 function buildCoverImage(destination) {
-  const query = destinationCoverQuery(destination);
+  const cover = destinationCoverEntry(destination);
   return {
-    url: unsplashSourceUrl(query),
-    source: 'unsplash-source',
-    query,
-    fallbackQuery: destination ? `${destination} travel` : 'travel destination',
+    url: cover.url,
+    source: 'static-destination-map',
+    query: cover.label,
+    fallbackQuery: GENERIC_COVER_IMAGE.label,
   };
+}
+
+function normalizeCoverImage(value, destination) {
+  const cover = normalizeTripContext(value);
+  if (!cover.url || /source\.unsplash\.com/i.test(String(cover.url))) {
+    return buildCoverImage(destination);
+  }
+  return cover;
 }
 
 function travelerCount(value) {
@@ -102,7 +141,7 @@ function rowToTrip(row) {
   const tripContext = normalizeTripContext(row.trip_context);
   const metadata = normalizeTripContext(row.metadata);
   const destination = firstFilled(row.destination, tripContext.destination, metadata.destination);
-  const coverImage = tripContext.coverImage || metadata.coverImage || null;
+  const coverImage = normalizeCoverImage(tripContext.coverImage || metadata.coverImage, destination);
   return {
     id: row.id,
     title: row.title,
@@ -204,7 +243,7 @@ const _emptyAdapter = {
     const incomingContext = normalizeTripContext(rawInput.trip_context || rawInput.tripContext || rawInput.context);
     const destination = firstFilled(rawInput.destination, incomingContext.destination, inferDestination(prompt));
     const title = buildTripTitle({ title: rawInput.title, destination, prompt });
-    const coverImage = incomingContext.coverImage || buildCoverImage(destination);
+    const coverImage = normalizeCoverImage(incomingContext.coverImage, destination);
     const tripContext = {
       ...incomingContext,
       prompt,
