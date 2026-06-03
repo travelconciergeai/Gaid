@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Icon } from '../components/icons.jsx';
-import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer, GaidLogo } from '../components/ui.jsx';
+import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, TabRow, AddToTripDrawer, GaidLogo } from '../components/ui.jsx';
 import { EmptyState, EmptyInline } from './EmptyStates.jsx';
 import { Async, CardSkeleton, CatalogCarousel, Carousel, Skeleton, ErrorState, CarouselSkeleton } from '../core/states.jsx';
-import { useAccount, useTrips, useCatalog, deriveTraits, profileCompletion } from '../core/store.jsx';
+import { useAccount, useCatalog } from '../core/store.jsx';
 import { TBD, has, orTBD, fmtDuration, fmtMoney } from '../core/contracts.jsx';
 import { tripApi } from '../core/tripApi.jsx';
 // Home — conversational landing.
@@ -742,8 +742,6 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   const hasTrip = !!activeTrip;
   const liveTrip = activeTrip;
   const greetName = acct.user.firstName;
-  const { summaries: _trips } = useTrips();
-  const tripsCount = _trips.length;
   const inspoQ = useCatalog('templates');
   const [input, setInput] = useState('');
   const [thinking, setThinking] = useState(false);
@@ -1123,114 +1121,110 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   // ===== IDLE MODE =====
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="px-10 pt-6 pb-0 flex items-center justify-end gap-2">
-        <Button variant="ghost" icon={Icon.Bell}>Atualizações</Button>
-        <Button variant="secondary" icon={Icon.Plus} onClick={() => setRoute('trips')}>Nova viagem</Button>
-      </header>
+      <div className="min-h-[85vh] flex flex-col">
+        <header className="px-10 pt-6 pb-0 flex items-center justify-end gap-2">
+          <Button variant="ghost" icon={Icon.Bell}>Atualizações</Button>
+          <Button variant="secondary" icon={Icon.Plus} onClick={() => setRoute('trips')}>Nova viagem</Button>
+        </header>
 
-      <section className="px-10 pt-[7vh] pb-6">
-        <div className="max-w-[860px] mx-auto text-center">
-          <Tag tone="brand" className="mx-auto"><Icon.Sparkles size={12}/> Concierge premium · IA + experts reais</Tag>
-          <h2 className="mt-4 text-[52px] leading-[1.04] tracking-[-0.025em] font-serif font-medium text-ink-900">
-            {greetName ? `Olá, ${greetName}!` : 'Olá!'}
-            <br/>
-            <span className="serif-i">Qual será a sua próxima viagem?</span>
-          </h2>
+        <section className="px-10 flex-1 flex items-center pb-8">
+          <div className="max-w-[860px] mx-auto text-center">
+            <Tag tone="brand" className="mx-auto"><Icon.Sparkles size={12}/> Concierge premium · IA + experts reais</Tag>
+            <h2 className="mt-4 text-[52px] leading-[1.04] tracking-[-0.025em] font-serif font-medium text-ink-900">
+              {greetName ? `Olá, ${greetName}!` : 'Olá!'}
+              <br/>
+              <span className="serif-i">Qual será a sua próxima viagem?</span>
+            </h2>
 
-          <div className="mt-7 mx-auto max-w-[720px]">
-            <div className="bg-white border-half rounded-full shadow-card h-[60px] pl-5 pr-[6px] flex items-center gap-3 transition-shadow hover:shadow-lift focus-within:shadow-lift focus-within:border-brand-200 focus-within:ring-4 focus-within:ring-brand-50">
-              <Icon.Sparkles size={16} className="text-ink-500 shrink-0"/>
-              <input
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && submit()}
-                placeholder="Quer viajar? A Gaid tem um roteiro para você."
-                className="flex-1 h-full outline-none text-[15px] placeholder:text-ink-400 bg-transparent leading-none"/>
-              <button className="h-10 w-10 rounded-full hover:bg-ink-100 text-ink-600 flex items-center justify-center shrink-0" title="Voz">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-                  <rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>
-                </svg>
-              </button>
-              <button onClick={() => submit()}
-                className="h-12 px-5 rounded-full bg-ink-900 text-paper hover:bg-brand-700 focus-visible:ring-4 focus-visible:ring-brand-200 transition-colors flex items-center gap-2 text-[14px] font-medium shrink-0">
-                <Icon.Send size={15}/>
-                {thinking ? 'Pensando…' : 'Pedir'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {hasTrip ? (
-      <section className="px-10 pb-12 grid grid-cols-[1.4fr_1fr] gap-6">
-        <Card className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <div className="label">Continuar onde parou</div>
-          <div className="text-[17px] font-serif font-medium tracking-tight text-ink-900 mt-1">{liveTrip.title}</div>
-              <div className="text-[12.5px] text-ink-500 mt-0.5">{liveTrip.dates} · {liveTrip.travelers} viajantes</div>
-            </div>
-            <div className="flex items-center gap-2">
-              <OptimizeMenu onApply={(m) => { toast({title:`Otimizando · ${m.label}`, desc: m.delta || 'Aplicando…', tone:'success'}); setTimeout(() => setRoute('plan'), 500); }}/>
-              <Button variant="secondary" iconRight={Icon.ArrowRight} onClick={() => setRoute('plan')}>Abrir</Button>
-            </div>
-          </div>
-
-          <SmartImg src={liveTrip.coverImage?.url} seed={liveTrip.coverSeed} tone={liveTrip.cover} w={800} h={420} className="h-[180px] rounded-xl"/>
-
-          <div className="mt-5 grid grid-cols-2 gap-6">
-            <Stat label="Progresso" value={`${liveTrip.progress}%`} hint={`${liveTrip.days?.length || 0} dias planejados`}/>
-            <Stat label="Estimativa" value={liveTrip.budget} hint="vs. orçamento" tone="sage"/>
-          </div>
-
-        </Card>
-
-        <Card className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <div className="label">Sua Gaid hoje</div>
-              <div className="text-[17px] font-medium tracking-tight text-ink-900 mt-1">Resumo</div>
-            </div>
-            <Tag tone="brand">ao vivo</Tag>
-          </div>
-          <div className="space-y-3">
-            <Row icon={Icon.Coins} label="Milhas totais" value={acct.user.miles.toLocaleString('pt-BR')} hint={acct.user.miles ? 'total acumulado' : 'conecte programas'}/>
-            <Row icon={Icon.Wallet} label="Cartões na carteira" value={(acct.cards || []).length} hint="conecte na Wallet"/>
-            <Row icon={Icon.Calendar} label="Viagens" value={tripsCount} hint="no seu histórico"/>
-            <Row icon={Icon.Shield} label="Seguro" value={TBD} hint="" tone="sage"/>
-          </div>
-        </Card>
-      </section>
-      ) : (
-        <HomeFirstRun acct={acct} setRoute={setRoute} onPickIdea={(label) => submit(label)}/>
-      )}
-
-      <section className="px-10 pb-16">
-        <SectionHeader eyebrow="Inspiração editorial" title="Roteiros que combinam com você"
-          action={<Button variant="ghost" iconRight={Icon.ArrowRight} onClick={() => setRoute('explore')}>Explorar todos</Button>}/>
-        <CatalogCarousel
-          query={inspoQ}
-          itemClass="w-[300px]"
-          empty={<EmptyState icon={Icon.Compass} eyebrow="Inspiração"
-            title="Roteiros sob medida aparecem aqui"
-            desc="Conte pra Gaid o que você procura e ela cura roteiros assinados por experts — em carrossel, prontos pra adaptar."
-            primary={<Button icon={Icon.Sparkles} onClick={() => setRoute('home')}>Conversar com a Gaid</Button>}/>}
-          render={(r) => (
-            <button key={r.id} onClick={() => setRoute('explore')}
-              className="bg-white border-half rounded-2xl overflow-hidden text-left card-h flex flex-col h-[360px] w-full">
-              <SmartImg seed={`route-${r.id}`} tone={r.tone} label={r.category} w={500} h={300} className="h-[170px] w-full shrink-0"/>
-              <div className="p-4 flex flex-col flex-1">
-                <div className="text-[10.5px] uppercase tracking-wider text-ink-500 mb-1">{orTBD(r.category)}</div>
-                <div className="text-[14.5px] font-medium text-ink-900 leading-snug line-clamp-2">{orTBD(r.title)}</div>
-                {has(r.expert) && <div className="text-[11.5px] text-ink-500 mt-2 flex items-center gap-1.5"><Icon.Sparkles size={11} className="text-ink-900"/> Por {r.expert}</div>}
-                <div className="mt-auto pt-3 text-[12px] text-ink-500 flex items-center justify-between">
-                  <span className="whitespace-nowrap">{has(r.days) ? `${r.days} dias` : TBD}</span>
-                  <span className="whitespace-nowrap">desde <span className="text-ink-900 font-medium">{orTBD(r.from)}</span></span>
-                </div>
+            <div className="mt-7 mx-auto max-w-[720px]">
+              <div className="bg-white border-half rounded-full shadow-card h-[60px] pl-5 pr-[6px] flex items-center gap-3 transition-shadow hover:shadow-lift focus-within:shadow-lift focus-within:border-brand-200 focus-within:ring-4 focus-within:ring-brand-50">
+                <Icon.Sparkles size={16} className="text-ink-500 shrink-0"/>
+                <input
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && submit()}
+                  placeholder="Quer viajar? A Gaid tem um roteiro para você."
+                  className="flex-1 h-full outline-none text-[15px] placeholder:text-ink-400 bg-transparent leading-none"/>
+                <button className="h-10 w-10 rounded-full hover:bg-ink-100 text-ink-600 flex items-center justify-center shrink-0" title="Voz">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+                    <rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>
+                  </svg>
+                </button>
+                <button onClick={() => submit()}
+                  className="h-12 px-5 rounded-full bg-ink-900 text-paper hover:bg-brand-700 focus-visible:ring-4 focus-visible:ring-brand-200 transition-colors flex items-center gap-2 text-[14px] font-medium shrink-0">
+                  <Icon.Send size={15}/>
+                  {thinking ? 'Pensando…' : 'Pedir'}
+                </button>
               </div>
-            </button>
+            </div>
+
+            <HomeFirstRun setRoute={setRoute} onPickIdea={(label) => submit(label)}/>
+          </div>
+        </section>
+      </div>
+
+      <section className="px-10 pb-16 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-6">
+        <div>
+          {hasTrip ? (
+            <Card className="p-5">
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="min-w-0">
+                  <div className="label">Continuar onde parou</div>
+                  <div className="text-[17px] font-serif font-medium tracking-tight text-ink-900 mt-1 leading-snug">{liveTrip.title}</div>
+                  <div className="text-[12.5px] text-ink-500 mt-0.5">{liveTrip.dates} · {liveTrip.travelers} viajantes</div>
+                </div>
+                <Button variant="secondary" size="sm" iconRight={Icon.ArrowRight} onClick={() => setRoute('plan')}>Abrir</Button>
+              </div>
+
+              <SmartImg src={liveTrip.coverImage?.url} seed={liveTrip.coverSeed} tone={liveTrip.cover} w={640} h={420} className="h-[140px] rounded-xl"/>
+
+              <div className="mt-4">
+                <div className="flex items-center justify-between text-[12px] text-ink-500 mb-2">
+                  <span>Progresso</span>
+                  <span className="font-medium text-ink-900">{liveTrip.progress}%</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-ink-100 overflow-hidden">
+                  <div className="h-full bg-brand-700 rounded-full" style={{ width: `${liveTrip.progress}%` }}/>
+                </div>
+                <div className="text-[12px] text-ink-500 mt-2">{liveTrip.days?.length || 0} dias planejados · {liveTrip.budget}</div>
+              </div>
+            </Card>
+          ) : (
+            <Card className="p-5">
+              <div className="label">Continuar onde parou</div>
+              <div className="text-[17px] font-serif font-medium tracking-tight text-ink-900 mt-1">Nenhuma viagem em andamento</div>
+              <div className="text-[12.5px] text-ink-500 mt-1 leading-relaxed">Descreva uma viagem acima para começar.</div>
+            </Card>
           )}
-        />
+        </div>
+
+        <div className="min-w-0">
+          <SectionHeader eyebrow="Inspiração editorial" title="Roteiros que combinam com você"
+            action={<Button variant="ghost" iconRight={Icon.ArrowRight} onClick={() => setRoute('explore')}>Explorar todos</Button>}/>
+          <CatalogCarousel
+            query={inspoQ}
+            itemClass="w-[300px]"
+            empty={<EmptyState icon={Icon.Compass} eyebrow="Inspiração"
+              title="Roteiros sob medida aparecem aqui"
+              desc="Conte pra Gaid o que você procura e ela cura roteiros assinados por experts — em carrossel, prontos pra adaptar."
+              primary={<Button icon={Icon.Sparkles} onClick={() => setRoute('home')}>Conversar com a Gaid</Button>}/>}
+            render={(r) => (
+              <button key={r.id} onClick={() => setRoute('explore')}
+                className="bg-white border-half rounded-2xl overflow-hidden text-left card-h flex flex-col h-[360px] w-full">
+                <SmartImg seed={`route-${r.id}`} tone={r.tone} label={r.category} w={500} h={300} className="h-[170px] w-full shrink-0"/>
+                <div className="p-4 flex flex-col flex-1">
+                  <div className="text-[10.5px] uppercase tracking-wider text-ink-500 mb-1">{orTBD(r.category)}</div>
+                  <div className="text-[14.5px] font-medium text-ink-900 leading-snug line-clamp-2">{orTBD(r.title)}</div>
+                  {has(r.expert) && <div className="text-[11.5px] text-ink-500 mt-2 flex items-center gap-1.5"><Icon.Sparkles size={11} className="text-ink-900"/> Por {r.expert}</div>}
+                  <div className="mt-auto pt-3 text-[12px] text-ink-500 flex items-center justify-between">
+                    <span className="whitespace-nowrap">{has(r.days) ? `${r.days} dias` : TBD}</span>
+                    <span className="whitespace-nowrap">desde <span className="text-ink-900 font-medium">{orTBD(r.from)}</span></span>
+                  </div>
+                </div>
+              </button>
+            )}
+          />
+        </div>
       </section>
 
       <footer className="px-10 pb-10 pt-2">
@@ -1603,10 +1597,7 @@ const TripReadyInline = ({ tripId, onOpen }) => {
 // First-run replacement for the "continue where you left off" block, shown when
 // the account has no active trip yet. Welcomes the user and points them at the
 // two ways to start: describe a trip (prompt above) or browse inspiration.
-const HomeFirstRun = ({ acct, setRoute, onPickIdea }) => {
-  const traits = deriveTraits(acct.profile);
-  const styleChips = (acct.profile?.travelStyles || []).slice(0, 3);
-  const completion = profileCompletion(acct.profile);
+const HomeFirstRun = ({ setRoute, onPickIdea }) => {
   // Action starters — each routes to a real screen, so they keep working once
   // the backend is plugged in (no fabricated content, just navigation/intent).
   const starters = [
@@ -1616,7 +1607,7 @@ const HomeFirstRun = ({ acct, setRoute, onPickIdea }) => {
   ];
 
   return (
-    <section className="px-10 pb-10 -mt-1">
+    <section className="mt-6">
       <div className="flex flex-wrap justify-center gap-1">
         {starters.map(s => {
           const Ic = s.icon;

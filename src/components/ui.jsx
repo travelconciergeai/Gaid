@@ -179,7 +179,6 @@ const Sidebar = ({ route, setRoute, openCmd }) => {
       <div className="px-5 pt-6 pb-4 flex items-center gap-2">
         <GaidLogo className="h-8 w-auto max-w-[112px]" />
         <div className="flex-1">
-          <div className="text-[11px] text-ink-500 -mt-0.5">concierge de viagens</div>
         </div>
       </div>
 
