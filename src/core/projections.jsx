@@ -23,6 +23,7 @@ function toTripSummary(trip) {
     _status: status,                       // raw, for filtering
     travelers: tripTravelerCount(trip),
     tone: trip.cover || 'warm',
+    coverImage: trip.coverImage || tripContext.coverImage || null,
     cover: trip.coverShort || destination || (Array.isArray(trip.cities) && trip.cities[0]) || trip.title || '',
     progress: has(trip.progress) ? trip.progress : 0,
     hasItinerary: Array.isArray(trip.days) && trip.days.length > 0,
@@ -80,6 +81,7 @@ function toTripDetail(trip) {
     budget: fmtTripBudget(trip.budget),
     status: TRIP_STATUS_LABEL[trip.status] || 'Em planejamento',
     cover: trip.cover || 'warm',
+    coverImage: trip.coverImage || trip.tripContext?.coverImage || null,
     coverSeed: trip.coverSeed || `trip-${trip.id}`,
     coverLabel: trip.coverLabel || (trip.cities && trip.cities[0]) || '',
     progress: has(trip.progress) ? trip.progress : 0,

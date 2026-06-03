@@ -52,6 +52,38 @@ function buildTripTitle({ title, destination, prompt }) {
   return 'Nova viagem';
 }
 
+function destinationCoverQuery(destination = '') {
+  const value = firstFilled(destination);
+  if (!value) return 'travel destination';
+  const normalized = value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const countryHints = [
+    [/bogota|bogotá/, 'Bogotá Colombia'],
+    [/paris/, 'Paris France'],
+    [/orlando|disney/, 'Orlando Florida'],
+    [/tokyo|toquio|tóquio/, 'Tokyo Japan'],
+    [/kyoto|quioto/, 'Kyoto Japan'],
+    [/lisboa|porto/, `${value} Portugal`],
+    [/rio de janeiro/, 'Rio de Janeiro Brazil'],
+    [/bahia|salvador|trancoso|itacare|itacaré/, `${value} Brazil`],
+  ];
+  return countryHints.find(([pattern]) => pattern.test(normalized))?.[1] || value;
+}
+
+function unsplashSourceUrl(query, w = 1200, h = 800) {
+  const safeQuery = firstFilled(query, 'travel destination');
+  return `https://source.unsplash.com/${w}x${h}/?${encodeURIComponent(safeQuery)}`;
+}
+
+function buildCoverImage(destination) {
+  const query = destinationCoverQuery(destination);
+  return {
+    url: unsplashSourceUrl(query),
+    source: 'unsplash-source',
+    query,
+    fallbackQuery: destination ? `${destination} travel` : 'travel destination',
+  };
+}
+
 function travelerCount(value) {
   if (typeof value === 'number') return value > 0 ? value : null;
   if (typeof value === 'string') {
@@ -70,6 +102,7 @@ function rowToTrip(row) {
   const tripContext = normalizeTripContext(row.trip_context);
   const metadata = normalizeTripContext(row.metadata);
   const destination = firstFilled(row.destination, tripContext.destination, metadata.destination);
+  const coverImage = tripContext.coverImage || metadata.coverImage || null;
   return {
     id: row.id,
     title: row.title,
@@ -81,6 +114,7 @@ function rowToTrip(row) {
     budget: tripContext.budget || metadata.budget || null,
     cities: destination ? [destination] : [],
     cover: metadata.cover || tripContext.cover || 'warm',
+    coverImage,
     coverShort: destination || row.title || '',
     coverSeed: `trip-${row.id}`,
     coverLabel: destination || row.title || '',
@@ -170,12 +204,18 @@ const _emptyAdapter = {
     const incomingContext = normalizeTripContext(rawInput.trip_context || rawInput.tripContext || rawInput.context);
     const destination = firstFilled(rawInput.destination, incomingContext.destination, inferDestination(prompt));
     const title = buildTripTitle({ title: rawInput.title, destination, prompt });
+    const coverImage = incomingContext.coverImage || buildCoverImage(destination);
     const tripContext = {
       ...incomingContext,
       prompt,
       destination: destination || incomingContext.destination || null,
+      coverImage,
       days: Array.isArray(incomingContext.days) ? incomingContext.days : [],
       progress: incomingContext.progress ?? 0,
+    };
+    const metadata = {
+      ...normalizeTripContext(rawInput.metadata),
+      coverImage,
     };
     const { data, error } = await supabase
       .from('trips')
@@ -185,7 +225,7 @@ const _emptyAdapter = {
         destination: destination || null,
         status: 'planning',
         trip_context: tripContext,
-        metadata: normalizeTripContext(rawInput.metadata),
+        metadata,
       })
       .select('*')
       .single();

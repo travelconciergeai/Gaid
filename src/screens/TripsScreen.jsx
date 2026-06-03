@@ -87,7 +87,7 @@ const TripsScreen = ({ setRoute, activeTripId, setActiveTripId }) => {
           return (
             <Card key={t.id} hover className="overflow-hidden" onClick={() => openTrip(t)}>
               <div className="grid grid-cols-[200px_1fr]">
-                <SmartImg seed={`trip-${t.id}`} tone={t.tone} label={t.cover} w={400} h={400} className="min-h-[180px]"/>
+                <SmartImg src={t.coverImage?.url} seed={`trip-${t.id}`} tone={t.tone} label={t.cover} w={400} h={400} className="min-h-[180px]"/>
                 <div className="p-5 flex flex-col">
                   <div className="flex items-center justify-between gap-2">
                     <Tag tone={tagToneForState(t.state)}>

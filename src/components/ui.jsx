@@ -430,20 +430,25 @@ const OptimizeMenu = ({ onApply, anchor = 'right' }) => {
   );
 };
 
-// ---------- SmartImg: real B&W photographs with placeholder fallback ----------
-// Uses picsum.photos (stable, public) with ?grayscale to keep the palette neutral.
-// If the network/CDN fails, we fall back to the striped Placeholder so design
-// never breaks.
-const SmartImg = ({ seed, w = 800, h = 500, tone = 'warm', label, className = '', children, eager = false }) => {
+// ---------- SmartImg: destination photography with placeholder fallback ----------
+// Accepts explicit cover URLs (Unsplash Source for trips) and falls back to a
+// stable public photo URL. Loading/error states keep the layout intact.
+const SmartImg = ({ seed, src, w = 800, h = 500, tone = 'warm', label, className = '', children, eager = false }) => {
   const [failed, setFailed] = useState(false);
-  if (failed || !seed) {
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+    setLoaded(false);
+  }, [src, seed, w, h]);
+  if (failed || (!src && !seed)) {
     return <Placeholder tone={tone} label={label} className={className}>{children}</Placeholder>;
   }
-  const url = `https://picsum.photos/seed/${encodeURIComponent(seed)}/${w}/${h}?grayscale`;
+  const url = src || `https://picsum.photos/seed/${encodeURIComponent(seed)}/${w}/${h}?grayscale`;
   return (
     <div className={`relative overflow-hidden bg-ink-200 ${className}`}>
-      <img src={url} onError={() => setFailed(true)}
-           className="absolute inset-0 w-full h-full object-cover img-grayscale transition-transform duration-700 hover:scale-[1.04]"
+      {!loaded && <Placeholder tone={tone} label={label} className="absolute inset-0"/>}
+      <img src={url} onLoad={() => setLoaded(true)} onError={() => setFailed(true)}
+           className={`absolute inset-0 w-full h-full object-cover transition-opacity transition-transform duration-700 hover:scale-[1.04] ${src ? '' : 'img-grayscale'} ${loaded ? 'opacity-100' : 'opacity-0'}`}
            loading={eager ? 'eager' : 'lazy'} alt={label || ''}/>
       <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-black/0 to-black/0 pointer-events-none"/>
       {label && (

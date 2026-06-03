@@ -1176,7 +1176,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
             </div>
           </div>
 
-          <SmartImg seed={liveTrip.coverSeed} tone={liveTrip.cover} label={liveTrip.coverLabel} w={800} h={420} className="h-[180px] rounded-xl"/>
+          <SmartImg src={liveTrip.coverImage?.url} seed={liveTrip.coverSeed} tone={liveTrip.cover} label={liveTrip.coverLabel} w={800} h={420} className="h-[180px] rounded-xl"/>
 
           <div className="mt-5 grid grid-cols-2 gap-6">
             <Stat label="Progresso" value={`${liveTrip.progress}%`} hint={`${liveTrip.days?.length || 0} dias planejados`}/>
@@ -1592,7 +1592,7 @@ const TripReadyInline = ({ tripId, onOpen }) => {
     <button onClick={() => onOpen(tripId)}
       className="w-full max-w-[640px] bg-white border-half rounded-3xl overflow-hidden text-left card-h shadow-card fade-up">
       <div className="flex">
-        <SmartImg seed={trip.coverSeed} tone={trip.cover} w={280} h={280} className="w-[120px] shrink-0"/>
+        <SmartImg src={trip.coverImage?.url} seed={trip.coverSeed} tone={trip.cover} w={280} h={280} className="w-[120px] shrink-0"/>
         <div className="flex-1 p-4 min-w-0">
           <div className="label">Roteiro pronto</div>
           <div className="text-[16px] font-medium tracking-tight text-ink-900 mt-1 leading-tight truncate">{trip.title}</div>
