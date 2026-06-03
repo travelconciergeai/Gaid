@@ -113,16 +113,18 @@ function tripTravelerCount(trip) {
 function tripNights(trip, dates) {
   const nights = Number(trip?.nights ?? trip?.tripContext?.nights);
   if (Number.isFinite(nights) && nights > 0) return Math.floor(nights);
-  return dateDiffDays(dates);
+  return dateDiffNights(dates);
 }
 
 function inferPlaceholderDayCount(trip, dates) {
-  const nights = Number(tripNights(trip, dates));
+  const dateDays = dateDiffInclusiveDays(dates);
+  if (dateDays) return dateDays;
+  const nights = Number(trip?.nights ?? trip?.tripContext?.nights);
   if (Number.isFinite(nights) && nights > 0) return Math.min(Math.floor(nights), 30);
   return 3;
 }
 
-function dateDiffDays(dates) {
+function dateDiffNights(dates) {
   const start = dates?.start ? new Date(dates.start) : null;
   const end = dates?.end ? new Date(dates.end) : null;
   if (start && end && !isNaN(start) && !isNaN(end) && end >= start) {
@@ -130,6 +132,11 @@ function dateDiffDays(dates) {
     if (diffDays > 0) return Math.min(diffDays, 30);
   }
   return null;
+}
+
+function dateDiffInclusiveDays(dates) {
+  const nights = dateDiffNights(dates);
+  return nights ? Math.min(nights + 1, 30) : null;
 }
 
 function buildPlaceholderDays({ count, dates, city }) {
@@ -158,19 +165,28 @@ function fmtDayDate(date) {
 
 function fmtTripDates(dates) {
   if (has(dates?.start)) return fmtDateLong(dates);
-  if (has(dates?.label)) return dates.label;
+  if (hasCleanDateLabel(dates?.label)) return dates.label;
   return TBD;
 }
 
 function fmtSummaryDates(dates) {
   if (has(dates?.start)) return fmtDateRangeShort(dates);
-  if (has(dates?.label)) return dates.label;
+  if (hasCleanDateLabel(dates?.label)) return dates.label;
   return TBD;
 }
 
 function fmtTripBudget(budget) {
   if (budget && typeof budget === 'object' && !Array.isArray(budget) && has(budget.label)) return budget.label;
   return fmtMoney(budget);
+}
+
+function hasCleanDateLabel(label) {
+  if (!has(label)) return false;
+  const text = String(label).trim();
+  const normalized = text.toLowerCase();
+  if (normalized.length > 80) return false;
+  if (/\b(quero|roteiro|viagem|viajar|criar|montar)\b/.test(normalized)) return false;
+  return true;
 }
 
 function fmtDateLong(dates) {            // "12–22 outubro"

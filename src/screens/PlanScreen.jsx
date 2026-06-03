@@ -20,7 +20,7 @@ const QUICK_ACTIONS = [
 ];
 
 // Safe empty trip so the screen renders cleanly before a trip exists.
-const EMPTY_TRIP = { id: null, title: 'Sua viagem', blurb: '', dates: TBD, nights: null, travelers: 0, budget: TBD, status: 'Em planejamento', cover: 'warm', coverSeed: 'gaid', coverLabel: '', progress: 0, days: [], insights: [], prep: null };
+const EMPTY_TRIP = { id: null, title: 'Sua viagem', blurb: '', dates: TBD, nights: null, travelers: TBD, budget: TBD, status: 'Em planejamento', cover: 'warm', coverSeed: 'gaid', coverLabel: '', progress: 0, days: [], insights: [], prep: null };
 
 function safeClone(value) {
   return JSON.parse(JSON.stringify(value || []));
@@ -134,7 +134,16 @@ function boundedDayCount(value) {
   const count = Number(value);
   return Number.isFinite(count) && count > 0 ? Math.min(Math.max(Math.floor(count), 1), 14) : null;
 }
+function inclusiveDateDayCount(dates) {
+  const start = dates?.start ? new Date(dates.start) : null;
+  const end = dates?.end ? new Date(dates.end) : null;
+  if (!start || !end || isNaN(start) || isNaN(end) || end < start) return null;
+  const days = Math.round((end - start) / 86400000) + 1;
+  return boundedDayCount(days);
+}
 function inferInitialItineraryDuration(trip, kickoff) {
+  const dateDays = inclusiveDateDayCount(trip.tripContext?.dates);
+  if (dateDays) return { days: dateDays, assumed: false };
   const explicit = boundedDayCount(trip.nights ?? trip.tripContext?.nights);
   if (explicit) return { days: explicit, assumed: false };
   const text = normText(`${trip.destination || ''} ${trip.title || ''} ${kickoff || ''} ${JSON.stringify(trip.tripContext || {})}`);
@@ -180,42 +189,6 @@ function completeInitialSuggestions(suggestions, duration) {
     slot: item.slot || slots[index % slots.length],
   }));
 }
-function buildFallbackInitialSuggestions(trip, duration) {
-  const destination = trip.destination || trip.tripContext?.destination || 'destino';
-  return Array.from({ length: duration.days }, (_, index) => {
-    const day = index + 1;
-    return [
-      {
-        day,
-        slot: 'manhã',
-        title: day === 1 ? 'Chegada e reconhecimento' : `Manhã leve em ${destination}`,
-        place: destination,
-        dur: '2h',
-        tag: 'experiência',
-        vibe: day === 1 ? 'começo tranquilo' : 'ritmo confortável',
-      },
-      {
-        day,
-        slot: 'tarde',
-        title: day === 1 ? 'Passeio leve no destino' : `Explorar uma área especial de ${destination}`,
-        place: destination,
-        dur: '3h',
-        tag: 'clássico',
-        vibe: 'curadoria leve',
-      },
-      {
-        day,
-        slot: 'noite',
-        title: 'Jantar tranquilo',
-        place: destination,
-        dur: '1h30',
-        tag: 'comida',
-        vibe: 'sem pressa',
-      },
-    ];
-  }).flat();
-}
-
 const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
   const toast = useToast();
   const tripData = useMemo(() => normalizeTripForPlan(trip), [trip]);
@@ -428,21 +401,22 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       if (isWizardKickoff) {
         const initialSuggestions = suggestions.length > 0
           ? completeInitialSuggestions(suggestions, duration)
-          : buildFallbackInitialSuggestions(tripData, duration);
-        const text = withDurationAssumptionText(
-          'Montei uma primeira versão do roteiro para você. Podemos ajustar tudo a partir daqui.',
-          duration
-        );
-        applySuggestionListToTimeline(initialSuggestions);
+          : [];
+        const text = initialSuggestions.length > 0
+          ? withDurationAssumptionText('Montei uma primeira versão do roteiro para você. Podemos ajustar tudo a partir daqui.', duration)
+          : 'Criei a estrutura dos dias do roteiro. Me peça para montar uma primeira versão quando quiser.';
+        if (initialSuggestions.length > 0) {
+          applySuggestionListToTimeline(initialSuggestions);
+        }
         setChat(c => [...c, {
           who: 'gaid',
           text,
-          source: suggestions.length > 0 ? response.source : 'local',
+          source: initialSuggestions.length > 0 ? response.source : 'local',
           itinerarySuggestions: initialSuggestions,
-          cta: ['Adicionado ao roteiro'],
-          ctaApplied: true,
+          cta: initialSuggestions.length > 0 ? ['Adicionado ao roteiro'] : null,
+          ctaApplied: initialSuggestions.length > 0,
         }]);
-        persistPlanMessage('assistant', text, { source: suggestions.length > 0 ? response.source : 'local', initialItinerary: true });
+        persistPlanMessage('assistant', text, { source: initialSuggestions.length > 0 ? response.source : 'local', initialItinerary: true });
       } else {
         setChat(c => [...c, assistantResponseToBubble(response)]);
         persistPlanMessage('assistant', response.text, { source: response.source });
@@ -452,12 +426,8 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       if (!alive) return;
       setTyping(false);
       const fallback = isWizardKickoff
-        ? 'Montei uma primeira versão do roteiro para você. Podemos ajustar tudo a partir daqui.'
+        ? 'Criei a estrutura dos dias do roteiro. Me peça para montar uma primeira versão quando quiser.'
         : 'Não consegui responder agora. Tente novamente em instantes.';
-      if (isWizardKickoff) {
-        const fallbackSuggestions = buildFallbackInitialSuggestions(tripData, duration);
-        applySuggestionListToTimeline(fallbackSuggestions);
-      }
       setChat(c => [...c, { who: 'gaid', text: fallback, source: isWizardKickoff ? 'local' : 'error' }]);
       persistPlanMessage('assistant', fallback, { source: isWizardKickoff ? 'local' : 'error', initialItinerary: isWizardKickoff });
       clearKickoff && clearKickoff();
