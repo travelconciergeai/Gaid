@@ -3,7 +3,7 @@ import { Icon } from '../components/icons.jsx';
 import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer, GaidLogo } from '../components/ui.jsx';
 import { EmptyState, EmptyInline } from './EmptyStates.jsx';
 import { Async, CardSkeleton, CatalogCarousel, Carousel, Skeleton, ErrorState, CarouselSkeleton } from '../core/states.jsx';
-import { useAccount, useTrips, useCatalog, deriveTraits, profileCompletion } from '../core/store.jsx';
+import { useTripStore } from '../core/store.jsx';
 import { TBD, has, orTBD, fmtDuration, fmtMoney } from '../core/contracts.jsx';
 import { tripApi } from '../core/tripApi.jsx';
 // Plan screen — chat at left, live timeline at right.
@@ -192,6 +192,7 @@ function completeInitialSuggestions(suggestions, duration) {
 }
 const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
   const toast = useToast();
+  const tripStore = useTripStore();
   const tripData = useMemo(() => normalizeTripForPlan(trip), [trip]);
   const [tab, setTab] = useState('roteiro');
   const [chat, setChat] = useState(() => []);
@@ -219,6 +220,21 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     }).catch((error) => {
       console.error('[PlanScreen] Failed to persist chat message', error);
       return null;
+    });
+  };
+  const persistTimelineDays = (nextDays) => {
+    if (!tripData.id) return Promise.resolve(null);
+    return tripStore.patchItinerary(tripData.id, { days: normalizeDays(nextDays) }).catch((error) => {
+      console.error('[PlanScreen] Failed to persist itinerary days', error);
+      return null;
+    });
+  };
+  const updateDays = (updater) => {
+    setDays(currentDays => {
+      const nextDays = typeof updater === 'function' ? updater(currentDays) : updater;
+      const safeDays = normalizeDays(nextDays);
+      persistTimelineDays(safeDays);
+      return safeDays;
     });
   };
 
@@ -311,7 +327,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       slot: item.slot || placement?.slot,
     })).filter(item => item.day && item.slot);
     if (placedSuggestions.length === 0) return 0;
-    setDays(currentDays => {
+    updateDays(currentDays => {
       const nextDays = normalizeDays(currentDays).map(day => ({ ...day, items: [...day.items] }));
       const maxDay = Math.max(...placedSuggestions.map(item => item.day));
       for (let dayNumber = 1; dayNumber <= maxDay; dayNumber += 1) {
@@ -528,21 +544,21 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
 
   // ---- itinerary actions ----
   const removeItem = (dayIdx, itemIdx) => {
-    setDays(ds => ds.map((d, i) => i === dayIdx ? { ...d, items: d.items.filter((_, j) => j !== itemIdx) } : d));
+    updateDays(ds => ds.map((d, i) => i === dayIdx ? { ...d, items: d.items.filter((_, j) => j !== itemIdx) } : d));
     toast({ title: 'Item removido', tone: 'success' });
   };
   const togglePin = (dayIdx, itemIdx) => {
-    setDays(ds => ds.map((d, i) => i === dayIdx
+    updateDays(ds => ds.map((d, i) => i === dayIdx
       ? { ...d, items: d.items.map((it, j) => j === itemIdx ? { ...it, conf: !it.conf } : it) }
       : d));
   };
   const updateItem = (dayIdx, itemIdx, patch) => {
-    setDays(ds => ds.map((d, i) => i === dayIdx
+    updateDays(ds => ds.map((d, i) => i === dayIdx
       ? { ...d, items: d.items.map((it, j) => j === itemIdx ? { ...it, ...patch } : it) }
       : d));
   };
   const addItem = (dayIdx, slot, payload) => {
-    setDays(ds => ds.map((d, i) => i === dayIdx
+    updateDays(ds => ds.map((d, i) => i === dayIdx
       ? { ...d, items: [...d.items, { t: slot, ...payload, conf: false }] }
       : d));
     toast({ title: 'Adicionado ao roteiro', tone: 'success', desc: payload.title });

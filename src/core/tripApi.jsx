@@ -281,6 +281,47 @@ async function deleteTripRow(id) {
   return { success: true, id };
 }
 
+async function patchTripRow(id, ops = {}) {
+  if (!id) return null;
+  const user = await getAuthenticatedUser();
+  const { data: current, error: loadError } = await supabase
+    .from('trips')
+    .select('*')
+    .eq('id', id)
+    .eq('user_id', user.id)
+    .maybeSingle();
+  if (loadError) throw loadError;
+  if (!current) return null;
+
+  const currentContext = normalizeTripContext(current.trip_context);
+  const incomingContext = normalizeTripContext(ops.trip_context || ops.tripContext || ops.context);
+  const nextContext = {
+    ...currentContext,
+    ...incomingContext,
+  };
+  if (Array.isArray(ops.days)) nextContext.days = ops.days;
+  if (ops.progress !== undefined) nextContext.progress = ops.progress;
+
+  const patch = { trip_context: nextContext };
+  if (ops.title !== undefined) patch.title = ops.title;
+  if (ops.destination !== undefined) patch.destination = ops.destination;
+  if (ops.status !== undefined) patch.status = ops.status;
+  if (ops.metadata !== undefined) patch.metadata = {
+    ...normalizeTripContext(current.metadata),
+    ...normalizeTripContext(ops.metadata),
+  };
+
+  const { data, error } = await supabase
+    .from('trips')
+    .update(patch)
+    .eq('id', id)
+    .eq('user_id', user.id)
+    .select('*')
+    .maybeSingle();
+  if (error) throw error;
+  return rowToTrip(data);
+}
+
 function normalizeChatRole(role) {
   return role === 'assistant' ? 'assistant' : 'user';
 }
@@ -367,7 +408,7 @@ const _emptyAdapter = {
     return rowToTrip(data);
   },
   async createTripFromTemplate(_templateId) { return null; },
-  async patchTrip(_id, _ops) { return null; },
+  async patchTrip(id, ops) { return patchTripRow(id, ops); },
   async archiveTrip(id) { return archiveTripRow(id); },
   async deleteTrip(id) { return deleteTripRow(id); },
   async listChatMessages(tripId) {

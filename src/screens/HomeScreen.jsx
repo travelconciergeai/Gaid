@@ -262,20 +262,24 @@ const BUDGET_STEP = {
 };
 
 function answerLabel(answers, key) {
+  if (answers[key]?.skipped) return '';
   return answers[key]?.label || '';
 }
 
 function answerId(answers, key) {
+  if (answers[key]?.skipped) return '';
   return answers[key]?.optId || '';
 }
 
 function answerLabels(answers, key) {
+  if (answers[key]?.skipped) return [];
   const value = answers[key]?.label;
   if (Array.isArray(value)) return value.filter(Boolean);
   return value ? [value] : [];
 }
 
 function answerIds(answers, key) {
+  if (answers[key]?.skipped) return [];
   const value = answers[key]?.optId;
   if (Array.isArray(value)) return value.filter(Boolean);
   return value ? [value] : [];
@@ -622,6 +626,7 @@ function hasClearTravelerComposition(answers) {
 
 function fieldKnown(field, answers, context = {}) {
   if (!field) return false;
+  if (answers?.[field]?.skipped || context?.skippedFields?.[field]?.skipped) return true;
   const dates = normalizeDates(answers, context);
   const parsedTravelers = parseTravelerComposition(`${answerText(answers, 'travelers')} ${answerText(answers, 'travelerCount')} ${answerText(answers, 'childrenAges')}`);
   const travelerCount = travelerCountFrom(answers) ?? parsedTravelers.count ?? parseNumberFromText(context.travelers?.count);
@@ -702,7 +707,7 @@ function buildWizardQa(answers, history = []) {
       seen.add(step.id);
       return {
         question: step.q,
-        answer: answerText(answers, step.id),
+        answer: answers?.[step.id]?.skipped ? 'Gaid sugere' : answerText(answers, step.id),
       };
     })
     .filter(item => item.question && item.answer);
@@ -744,6 +749,9 @@ function buildWizardSummary(context) {
     focus ? `foco em ${focus}` : '',
   ]);
   if (qualifiers) parts.push(`com ${qualifiers}`);
+  if (context.wizard?.skippedAll || Object.keys(context.skippedFields || {}).length > 0) {
+    parts.push('com alguns detalhes sugeridos pela Gaid');
+  }
   return `${parts.join(', ')}.`;
 }
 
@@ -1016,10 +1024,55 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     }
   };
 
-  const answerWizard = (optId, label) => {
+  const completeWizard = (finalAnswers, finalContext, { mode = 'deterministic', qa = [], skippedAll = false } = {}) => {
+    setPhase('generating');
+    const genMsg = 'Perfeito. Vou abrir a base do seu roteiro agora.';
+    setChat(c => [
+      ...c,
+      { who: 'agent', text: genMsg },
+    ]);
+    const fallbackContext = buildTripContext(finalAnswers, initialPrompt, {
+      context: finalContext,
+      mode,
+      qa,
+    });
+    const summary = buildWizardSummary({
+      ...fallbackContext,
+      wizard: {
+        ...fallbackContext.wizard,
+        skippedAll,
+      },
+    });
+    const handoffContext = {
+      ...fallbackContext,
+      wizard: {
+        ...fallbackContext.wizard,
+        summary,
+        skippedAll,
+      },
+    };
+    Promise.resolve(kickoffPlan && kickoffPlan({
+      prompt: summary,
+      context: handoffContext,
+    }))
+      .then(() => {
+        setRoute && setRoute('plan');
+      })
+      .catch(() => {
+        setPhase('done');
+        setChat(c => [...c, {
+          id: `a-${Date.now()}`,
+          who: 'agent',
+          text: 'Não consegui criar sua viagem agora. Tente novamente em instantes.',
+          source: 'error',
+        }]);
+      });
+  };
+
+  const answerWizard = (optId, label, meta = {}) => {
     const step = wizard[wizardStep];
     if (!step) return;
-    const nextAnswers = { ...answers, [step.id]: { optId, label } };
+    const nextAnswers = { ...answers, [step.id]: { optId, label, ...meta } };
     const currentWizardHistory = syncWizardHistory(wizardHistory, wizardStep, step);
     const currentQa = buildWizardQa(nextAnswers, currentWizardHistory);
     setAnswers(nextAnswers);
@@ -1033,14 +1086,20 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       let nextWizard = flowKey === 'trip' ? buildAdaptiveTripWizard(nextAnswers) : wizard;
       let completedByAi = false;
       let nextAiStep = null;
-      let nextWizardContext = wizardContext;
+      let nextWizardContext = meta.skipped
+        ? mergeWizardContext(wizardContext, {
+          [step.id]: { skipped: true, strategy: 'gaid_suggest' },
+          skippedFields: { [step.id]: { skipped: true, strategy: 'gaid_suggest' } },
+        })
+        : wizardContext;
+      if (meta.skipped) setWizardContext(nextWizardContext);
 
       if (flowKey === 'trip') {
         try {
           const result = await requestNextUnknownAiStep({
             prompt: initialPrompt,
             answers: nextAnswers,
-            context: wizardContext,
+            context: nextWizardContext,
             lastAnswer: { field: step.id, value: optId, label },
             stepCount: wizardStep + 1,
           });
@@ -1055,7 +1114,6 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
             setWizardHistory(nextWizard);
           }
         } catch (_error) {
-          nextWizardContext = wizardContext;
           completedByAi = false;
           nextWizard = buildAdaptiveTripWizard(nextAnswers);
           setAiWizardQuestion(null);
@@ -1068,44 +1126,42 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         setWizardStep(next);
       } else {
         // Finished — create the trip with the collected context and open Plan.
-        setPhase('generating');
-        const genMsg = 'Perfeito. Vou abrir a base do seu roteiro agora.';
-        setChat(c => [
-          ...c,
-          { who: 'agent', text: genMsg },
-        ]);
         const mode = completedByAi ? 'ai-guided' : 'deterministic';
-        const fallbackContext = buildTripContext(nextAnswers, initialPrompt, {
-          context: nextWizardContext,
-          mode,
-          qa: currentQa,
-        });
-        const summary = buildWizardSummary(fallbackContext);
-        const handoffContext = {
-          ...fallbackContext,
-          wizard: {
-            ...fallbackContext.wizard,
-            summary,
-          },
-        };
-        Promise.resolve(kickoffPlan && kickoffPlan({
-          prompt: summary,
-          context: handoffContext,
-        }))
-          .then(() => {
-            setRoute && setRoute('plan');
-          })
-          .catch(() => {
-            setPhase('done');
-            setChat(c => [...c, {
-              id: `a-${Date.now()}`,
-              who: 'agent',
-              text: 'Não consegui criar sua viagem agora. Tente novamente em instantes.',
-              source: 'error',
-            }]);
-          });
+        completeWizard(nextAnswers, nextWizardContext, { mode, qa: currentQa });
       }
     }, 700);
+  };
+
+  const skipWizardStep = () => {
+    answerWizard('__skipped__', 'Gaid sugere', { skipped: true, strategy: 'gaid_suggest' });
+  };
+
+  const skipAllWizard = () => {
+    const hasDestination = !!filledString(answerText(answers, 'destination'), wizardContext.destination);
+    if (!hasDestination) {
+      const destinationStep = BASE_TRIP_WIZARD[0];
+      setWizardHistory([destinationStep]);
+      setWizardStep(0);
+      setPhase('asking');
+      setChat(c => [...c, { who: 'agent', text: 'Claro — só preciso saber o destino para criar uma primeira versão.' }]);
+      return;
+    }
+    const skippedContext = mergeWizardContext(wizardContext, {
+      skippedAll: true,
+      skippedFields: {
+        period: { skipped: true, strategy: 'gaid_suggest' },
+        duration: { skipped: true, strategy: 'gaid_suggest' },
+        travelers: { skipped: true, strategy: 'gaid_suggest' },
+        budget: { skipped: true, strategy: 'gaid_suggest' },
+        stylePace: { skipped: true, strategy: 'gaid_suggest' },
+      },
+    });
+    setWizardContext(skippedContext);
+    completeWizard(answers, skippedContext, {
+      mode: 'ai-guided',
+      qa: buildWizardQa(answers, wizardHistory),
+      skippedAll: true,
+    });
   };
 
   const onGenerationDone = () => {
@@ -1193,6 +1249,8 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
                   step={wizard[wizardStep]}
                   answered={null}
                   onPick={answerWizard}
+                  onSkipStep={skipWizardStep}
+                  onSkipAll={skipAllWizard}
                 />
               </div>
             )}
@@ -1443,7 +1501,7 @@ const RecommendationCarousel = ({ items }) => (
 
 // TODO: replace local recommendation cards with Google Maps Places API results.
 
-const ActionWizardPanel = ({ stepIdx, step, wizard, answered, onPick }) => (
+const ActionWizardPanel = ({ stepIdx, step, wizard, answered, onPick, onSkipStep, onSkipAll }) => (
   <div className="bg-white border-half rounded-2xl shadow-lift p-4">
     <InlineWizard
       stepIdx={stepIdx}
@@ -1451,6 +1509,8 @@ const ActionWizardPanel = ({ stepIdx, step, wizard, answered, onPick }) => (
       step={step}
       answered={answered}
       onPick={onPick}
+      onSkipStep={onSkipStep}
+      onSkipAll={onSkipAll}
       compact
     />
   </div>
@@ -1459,7 +1519,7 @@ const ActionWizardPanel = ({ stepIdx, step, wizard, answered, onPick }) => (
 // ============ Inline wizard question ============
 // Rendered as an agent message inside the chat. Vertical list of options +
 // an "Outra opção" free-text input. Collapses once answered.
-const InlineWizard = ({ stepIdx, step, wizard, answered, onPick, compact = false }) => {
+const InlineWizard = ({ stepIdx, step, wizard, answered, onPick, onSkipStep, onSkipAll, compact = false }) => {
   const [custom, setCustom] = useState('');
   const [selected, setSelected] = useState([]);
   if (!step) return null;
@@ -1552,6 +1612,19 @@ const InlineWizard = ({ stepIdx, step, wizard, answered, onPick, compact = false
           className="h-9 px-4 rounded-lg bg-ink-900 text-paper text-[12.5px] font-medium hover:bg-brand-700 disabled:opacity-35 disabled:cursor-not-allowed inline-flex items-center gap-1.5">
           Continuar <Icon.ArrowRight size={12}/>
         </button>
+      )}
+
+      {compact && (
+        <div className="flex items-center gap-3 pt-1">
+          <button onClick={onSkipStep}
+            className="h-8 px-3 rounded-lg border-half bg-white text-[12px] font-medium text-ink-600 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 transition-colors">
+            Pular etapa
+          </button>
+          <button onClick={onSkipAll}
+            className="h-8 px-2 rounded-lg text-[12px] text-ink-500 hover:text-ink-900 transition-colors">
+            Pular tudo
+          </button>
+        </div>
       )}
 
       {!compact && <div className="text-[10.5px] mono uppercase tracking-wider text-ink-400">

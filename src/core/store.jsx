@@ -229,18 +229,21 @@ function useTrips() {
 // Active trip detail → TripDetail | null
 function useActiveTripDetail() {
   const { activeTripId, setActiveTripId } = useActiveTrip();
+  const store = useTripStore();
   const q = useQuery(async () => {
     if (!activeTripId) return null;
     try {
       const trip = await tripApi.getTrip(activeTripId);
       if (!trip) setActiveTripId(null);
+      if (trip) store.put(trip);
       return trip;
     } catch (_error) {
       setActiveTripId(null);
       return null;
     }
   }, [activeTripId]);
-  return { ...q, trip: q.data ? toTripDetail(q.data) : null, activeTripId };
+  const current = activeTripId ? (store.byId[activeTripId] || q.data) : null;
+  return { ...q, trip: current ? toTripDetail(current) : null, activeTripId };
 }
 // Generic catalog hook for carousels: useCatalog('hotels') etc.
 const _catalogFetch = {
