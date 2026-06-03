@@ -86,7 +86,8 @@ function normalizeItinerarySuggestions(value) {
   }).filter(Boolean);
 }
 function suggestionsHavePlacement(suggestions) {
-  return normalizeItinerarySuggestions(suggestions).every(item => item.day && item.slot);
+  const normalized = normalizeItinerarySuggestions(suggestions);
+  return normalized.length > 0 && normalized.every(item => item.day && item.slot);
 }
 function isApplyIntent(value) {
   const text = normText(value);
@@ -128,6 +129,47 @@ function assistantResponseToBubble(response) {
     itinerarySuggestions,
     cta: itinerarySuggestions.length > 0 ? ['Adicionar ao roteiro'] : null,
   };
+}
+function boundedDayCount(value) {
+  const count = Number(value);
+  return Number.isFinite(count) && count > 0 ? Math.min(Math.max(Math.floor(count), 1), 14) : null;
+}
+function inferInitialItineraryDuration(trip, kickoff) {
+  const explicit = boundedDayCount(trip.nights ?? trip.tripContext?.nights);
+  if (explicit) return { days: explicit, assumed: false };
+  const text = normText(`${trip.destination || ''} ${trip.title || ''} ${kickoff || ''} ${JSON.stringify(trip.tripContext || {})}`);
+  if (/orlando|disney|parque/.test(text)) return { days: 6, assumed: true };
+  if (/japao|japan|toquio|tokyo|kyoto|quioto|europa|multi.?city|multicidade|lisboa.*porto|paris.*roma|londres.*paris/.test(text)) {
+    return { days: 10, assumed: true };
+  }
+  if (/praia|beach|buzios|búzios|rio de janeiro|florianopolis|florianópolis|bahia|nordeste|caribe/.test(text)) {
+    return { days: 4, assumed: true };
+  }
+  return { days: 3, assumed: true };
+}
+function buildInitialItineraryPrompt(kickoff, trip, duration) {
+  const assumption = duration.assumed
+    ? `Como a duracao nao foi definida, assuma ${duration.days} dias e diga isso naturalmente no texto.`
+    : `Use ${duration.days} dias como duracao do roteiro.`;
+  return [
+    kickoff,
+    '',
+    'Crie uma primeira versao de roteiro inicial para preencher a timeline agora.',
+    assumption,
+    'Retorne itinerarySuggestions obrigatoriamente com day, slot, title, place, dur, tag e vibe para cada item.',
+    'Use apenas slots "manhã", "tarde" ou "noite".',
+    'Sugira de 2 a 3 itens por dia, com ritmo realista.',
+    'Nao invente reservas, precos, disponibilidade, hoteis ou voos confirmados.',
+    `Contexto da viagem: ${JSON.stringify(trip.tripContext || {}).slice(0, 1200)}`,
+  ].join('\n');
+}
+function withDurationAssumptionText(text, duration) {
+  if (!duration.assumed) return text;
+  const clean = String(text || '').trim();
+  const note = `Como você ainda não definiu a duração, montei uma primeira versão com ${duration.days} dias. Se quiser, eu ajusto para mais ou menos dias.`;
+  return normText(clean).includes('nao definiu a duracao') || normText(clean).includes('não definiu a duração')
+    ? clean
+    : `${note}\n\n${clean}`;
 }
 
 const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
@@ -243,26 +285,16 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     items: [],
   });
 
-  const applyItinerarySuggestions = (messageIndex, placement = null, { confirm = false } = {}) => {
-    const message = chat[messageIndex];
-    const suggestions = normalizeItinerarySuggestions(message?.itinerarySuggestions);
-    if (suggestions.length === 0 || message?.ctaApplied) return 'none';
-    if (!placement && !suggestionsHavePlacement(suggestions)) {
-      setPendingPlacementMessageIndex(messageIndex);
-      setChat(current => [...current, {
-        who: 'gaid',
-        text: 'Claro. Em qual dia e período você quer encaixar isso? Exemplos: “Dia 2 de manhã”, “Dia 3 à tarde”, “No primeiro dia à noite”.',
-        source: 'local',
-      }]);
-      return 'needs-placement';
-    }
+  const applySuggestionListToTimeline = (suggestions, placement = null) => {
+    const normalized = normalizeItinerarySuggestions(suggestions);
+    const placedSuggestions = normalized.map(item => ({
+      ...item,
+      day: item.day || placement?.day,
+      slot: item.slot || placement?.slot,
+    })).filter(item => item.day && item.slot);
+    if (placedSuggestions.length === 0) return 0;
     setDays(currentDays => {
       const nextDays = normalizeDays(currentDays).map(day => ({ ...day, items: [...day.items] }));
-      const placedSuggestions = suggestions.map(item => ({
-        ...item,
-        day: item.day || placement?.day,
-        slot: item.slot || placement?.slot,
-      })).filter(item => item.day && item.slot);
       const maxDay = Math.max(...placedSuggestions.map(item => item.day));
       for (let dayNumber = 1; dayNumber <= maxDay; dayNumber += 1) {
         if (!nextDays.some(day => day.d === dayNumber)) nextDays.push(placeholderDay(dayNumber));
@@ -282,6 +314,24 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       });
       return nextDays.sort((a, b) => a.d - b.d);
     });
+    return placedSuggestions.length;
+  };
+
+  const applyItinerarySuggestions = (messageIndex, placement = null, { confirm = false } = {}) => {
+    const message = chat[messageIndex];
+    const suggestions = normalizeItinerarySuggestions(message?.itinerarySuggestions);
+    if (suggestions.length === 0 || message?.ctaApplied) return 'none';
+    if (!placement && !suggestionsHavePlacement(suggestions)) {
+      setPendingPlacementMessageIndex(messageIndex);
+      setChat(current => [...current, {
+        who: 'gaid',
+        text: 'Claro. Em qual dia e período você quer encaixar isso? Exemplos: “Dia 2 de manhã”, “Dia 3 à tarde”, “No primeiro dia à noite”.',
+        source: 'local',
+      }]);
+      return 'needs-placement';
+    }
+    const appliedCount = applySuggestionListToTimeline(suggestions, placement);
+    if (appliedCount === 0) return 'none';
     setChat(current => {
       const next = current.map((item, index) => index === messageIndex
         ? { ...item, cta: ['Adicionado ao roteiro'], ctaApplied: true }
@@ -292,7 +342,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         : next;
     });
     setPendingPlacementMessageIndex(null);
-    toast({ title: 'Adicionado ao roteiro', desc: `${suggestions.length} sugestão${suggestions.length === 1 ? '' : 'ões'} adicionada${suggestions.length === 1 ? '' : 's'}.`, tone: 'success' });
+    toast({ title: 'Adicionado ao roteiro', desc: `${appliedCount} sugestão${appliedCount === 1 ? '' : 'ões'} adicionada${appliedCount === 1 ? '' : 's'}.`, tone: 'success' });
     return 'applied';
   };
 
@@ -306,27 +356,68 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     const kickoffKey = `${tripData.id}:${kickoff}`;
     if (kickoffKeyRef.current === kickoffKey) return;
     kickoffKeyRef.current = kickoffKey;
+    const isWizardKickoff = tripData.tripContext?.wizard?.completed === true;
+    const duration = inferInitialItineraryDuration(tripData, kickoff);
+    const chatMessage = isWizardKickoff
+      ? buildInitialItineraryPrompt(kickoff, tripData, duration)
+      : kickoff;
     const userMsg = { who: 'user', text: kickoff };
     setChat(c => c.some(m => m.who === 'user' && m.text === kickoff) ? c : [...c, userMsg]);
     persistPlanMessage('user', kickoff);
     setTyping(true);
     let alive = true;
     tripApi.sendChatMessage({
-      message: kickoff,
+      message: chatMessage,
       history: [userMsg].map(m => ({ role: 'user', text: m.text })),
-      context: { surface: 'plan', tripTitle: tripData.title },
+      context: {
+        surface: 'plan',
+        tripTitle: tripData.title,
+        initialItinerary: isWizardKickoff,
+        itineraryDays: duration.days,
+        assumedDuration: duration.assumed,
+        tripContext: tripData.tripContext,
+      },
     }).then((response) => {
       if (!alive) return;
       setTyping(false);
-      setChat(c => [...c, assistantResponseToBubble(response)]);
-      persistPlanMessage('assistant', response.text, { source: response.source });
+      const suggestions = normalizeItinerarySuggestions(response.itinerarySuggestions);
+      if (isWizardKickoff) {
+        if (suggestionsHavePlacement(suggestions)) {
+          const text = withDurationAssumptionText(response.text, duration);
+          const appliedCount = applySuggestionListToTimeline(suggestions);
+          if (appliedCount > 0) {
+            setChat(c => [...c, {
+              who: 'gaid',
+              text,
+              source: response.source,
+              itinerarySuggestions: suggestions,
+              cta: ['Adicionado ao roteiro'],
+              ctaApplied: true,
+            }]);
+            persistPlanMessage('assistant', text, { source: response.source, initialItinerary: true });
+          } else {
+            const failure = 'Não consegui criar uma primeira sugestão de roteiro agora. Me peça de novo em instantes ou diga quantos dias você quer planejar.';
+            setChat(c => [...c, { who: 'gaid', text: failure, source: 'error' }]);
+            persistPlanMessage('assistant', failure, { source: 'error', initialItinerary: true });
+          }
+        } else {
+          const failure = 'Não consegui criar uma primeira sugestão de roteiro agora porque a resposta não trouxe dias e períodos claros. Me peça de novo em instantes ou diga quantos dias você quer planejar.';
+          setChat(c => [...c, { who: 'gaid', text: failure, source: 'error' }]);
+          persistPlanMessage('assistant', failure, { source: 'error', initialItinerary: true });
+        }
+      } else {
+        setChat(c => [...c, assistantResponseToBubble(response)]);
+        persistPlanMessage('assistant', response.text, { source: response.source });
+      }
       clearKickoff && clearKickoff();
     }).catch(() => {
       if (!alive) return;
       setTyping(false);
-      const fallback = 'Não consegui responder agora. Tente novamente em instantes.';
+      const fallback = isWizardKickoff
+        ? 'Não consegui criar uma primeira sugestão de roteiro agora. Me peça de novo em instantes ou diga quantos dias você quer planejar.'
+        : 'Não consegui responder agora. Tente novamente em instantes.';
       setChat(c => [...c, { who: 'gaid', text: fallback, source: 'error' }]);
-      persistPlanMessage('assistant', fallback, { source: 'error' });
+      persistPlanMessage('assistant', fallback, { source: 'error', initialItinerary: isWizardKickoff });
       clearKickoff && clearKickoff();
     });
     return () => { alive = false; };
