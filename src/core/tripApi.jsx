@@ -52,75 +52,157 @@ function buildTripTitle({ title, destination, prompt }) {
   return 'Nova viagem';
 }
 
-const STATIC_COVER_IMAGES = [
+const DESTINATION_COVER_CATALOG = [
   {
+    key: 'orlando',
     match: /orlando|disney/,
-    label: 'Orlando Florida',
-    url: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=1200&h=800&q=80',
+    defaultLabel: 'Orlando Florida',
+    covers: [
+      { context: 'disney-family', label: 'Orlando · parques em família', match: /disney|magic kingdom|famil|crianc|filh|parque/, url: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'universal-parks', label: 'Orlando · Universal e parques', match: /universal|harry potter|parques?/, url: 'https://images.unsplash.com/photo-1602002418082-dd4d8ce2c955?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'shopping', label: 'Orlando · compras', match: /compras?|shopping|outlet/, url: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'default', label: 'Orlando Florida', url: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=1200&h=800&q=80' },
+    ],
   },
   {
+    key: 'paris',
     match: /paris/,
-    label: 'Paris France',
-    url: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?auto=format&fit=crop&w=1200&h=800&q=80',
+    defaultLabel: 'Paris France',
+    covers: [
+      { context: 'romantic', label: 'Paris · viagem romântica', match: /romant|casal|lua de mel/, url: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'food-cafe', label: 'Paris · cafés e gastronomia', match: /gastronom|comida|restaurante|cafe|caf[eé]/, url: 'https://images.unsplash.com/photo-1499856871958-5b9627545d1a?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'family', label: 'Paris · família', match: /famil|crianc|filh|disneyland/, url: 'https://images.unsplash.com/photo-1522098543979-ffc7f79f70cc?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'culture', label: 'Paris · cultura', match: /cultur|museu|arte|historia|história/, url: 'https://images.unsplash.com/photo-1565099824688-e93eb20fe622?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'default', label: 'Paris France', url: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?auto=format&fit=crop&w=1200&h=800&q=80' },
+    ],
   },
   {
+    key: 'bogota',
     match: /bogota|bogotá/,
-    label: 'Bogotá Colombia',
-    url: 'https://images.unsplash.com/photo-1605649487212-47bdab064df7?auto=format&fit=crop&w=1200&h=800&q=80',
+    defaultLabel: 'Bogotá Colombia',
+    covers: [
+      { context: 'culture', label: 'Bogotá · cultura e museus', match: /cultur|museu|ouro|candelaria|historia|história/, url: 'https://images.unsplash.com/photo-1605649487212-47bdab064df7?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'nature', label: 'Bogotá · Monserrate e montanha', match: /natureza|monserrate|montanha|trilha|verde/, url: 'https://images.unsplash.com/photo-1526392060635-9d6019884377?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'food', label: 'Bogotá · gastronomia', match: /gastronom|comida|restaurante|cafe|caf[eé]/, url: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'default', label: 'Bogotá Colombia', url: 'https://images.unsplash.com/photo-1605649487212-47bdab064df7?auto=format&fit=crop&w=1200&h=800&q=80' },
+    ],
   },
   {
-    match: /rio de janeiro/,
-    label: 'Rio de Janeiro Brazil',
-    url: 'https://images.unsplash.com/photo-1483729558449-99ef09a8c325?auto=format&fit=crop&w=1200&h=800&q=80',
-  },
-  {
+    key: 'bahia',
     match: /bahia|salvador|trancoso|itacare|itacaré/,
-    label: 'Bahia Brazil',
-    url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1200&h=800&q=80',
+    defaultLabel: 'Bahia Brazil',
+    covers: [
+      { context: 'beach-relax', label: 'Bahia · praia e descanso', match: /praia|relax|descanso|mar|trancoso|itacare|itacaré/, url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'salvador-culture', label: 'Bahia · Salvador e cultura', match: /salvador|pelourinho|cultur|historia|história|musica|música/, url: 'https://images.unsplash.com/photo-1516306580123-e6e52b1b7b5f?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'food', label: 'Bahia · sabores locais', match: /gastronom|comida|restaurante|acaraje|acarajé/, url: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'default', label: 'Bahia Brazil', url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1200&h=800&q=80' },
+    ],
   },
   {
+    key: 'rio',
+    match: /rio de janeiro/,
+    defaultLabel: 'Rio de Janeiro Brazil',
+    covers: [
+      { context: 'beach', label: 'Rio · praia', match: /praia|mar|ipanema|copacabana/, url: 'https://images.unsplash.com/photo-1483729558449-99ef09a8c325?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'culture-food', label: 'Rio · cultura e gastronomia', match: /cultur|gastronom|comida|samba|restaurante/, url: 'https://images.unsplash.com/photo-1518639192441-8fce0a366e2e?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'default', label: 'Rio de Janeiro Brazil', url: 'https://images.unsplash.com/photo-1483729558449-99ef09a8c325?auto=format&fit=crop&w=1200&h=800&q=80' },
+    ],
+  },
+  {
+    key: 'japan',
     match: /japao|japan|tokyo|toquio|tóquio|kyoto|quioto/,
-    label: 'Tokyo Japan',
-    url: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?auto=format&fit=crop&w=1200&h=800&q=80',
+    defaultLabel: 'Tokyo Japan',
+    covers: [
+      { context: 'tokyo-city', label: 'Japão · Tóquio urbano', match: /tokyo|toquio|tóquio|cidade|urbano|compras?/, url: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'kyoto-culture', label: 'Japão · cultura e templos', match: /kyoto|quioto|templo|cultur|tradicional|historia|história/, url: 'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'food', label: 'Japão · gastronomia', match: /gastronom|comida|ramen|sushi|restaurante/, url: 'https://images.unsplash.com/photo-1553621042-f6e147245754?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'default', label: 'Tokyo Japan', url: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?auto=format&fit=crop&w=1200&h=800&q=80' },
+    ],
   },
   {
+    key: 'portugal',
     match: /lisboa|porto|portugal/,
-    label: 'Lisboa Portugal',
-    url: 'https://images.unsplash.com/photo-1501927023255-9063be98970c?auto=format&fit=crop&w=1200&h=800&q=80',
+    defaultLabel: 'Lisboa Portugal',
+    covers: [
+      { context: 'lisbon-culture', label: 'Lisboa · cultura', match: /lisboa|cultur|historia|história|azulejo/, url: 'https://images.unsplash.com/photo-1501927023255-9063be98970c?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'porto-food', label: 'Porto · gastronomia e vinho', match: /porto|vinho|gastronom|comida|douro/, url: 'https://images.unsplash.com/photo-1555881400-74d7acaacd8b?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'default', label: 'Lisboa Portugal', url: 'https://images.unsplash.com/photo-1501927023255-9063be98970c?auto=format&fit=crop&w=1200&h=800&q=80' },
+    ],
   },
   {
+    key: 'peru',
     match: /peru|lima|cusco|machu picchu/,
-    label: 'Peru',
-    url: 'https://images.unsplash.com/photo-1526392060635-9d6019884377?auto=format&fit=crop&w=1200&h=800&q=80',
+    defaultLabel: 'Peru',
+    covers: [
+      { context: 'andes-culture', label: 'Peru · Andes e cultura', match: /cusco|machu picchu|andes|cultur|historia|história|trilha/, url: 'https://images.unsplash.com/photo-1526392060635-9d6019884377?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'lima-food', label: 'Peru · Lima gastronômica', match: /lima|gastronom|comida|restaurante/, url: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=1200&h=800&q=80' },
+      { context: 'default', label: 'Peru', url: 'https://images.unsplash.com/photo-1526392060635-9d6019884377?auto=format&fit=crop&w=1200&h=800&q=80' },
+    ],
   },
 ];
 
 const GENERIC_COVER_IMAGE = {
+  context: 'generic',
   label: 'Travel destination',
   url: 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&h=800&q=80',
 };
 
-function destinationCoverEntry(destination = '') {
-  const normalized = firstFilled(destination).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  return STATIC_COVER_IMAGES.find(entry => entry.match.test(normalized)) || GENERIC_COVER_IMAGE;
+function stableHash(value = '') {
+  return [...String(value)].reduce((hash, char) => ((hash * 31) + char.charCodeAt(0)) >>> 0, 7);
 }
 
-function buildCoverImage(destination) {
-  const cover = destinationCoverEntry(destination);
+function contextText({ destination, title, tripContext, metadata }) {
+  return [
+    destination,
+    title,
+    tripContext?.travelerComposition,
+    tripContext?.travelers?.composition,
+    tripContext?.budget?.label,
+    tripContext?.budget,
+    tripContext?.comfortLevel,
+    ...(Array.isArray(tripContext?.priorities) ? tripContext.priorities : [tripContext?.priorities]),
+    ...(Array.isArray(tripContext?.stylePace) ? tripContext.stylePace : [tripContext?.stylePace]),
+    ...(Array.isArray(tripContext?.tripPriority) ? tripContext.tripPriority : [tripContext?.tripPriority]),
+    ...(Array.isArray(tripContext?.childrenAges) && tripContext.childrenAges.length > 0 ? ['crianças', 'família'] : []),
+    metadata?.coverHint,
+  ].filter(Boolean).join(' ').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function selectTripCover({ destination = '', title = '', tripContext = {}, metadata = {}, stableKey = '' } = {}) {
+  const normalizedDestination = firstFilled(destination).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const catalog = DESTINATION_COVER_CATALOG.find(entry => entry.match.test(normalizedDestination));
+  if (!catalog) {
+    return {
+      ...GENERIC_COVER_IMAGE,
+      source: 'static-contextual-cover-map',
+      query: GENERIC_COVER_IMAGE.label,
+      contextKey: 'generic:generic',
+    };
+  }
+
+  const text = contextText({ destination, title, tripContext, metadata });
+  const matches = catalog.covers.filter(cover => cover.match && cover.match.test(text));
+  const pool = matches.length > 0 ? matches : catalog.covers.filter(cover => cover.context === 'default');
+  const candidates = pool.length > 0 ? pool : [GENERIC_COVER_IMAGE];
+  const selected = candidates[stableHash(`${stableKey}:${title}:${text}`) % candidates.length];
   return {
-    url: cover.url,
-    source: 'static-destination-map',
-    query: cover.label,
-    fallbackQuery: GENERIC_COVER_IMAGE.label,
+    url: selected.url,
+    source: 'static-contextual-cover-map',
+    query: selected.label || catalog.defaultLabel,
+    contextKey: `${catalog.key}:${selected.context || 'default'}`,
+    fallbackQuery: catalog.defaultLabel || GENERIC_COVER_IMAGE.label,
   };
 }
 
-function normalizeCoverImage(value, destination) {
+function normalizeCoverImage(value, { destination, title, tripContext, metadata, stableKey } = {}) {
   const cover = normalizeTripContext(value);
-  if (!cover.url || /source\.unsplash\.com/i.test(String(cover.url))) {
-    return buildCoverImage(destination);
-  }
-  return cover;
+  const invalid = !cover.url ||
+    /source\.unsplash\.com/i.test(String(cover.url)) ||
+    cover.source === 'static-destination-map' ||
+    !cover.contextKey;
+  return invalid
+    ? selectTripCover({ destination, title, tripContext, metadata, stableKey })
+    : cover;
 }
 
 function travelerCount(value) {
@@ -141,7 +223,13 @@ function rowToTrip(row) {
   const tripContext = normalizeTripContext(row.trip_context);
   const metadata = normalizeTripContext(row.metadata);
   const destination = firstFilled(row.destination, tripContext.destination, metadata.destination);
-  const coverImage = normalizeCoverImage(tripContext.coverImage || metadata.coverImage, destination);
+  const coverImage = normalizeCoverImage(tripContext.coverImage || metadata.coverImage, {
+    destination,
+    title: row.title,
+    tripContext,
+    metadata,
+    stableKey: row.id || row.title,
+  });
   return {
     id: row.id,
     title: row.title,
@@ -243,7 +331,14 @@ const _emptyAdapter = {
     const incomingContext = normalizeTripContext(rawInput.trip_context || rawInput.tripContext || rawInput.context);
     const destination = firstFilled(rawInput.destination, incomingContext.destination, inferDestination(prompt));
     const title = buildTripTitle({ title: rawInput.title, destination, prompt });
-    const coverImage = normalizeCoverImage(incomingContext.coverImage, destination);
+    const baseMetadata = normalizeTripContext(rawInput.metadata);
+    const coverImage = normalizeCoverImage(incomingContext.coverImage || baseMetadata.coverImage, {
+      destination,
+      title,
+      tripContext: incomingContext,
+      metadata: baseMetadata,
+      stableKey: `${user.id}:${title}:${prompt}`,
+    });
     const tripContext = {
       ...incomingContext,
       prompt,
@@ -253,7 +348,7 @@ const _emptyAdapter = {
       progress: incomingContext.progress ?? 0,
     };
     const metadata = {
-      ...normalizeTripContext(rawInput.metadata),
+      ...baseMetadata,
       coverImage,
     };
     const { data, error } = await supabase
