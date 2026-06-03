@@ -97,9 +97,13 @@ function isAddDayIntent(value) {
   const text = normText(value);
   return /(adicionar um dia|mais um dia|incluir mais um dia|criar mais um dia|adicionar um dia a mais|aumentar para \d+ dias?)/.test(text);
 }
+function isCreateItineraryItemIntent(value) {
+  const text = normText(value);
+  return /(adiciona|adicione|coloca|inclui|incluir|inclua|quero|bota|poe|põe).*(restaurante|cafe|café|cafe da manha|museu|bate.?volta|almoco|almoço|jantar|atividade|criancas|crianças|rooftop|passeio|parada|atracao|atração|experiencia|experiência|stop|brunch)|(?:restaurante|cafe|café|museu|bate.?volta|almoco|almoço|jantar|atividade|rooftop|passeio gastronomico|passeio gastronômico).*(roteiro|dia)/.test(text);
+}
 function isReplaceActivityIntent(value) {
   const text = normText(value);
-  return /(trocar|substituir|mudar|remover).*(atividade|passeio|restaurante|museu|item)|(?:atividade|passeio|restaurante|museu|item).*(trocar|substituir|mudar)/.test(text);
+  return /(trocar|substituir|mudar|remover).*(atividade|passeio|restaurante|museu|item)|(?:atividade|passeio|restaurante|museu|item).*(trocar|substituir|mudar)|nao gostei|não gostei|outra opcao|outra opção|me da uma alternativa|me dá uma alternativa|algo mais romantico|algo mais romântico|algo menos turistico|algo menos turístico|algo mais barato|algo melhor para criancas|algo melhor para crianças/.test(text);
 }
 function isOptimizeItineraryIntent(value) {
   const text = normText(value);
@@ -120,7 +124,7 @@ function pendingActionFromSuggestions(type, suggestions) {
 }
 function classifyPlanChatIntent(message, currentTrip, lastAssistantMessage) {
   const text = normText(message);
-  if (isApplyIntent(message)) {
+  if (isApplyIntent(message) || isCreateItineraryItemIntent(message)) {
     return {
       intent: 'ADD_TO_ITINERARY',
       confidence: 0.9,
@@ -208,6 +212,213 @@ function parsePlacement(value) {
   if (!Number.isFinite(day) || day < 1 || !slot) return null;
   return { day: Math.floor(day), slot };
 }
+function parseTargetDay(value, days) {
+  const text = normText(value);
+  const safeDays = normalizeDays(days);
+  const explicit = text.match(/\bdia\s*(\d+)\b/) ||
+    text.match(/\b(\d+)\s*(?:o|º)?\s*dia\b/) ||
+    (/\bprimeiro\b/.test(text) ? [, '1'] : null) ||
+    (/\bsegundo\b/.test(text) ? [, '2'] : null) ||
+    (/\bterceiro\b/.test(text) ? [, '3'] : null) ||
+    (/\bquarto\b/.test(text) ? [, '4'] : null) ||
+    (/\bquinto\b/.test(text) ? [, '5'] : null);
+  const explicitDay = Number(explicit?.[1]);
+  if (Number.isFinite(explicitDay) && explicitDay > 0) return Math.floor(explicitDay);
+  if (/\bultimo\b|\búltimo\b/.test(text)) return maxTimelineDay(safeDays) || null;
+  if (/\bchegada\b/.test(text)) return safeDays[0]?.d || 1;
+  return null;
+}
+function resolveTargetDay({ message, days, lastEditedDay }) {
+  const explicit = parseTargetDay(message, days);
+  if (explicit) return explicit;
+  if (Number.isFinite(lastEditedDay) && lastEditedDay > 0) return Math.floor(lastEditedDay);
+  return null;
+}
+function inferItemSlot(value) {
+  const text = normText(value);
+  if (/cafe da manha|café da manhã|manha|manhã|brunch/.test(text)) return 'manhã';
+  if (/almoco|almoço|tarde/.test(text)) return 'tarde';
+  if (/jantar|noite|rooftop|bar/.test(text)) return 'noite';
+  return 'tarde';
+}
+function inferItemTag(value) {
+  const text = normText(value);
+  if (/restaurante|almoco|almoço|jantar|brunch/.test(text)) return 'restaurante';
+  if (/cafe|café/.test(text)) return 'café';
+  if (/museu|cultura|atracao|atração/.test(text)) return 'cultura';
+  if (/crianca|criança|kids/.test(text)) return 'família';
+  if (/bate.?volta/.test(text)) return 'bate-volta';
+  if (/rooftop|bar/.test(text)) return 'bar';
+  if (/gastronom/.test(text)) return 'gastronomia';
+  return 'experiência';
+}
+function itemCategory(item) {
+  const text = normText(`${item?.tag || ''} ${item?.title || ''} ${item?.place || ''}`);
+  if (/restaurante|almoco|almoço|jantar|brunch|gastronom/.test(text)) return 'restaurante';
+  if (/cafe|café/.test(text)) return 'café';
+  if (/museu/.test(text)) return 'museu';
+  if (/cultura|galeria|teatro|centro historico|centro histórico/.test(text)) return 'cultura';
+  if (/crianca|criança|familia|família|kids|parque/.test(text)) return 'família';
+  if (/bate.?volta|day trip/.test(text)) return 'bate-volta';
+  if (/bar|rooftop/.test(text)) return 'bar';
+  if (/praia|beach/.test(text)) return 'praia';
+  return String(item?.tag || 'experiência').trim() || 'experiência';
+}
+function replacementPreference(value) {
+  const text = normText(value);
+  if (/romantic|romantico|romântico/.test(text)) return 'mais romântica';
+  if (/menos turist|local|autentic/.test(text)) return 'menos turística';
+  if (/barat|econom/.test(text)) return 'mais barata';
+  if (/crianca|criança|familia|família|kids/.test(text)) return 'melhor para crianças';
+  if (/premium|especial|melhor/.test(text)) return 'mais especial';
+  return 'mais alinhada ao pedido do usuário';
+}
+function itemTextMatches(item, text) {
+  const normalized = normText(text);
+  const fields = [item?.title, item?.place]
+    .map(value => normText(value))
+    .filter(value => value.length >= 4);
+  return fields.some(value => normalized.includes(value) || value.includes(normalized));
+}
+function flattenItineraryItems(days) {
+  return normalizeDays(days).flatMap((day, dayIdx) =>
+    day.items.map((item, itemIdx) => ({ day, dayIdx, item, itemIdx }))
+  );
+}
+function storedActivityRefFromEntry(entry) {
+  if (!entry) return null;
+  return {
+    dayNumber: entry.day?.d,
+    itemTitle: entry.item?.title,
+    itemPlace: entry.item?.place,
+    itemSlot: entry.item?.t,
+    itemTag: entry.item?.tag,
+  };
+}
+function resolveStoredActivityRef(days, ref) {
+  if (!ref) return null;
+  const entries = flattenItineraryItems(days);
+  if (Number.isInteger(ref.dayIdx) && Number.isInteger(ref.itemIdx)) {
+    const day = normalizeDays(days)[ref.dayIdx];
+    const item = day?.items?.[ref.itemIdx];
+    if (day && item) return { day, dayIdx: ref.dayIdx, item, itemIdx: ref.itemIdx };
+  }
+  return entries.find(entry => {
+    if (ref.dayNumber && entry.day.d !== ref.dayNumber) return false;
+    if (ref.itemTitle && normText(entry.item.title) === normText(ref.itemTitle)) return true;
+    if (ref.itemPlace && normText(entry.item.place) === normText(ref.itemPlace)) return true;
+    if (ref.itemSlot && ref.itemTag && entry.item.t === ref.itemSlot && itemCategory(entry.item) === itemCategory({ tag: ref.itemTag })) return true;
+    return false;
+  }) || null;
+}
+function findActivityMentionedInChat(messages, days) {
+  const entries = flattenItineraryItems(days);
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const text = messages[index]?.text;
+    if (!text) continue;
+    const match = entries.find(entry => itemTextMatches(entry.item, text));
+    if (match) return match;
+  }
+  return null;
+}
+function resolveActivityTarget({ message, days, editing, lastModifiedRef, chat }) {
+  const safeDays = normalizeDays(days);
+  const selected = resolveStoredActivityRef(safeDays, editing);
+  if (selected) return selected;
+
+  const explicitDay = parseTargetDay(message, safeDays);
+  const requestedCategory = inferItemTag(message);
+  if (explicitDay) {
+    const entries = flattenItineraryItems(safeDays).filter(entry => entry.day.d === explicitDay);
+    const categoryMatches = entries.filter(entry => itemCategory(entry.item) === requestedCategory || normText(entry.item.title).includes(normText(requestedCategory)));
+    if (categoryMatches.length === 1) return categoryMatches[0];
+    if (entries.length === 1) return entries[0];
+  }
+
+  const discussed = findActivityMentionedInChat(chat, safeDays);
+  if (discussed) return discussed;
+
+  const lastModified = resolveStoredActivityRef(safeDays, lastModifiedRef?.current);
+  if (lastModified) return lastModified;
+
+  const categoryMatches = flattenItineraryItems(safeDays)
+    .filter(entry => itemCategory(entry.item) === requestedCategory || normText(entry.item.title).includes(normText(requestedCategory)));
+  return categoryMatches.length === 1 ? categoryMatches[0] : null;
+}
+function validateReplaceActivity({ trip, days, target }) {
+  if (!trip?.id) return 'Abra ou crie uma viagem antes de trocar uma atividade.';
+  const safeDays = normalizeDays(days);
+  if (!target?.item) return 'Qual atividade você quer substituir? Pode me dizer o dia e o nome dela.';
+  if (!safeDays[target.dayIdx] || safeDays[target.dayIdx].d !== target.day.d) return 'Não encontrei o dia dessa atividade no roteiro.';
+  if (!safeDays[target.dayIdx].items[target.itemIdx]) return 'Não encontrei essa atividade no roteiro.';
+  return null;
+}
+function buildReplaceActivityPrompt({ message, trip, target }) {
+  const category = itemCategory(target.item);
+  const preference = replacementPreference(message);
+  return [
+    message,
+    '',
+    'Substitua exatamente uma atividade do roteiro. Nao reconstrua o roteiro.',
+    `Atividade atual: ${target.item.title} em ${target.item.place || TBD}.`,
+    `Categoria a preservar: ${category}.`,
+    `Preferencia do usuario: ${preference}.`,
+    `Mantenha day=${target.day.d} e slot="${target.item.t}".`,
+    'Retorne uma unica itinerarySuggestion com day, slot, title, place, dur, tag e vibe.',
+    'A alternativa precisa ser concreta, coerente com a categoria e especifica para o destino.',
+    'Nao invente reserva confirmada, preco ou disponibilidade.',
+    `Contexto da viagem: ${JSON.stringify(trip?.tripContext || {}).slice(0, 1200)}`,
+  ].join('\n');
+}
+function localReplacementSuggestion(message, trip, target) {
+  const destination = knownTripDestination(trip) || target.item.place || 'destino';
+  const category = itemCategory(target.item);
+  const preference = replacementPreference(message);
+  const titleByCategory = {
+    restaurante: `Restaurante ${preference} em ${destination}`,
+    café: `Café ${preference} em ${destination}`,
+    museu: `Museu alternativo em ${destination}`,
+    cultura: `Experiência cultural ${preference} em ${destination}`,
+    família: `Atividade para família em ${destination}`,
+    'bate-volta': `Bate-volta alternativo a partir de ${destination}`,
+    bar: `Bar ${preference} em ${destination}`,
+    praia: `Praia ou passeio costeiro ${preference} em ${destination}`,
+  };
+  return {
+    day: target.day.d,
+    slot: target.item.t,
+    title: titleByCategory[category] || `Alternativa ${preference} em ${destination}`,
+    place: destination,
+    dur: target.item.dur || '1h30',
+    tag: category,
+    vibe: `substitui "${target.item.title}" mantendo o mesmo período do roteiro`,
+  };
+}
+function buildLocalItineraryItem(message, trip, targetDay) {
+  const text = normText(message);
+  const destination = knownTripDestination(trip) || 'destino';
+  const tag = inferItemTag(message);
+  const slot = inferItemSlot(message);
+  const title =
+    /restaurante/.test(text) ? `Restaurante especial em ${destination}` :
+    /cafe da manha|café da manhã|cafe|café|brunch/.test(text) ? `Café especial em ${destination}` :
+    /museu/.test(text) ? `Museu bem escolhido em ${destination}` :
+    /bate.?volta/.test(text) ? `Bate-volta a partir de ${destination}` :
+    /crianca|criança|kids/.test(text) ? `Atividade para crianças em ${destination}` :
+    /rooftop/.test(text) ? `Rooftop em ${destination}` :
+    /almoco|almoço/.test(text) ? `Parada para almoço em ${destination}` :
+    /gastronom/.test(text) ? `Passeio gastronômico em ${destination}` :
+    `Experiência em ${destination}`;
+  return {
+    day: targetDay,
+    slot,
+    title,
+    place: destination,
+    dur: tag === 'bate-volta' ? 'dia inteiro' : '1h30',
+    tag,
+    vibe: 'incluído a partir do pedido no chat',
+  };
+}
 function latestSuggestionMessageIndex(messages) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
@@ -229,6 +440,12 @@ function validateItineraryAction({ action, trip, days, suggestions = [], targetD
   if (!trip?.id) return 'Abra ou crie uma viagem antes de alterar o roteiro.';
   if (!trip.tripContext || typeof trip.tripContext !== 'object') return 'Ainda não tenho contexto suficiente dessa viagem para alterar o roteiro.';
   const safeDays = normalizeDays(days);
+  if (action === 'CREATE_ITINERARY_ITEM') {
+    if (safeDays.length === 0) return 'Ainda não há uma timeline criada para essa viagem.';
+    if (!knownTripDestination(trip)) return 'Antes de incluir isso, preciso saber o destino da viagem.';
+    if (!targetDay) return 'Em qual dia deseja incluir isso?';
+    if (!safeDays.some(day => day.d === targetDay)) return `Não encontrei o dia ${targetDay} no roteiro.`;
+  }
   if (action === 'ADD_TO_ITINERARY') {
     if (suggestions.length === 0) return 'Não encontrei uma sugestão pendente para aplicar ao roteiro.';
     const requiresExistingDay = suggestions.some(item => item.day && item.day <= maxTimelineDay(safeDays));
@@ -392,6 +609,8 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
   const [pendingPlacementMessageIndex, setPendingPlacementMessageIndex] = useState(null);
   const chatEndRef = useRef(null);
   const kickoffKeyRef = useRef(null);
+  const lastEditedDayRef = useRef(null);
+  const lastModifiedActivityRef = useRef(null);
 
   const persistPlanMessage = (role, text, metadata = {}) => {
     if (!tripData.id || !text) return Promise.resolve(null);
@@ -419,6 +638,42 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       persistTimelineDays(safeDays);
       return safeDays;
     });
+  };
+
+  const replaceActivity = async (target, suggestion) => {
+    const normalized = normalizeItinerarySuggestions([{
+      ...suggestion,
+      day: target.day.d,
+      slot: target.item.t,
+    }])[0];
+    if (!normalized) return false;
+    const nextDays = normalizeDays(days).map((day, dayIdx) => {
+      if (dayIdx !== target.dayIdx) return { ...day, items: [...day.items] };
+      return {
+        ...day,
+        items: day.items.map((item, itemIdx) => itemIdx === target.itemIdx
+          ? {
+            ...item,
+            t: target.item.t,
+            title: normalized.title,
+            place: normalized.place,
+            dur: normalized.dur || target.item.dur,
+            tag: normalized.tag || target.item.tag,
+            vibe: normalized.vibe,
+            conf: false,
+          }
+          : item
+        ),
+      };
+    });
+    setDays(nextDays);
+    lastEditedDayRef.current = target.day.d;
+    lastModifiedActivityRef.current = storedActivityRefFromEntry({
+      day: nextDays[target.dayIdx],
+      item: nextDays[target.dayIdx]?.items?.[target.itemIdx],
+    });
+    await persistTimelineDays(nextDays);
+    return true;
   };
 
   // If trip changes (user opened a different trip), reset state.
@@ -544,6 +799,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       placedSuggestions.forEach((suggestion) => {
         const day = nextDays.find(item => item.d === suggestion.day);
         if (!day) return;
+        lastEditedDayRef.current = suggestion.day;
         day.items.push({
           t: suggestion.slot,
           title: suggestion.title,
@@ -553,6 +809,13 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
           vibe: suggestion.vibe,
           conf: false,
         });
+        lastModifiedActivityRef.current = {
+          dayNumber: day.d,
+          itemTitle: suggestion.title,
+          itemPlace: suggestion.place,
+          itemSlot: suggestion.slot,
+          itemTag: suggestion.tag,
+        };
       });
       return nextDays.sort((a, b) => a.d - b.d);
     });
@@ -750,6 +1013,50 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         persistPlanMessage('assistant', reply, { source: 'local' });
         return;
       }
+      setTyping(false);
+      const resolvedDay = resolveTargetDay({ message: t, days, lastEditedDay: lastEditedDayRef.current });
+      const guard = validateItineraryAction({
+        action: 'CREATE_ITINERARY_ITEM',
+        trip: tripData,
+        days,
+        targetDay: resolvedDay,
+      });
+      if (guard) {
+        setChat(current => [...current, { who: 'gaid', text: guard, source: 'state-guard' }]);
+        persistPlanMessage('assistant', guard, { source: 'state-guard', intent: planIntent.intent });
+        return;
+      }
+      const item = buildLocalItineraryItem(t, tripData, resolvedDay);
+      const nextDays = normalizeDays(days).map(day => day.d === resolvedDay
+        ? {
+          ...day,
+          items: [...day.items, {
+            t: item.slot,
+            title: item.title,
+            place: item.place,
+            dur: item.dur,
+            tag: item.tag,
+            vibe: item.vibe,
+            conf: false,
+          }],
+        }
+        : { ...day, items: [...day.items] }
+      );
+      lastEditedDayRef.current = resolvedDay;
+      lastModifiedActivityRef.current = {
+        dayNumber: resolvedDay,
+        itemTitle: item.title,
+        itemPlace: item.place,
+        itemSlot: item.slot,
+        itemTag: item.tag,
+      };
+      setDays(nextDays);
+      await persistTimelineDays(nextDays);
+      const reply = `Pronto — adicionei ${item.tag === 'café' ? 'o café' : item.tag === 'restaurante' ? 'o restaurante' : item.tag === 'bate-volta' ? 'o bate-volta' : item.tag === 'bar' ? 'o rooftop' : 'a sugestão'} ao Dia ${resolvedDay}.`;
+      setChat(current => [...current, { who: 'gaid', text: reply, source: 'itinerary-tool' }]);
+      persistPlanMessage('assistant', reply, { source: 'itinerary-tool', intent: planIntent.intent, targetDay: resolvedDay, item });
+      toast({ title: `Adicionado ao Dia ${resolvedDay}`, desc: item.title, tone: 'success' });
+      return;
     }
 
     if (planIntent.intent === 'ADD_DAY') {
@@ -816,16 +1123,78 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       return;
     }
 
-    if (planIntent.intent === 'REPLACE_ACTIVITY' || planIntent.intent === 'OPTIMIZE_ITINERARY') {
+    if (planIntent.intent === 'REPLACE_ACTIVITY') {
+      const target = resolveActivityTarget({
+        message: t,
+        days,
+        editing,
+        lastModifiedRef: lastModifiedActivityRef,
+        chat,
+      });
+      const guard = validateReplaceActivity({
+        trip: tripData,
+        days,
+        target,
+      });
+      if (guard) {
+        setTyping(false);
+        setChat(c => [...c, { who: 'gaid', text: guard, source: 'state-guard' }]);
+        persistPlanMessage('assistant', guard, { source: 'state-guard', intent: planIntent.intent });
+        return;
+      }
+      try {
+        const response = await tripApi.sendChatMessage({
+          message: buildReplaceActivityPrompt({ message: t, trip: tripData, target }),
+          history: nextChat
+            .filter(m => m.text)
+            .map(m => ({ role: m.who === 'user' ? 'user' : 'assistant', text: m.text })),
+          context: {
+            surface: 'plan',
+            tripTitle: tripData.title,
+            planEdit: 'REPLACE_ACTIVITY',
+            replacementTarget: {
+              day: target.day.d,
+              slot: target.item.t,
+              title: target.item.title,
+              place: target.item.place,
+              tag: target.item.tag,
+            },
+            tripContext: tripData.tripContext,
+          },
+        });
+        const structured = normalizeItinerarySuggestions(response.itinerarySuggestions)
+          .find(item => item.title);
+        const suggestion = structured
+          ? { ...structured, day: target.day.d, slot: target.item.t }
+          : localReplacementSuggestion(t, tripData, target);
+        await replaceActivity(target, suggestion);
+        const reply = 'Pronto — substituí a atividade por uma alternativa mais alinhada ao que você pediu.';
+        setChat(c => [...c, { who: 'gaid', text: reply, source: structured ? response.source : 'local' }]);
+        persistPlanMessage('assistant', reply, {
+          source: structured ? response.source : 'local',
+          intent: planIntent.intent,
+          replaced: target.item.title,
+          replacement: suggestion.title,
+        });
+        toast({ title: 'Atividade substituída', desc: suggestion.title, tone: 'success' });
+      } catch (_error) {
+        const fallback = 'Não consegui substituir essa atividade agora. Tente novamente em instantes.';
+        setChat(c => [...c, { who: 'gaid', text: fallback, source: 'error' }]);
+        persistPlanMessage('assistant', fallback, { source: 'error', intent: planIntent.intent });
+      } finally {
+        setTyping(false);
+      }
+      return;
+    }
+
+    if (planIntent.intent === 'OPTIMIZE_ITINERARY') {
       setTyping(false);
       const guard = validateItineraryAction({
         action: planIntent.intent,
         trip: tripData,
         days,
       });
-      const reply = guard || (planIntent.intent === 'REPLACE_ACTIVITY'
-        ? 'Claro. Qual atividade você quer trocar? Pode me dizer o dia e o nome dela.'
-        : 'Claro. Qual foco você quer para a otimização: mais leve, mais barato, mais premium ou menos deslocamento?');
+      const reply = guard || 'Claro. Qual foco você quer para a otimização: mais leve, mais barato, mais premium ou menos deslocamento?';
       const source = guard ? 'state-guard' : 'intent-router';
       setChat(c => [...c, { who: 'gaid', text: reply, source }]);
       persistPlanMessage('assistant', reply, { source, intent: planIntent.intent });
@@ -880,20 +1249,48 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
 
   // ---- itinerary actions ----
   const removeItem = (dayIdx, itemIdx) => {
+    lastEditedDayRef.current = days[dayIdx]?.d || lastEditedDayRef.current;
+    const currentDay = days[dayIdx];
+    const currentItem = currentDay?.items?.[itemIdx];
+    if (currentDay && currentItem) {
+      lastModifiedActivityRef.current = storedActivityRefFromEntry({ day: currentDay, item: currentItem });
+    }
     updateDays(ds => ds.map((d, i) => i === dayIdx ? { ...d, items: d.items.filter((_, j) => j !== itemIdx) } : d));
     toast({ title: 'Item removido', tone: 'success' });
   };
   const togglePin = (dayIdx, itemIdx) => {
+    lastEditedDayRef.current = days[dayIdx]?.d || lastEditedDayRef.current;
+    const currentDay = days[dayIdx];
+    const currentItem = currentDay?.items?.[itemIdx];
+    if (currentDay && currentItem) {
+      lastModifiedActivityRef.current = storedActivityRefFromEntry({ day: currentDay, item: currentItem });
+    }
     updateDays(ds => ds.map((d, i) => i === dayIdx
       ? { ...d, items: d.items.map((it, j) => j === itemIdx ? { ...it, conf: !it.conf } : it) }
       : d));
   };
   const updateItem = (dayIdx, itemIdx, patch) => {
+    lastEditedDayRef.current = days[dayIdx]?.d || lastEditedDayRef.current;
+    const currentDay = days[dayIdx];
+    const currentItem = currentDay?.items?.[itemIdx];
+    if (currentDay && currentItem) {
+      lastModifiedActivityRef.current = storedActivityRefFromEntry({
+        day: currentDay,
+        item: { ...currentItem, ...patch },
+      });
+    }
     updateDays(ds => ds.map((d, i) => i === dayIdx
       ? { ...d, items: d.items.map((it, j) => j === itemIdx ? { ...it, ...patch } : it) }
       : d));
   };
   const addItem = (dayIdx, slot, payload) => {
+    lastEditedDayRef.current = days[dayIdx]?.d || lastEditedDayRef.current;
+    if (days[dayIdx]) {
+      lastModifiedActivityRef.current = storedActivityRefFromEntry({
+        day: days[dayIdx],
+        item: { t: slot, ...payload, conf: false },
+      });
+    }
     updateDays(ds => ds.map((d, i) => i === dayIdx
       ? { ...d, items: [...d.items, { t: slot, ...payload, conf: false }] }
       : d));
