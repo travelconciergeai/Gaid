@@ -113,6 +113,14 @@ function isCreateItineraryItemIntent(value) {
   const text = normText(value);
   return /(adiciona|adicione|coloca|inclui|incluir|inclua|quero|bota|poe|põe).*(restaurante|cafe|café|cafe da manha|museu|bate.?volta|almoco|almoço|jantar|atividade|criancas|crianças|rooftop|passeio|parada|atracao|atração|experiencia|experiência|stop|brunch)|(?:restaurante|cafe|café|museu|bate.?volta|almoco|almoço|jantar|atividade|rooftop|passeio gastronomico|passeio gastronômico).*(roteiro|dia)/.test(text);
 }
+function isMoveActivityIntent(value) {
+  const text = normText(value);
+  return /(move|mover|passa|passar|joga|jogar|leva|levar|muda|mudar).*(dia|manha|tarde|noite|ultimo|último|final|amanha|amanhã)|(?:coloca|deixa|muda).*(isso|esse|essa|item|passeio|atividade).*(dia|manha|tarde|noite|ultimo|último|final|amanha|amanhã)|(?:coloca|deixa).*(na|no|para|pra).*(manha|manhã|tarde|noite)|(?:para|pra)\s+(?:o\s+)?(?:dia\s*\d+|ultimo dia|último dia|final da viagem|manha|manhã|tarde|noite)/.test(text);
+}
+function isRemoveActivityIntent(value) {
+  const text = normText(value);
+  return /(remove|remover|tira|tirar|apaga|apagar|exclui|excluir|deleta|deletar).*(isso|esse|essa|item|passeio|atividade|restaurante|roteiro|dia)|(?:nao quero mais|não quero mais).*(isso|esse|essa|item|passeio|atividade|restaurante)|(?:remove|remover|tira|tirar|apaga|apagar|exclui|excluir|deleta|deletar)\s+do roteiro/.test(text);
+}
 function isReplaceActivityIntent(value) {
   const text = normText(value);
   return /(trocar|substituir|mudar|remover).*(atividade|passeio|restaurante|museu|item)|(?:atividade|passeio|restaurante|museu|item).*(trocar|substituir|mudar)|nao gostei|não gostei|outra opcao|outra opção|me da uma alternativa|me dá uma alternativa|algo mais romantico|algo mais romântico|algo menos turistico|algo menos turístico|algo mais barato|algo melhor para criancas|algo melhor para crianças/.test(text);
@@ -136,6 +144,24 @@ function pendingActionFromSuggestions(type, suggestions) {
 }
 function classifyPlanChatIntent(message, currentTrip, lastAssistantMessage) {
   const text = normText(message);
+  if (isMoveActivityIntent(message)) {
+    return {
+      intent: 'MOVE_ACTIVITY',
+      confidence: 0.88,
+      requiresTrip: true,
+      nextTool: 'Itinerary Editor',
+      reason: 'Usuário quer mover um item do roteiro para outro dia ou período.',
+    };
+  }
+  if (isRemoveActivityIntent(message)) {
+    return {
+      intent: 'REMOVE_ACTIVITY',
+      confidence: 0.9,
+      requiresTrip: true,
+      nextTool: 'Itinerary Editor',
+      reason: 'Usuário quer remover um item do roteiro.',
+    };
+  }
   if (isApplyIntent(message) || isCreateItineraryItemIntent(message)) {
     return {
       intent: 'ADD_TO_ITINERARY',
@@ -236,9 +262,31 @@ function parseTargetDay(value, days) {
     (/\bquinto\b/.test(text) ? [, '5'] : null);
   const explicitDay = Number(explicit?.[1]);
   if (Number.isFinite(explicitDay) && explicitDay > 0) return Math.floor(explicitDay);
-  if (/\bultimo\b|\búltimo\b/.test(text)) return maxTimelineDay(safeDays) || null;
+  if (/\bultimo\b|\búltimo\b|final da viagem/.test(text)) return maxTimelineDay(safeDays) || null;
   if (/\bchegada\b/.test(text)) return safeDays[0]?.d || 1;
   return null;
+}
+function parseOptionalSlot(value) {
+  const text = normText(value);
+  if (/\bmanh/.test(text)) return 'manhã';
+  if (/\btarde\b/.test(text)) return 'tarde';
+  if (/\bnoite\b/.test(text)) return 'noite';
+  return null;
+}
+function parseMoveTarget(value, days, source) {
+  const text = normText(value);
+  const explicitDay = parseTargetDay(value, days);
+  const maxDay = maxTimelineDay(days);
+  const tomorrow = /\bamanha\b|\bamanhã\b/.test(text);
+  const targetDay = explicitDay || (tomorrow && source?.day?.d + 1 <= maxDay ? source.day.d + 1 : source?.day?.d);
+  const targetSlot = parseOptionalSlot(value) || source?.item?.t || null;
+  const createsExplicitDay = !!explicitDay && explicitDay > maxDay;
+  return {
+    day: targetDay || null,
+    slot: targetSlot,
+    createsExplicitDay,
+    needsNextDay: tomorrow && source?.day?.d + 1 > maxDay,
+  };
 }
 function resolveTargetDay({ message, days, lastEditedDay }) {
   const explicit = parseTargetDay(message, days);
@@ -705,6 +753,65 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     await persistTimelineDays(nextDays);
     return true;
   };
+  const moveActivity = async (source, target) => {
+    const safeDays = normalizeDays(days).map(day => ({ ...day, items: [...day.items] }));
+    if (!source?.item || !source?.day) return false;
+
+    const targetDayNumber = Number(target?.day);
+    if (!Number.isFinite(targetDayNumber) || targetDayNumber < 1 || !target?.slot) return false;
+
+    const maxDay = maxTimelineDay(safeDays);
+    if (targetDayNumber > maxDay) {
+      for (let dayNumber = maxDay + 1; dayNumber <= targetDayNumber; dayNumber += 1) {
+        safeDays.push(placeholderDay(dayNumber));
+      }
+    }
+
+    const sourceDay = safeDays.find(day => day.d === source.day.d);
+    const targetDay = safeDays.find(day => day.d === targetDayNumber);
+    if (!sourceDay || !targetDay) return false;
+
+    const sourceIndex = sourceDay.items.findIndex((item, index) => {
+      if (source.item?.id && item.id === source.item.id) return true;
+      return index === source.itemIdx && normText(item.title) === normText(source.item.title);
+    });
+    if (sourceIndex < 0) return false;
+
+    const [movedItem] = sourceDay.items.splice(sourceIndex, 1);
+    const nextItem = { ...movedItem, t: target.slot };
+    targetDay.items.push(nextItem);
+
+    const nextDays = safeDays.sort((a, b) => a.d - b.d);
+    lastEditedDayRef.current = targetDayNumber;
+    const targetEntry = {
+      day: nextDays.find(day => day.d === targetDayNumber),
+      item: nextItem,
+    };
+    lastModifiedActivityRef.current = storedActivityRefFromEntry(targetEntry);
+    setSelectedItem(null);
+    await commitTimelineDays(nextDays);
+    return true;
+  };
+  const removeActivity = async (source) => {
+    const safeDays = normalizeDays(days).map(day => ({ ...day, items: [...day.items] }));
+    if (!source?.item || !source?.day) return false;
+
+    const sourceDay = safeDays.find(day => day.d === source.day.d);
+    if (!sourceDay) return false;
+
+    const sourceIndex = sourceDay.items.findIndex((item, index) => {
+      if (source.item?.id && item.id === source.item.id) return true;
+      return index === source.itemIdx && normText(item.title) === normText(source.item.title);
+    });
+    if (sourceIndex < 0) return false;
+
+    sourceDay.items.splice(sourceIndex, 1);
+    lastEditedDayRef.current = source.day.d;
+    lastModifiedActivityRef.current = null;
+    setSelectedItem(null);
+    await commitTimelineDays(safeDays);
+    return true;
+  };
 
   // If trip changes (user opened a different trip), reset state.
   useEffect(() => {
@@ -990,6 +1097,95 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         setChat(c => [...c, { who: 'gaid', text: placementReply, source: 'local' }]);
         persistPlanMessage('assistant', placementReply, { source: 'local' });
       }
+      return;
+    }
+
+    if (planIntent.intent === 'MOVE_ACTIVITY') {
+      setTyping(false);
+      if (!tripData.id) {
+        const reply = 'Abra ou crie uma viagem antes de mover um item do roteiro.';
+        setChat(c => [...c, { who: 'gaid', text: reply, source: 'state-guard' }]);
+        persistPlanMessage('assistant', reply, { source: 'state-guard', intent: planIntent.intent });
+        return;
+      }
+      const source = resolveStoredActivityRef(days, selectedItem) ||
+        resolveStoredActivityRef(days, lastModifiedActivityRef.current);
+      if (!source?.item) {
+        const reply = 'Qual item você quer mover?';
+        setChat(c => [...c, { who: 'gaid', text: reply, source: 'state-guard' }]);
+        persistPlanMessage('assistant', reply, { source: 'state-guard', intent: planIntent.intent });
+        return;
+      }
+      const target = parseMoveTarget(t, days, source);
+      if (target.needsNextDay) {
+        const reply = 'Ainda não existe um dia seguinte no roteiro. Quer que eu crie mais um dia primeiro?';
+        setChat(c => [...c, { who: 'gaid', text: reply, source: 'state-guard' }]);
+        persistPlanMessage('assistant', reply, { source: 'state-guard', intent: planIntent.intent });
+        return;
+      }
+      if (!target.day || !target.slot) {
+        const reply = 'Para qual dia e período você quer mover esse item?';
+        setChat(c => [...c, { who: 'gaid', text: reply, source: 'state-guard' }]);
+        persistPlanMessage('assistant', reply, { source: 'state-guard', intent: planIntent.intent });
+        return;
+      }
+      const moved = await moveActivity(source, target);
+      if (!moved) {
+        const reply = 'Não consegui mover esse item agora. Tente selecionar o item de novo e me dizer o dia ou período.';
+        setChat(c => [...c, { who: 'gaid', text: reply, source: 'error' }]);
+        persistPlanMessage('assistant', reply, { source: 'error', intent: planIntent.intent });
+        return;
+      }
+      const reply = `Pronto — movi esse item para o Dia ${target.day}, ${target.slot}.`;
+      setChat(c => [...c, { who: 'gaid', text: reply, source: 'itinerary-tool' }]);
+      persistPlanMessage('assistant', reply, {
+        source: 'itinerary-tool',
+        intent: planIntent.intent,
+        moved: source.item.title,
+        from: { day: source.day.d, slot: source.item.t },
+        to: { day: target.day, slot: target.slot },
+      });
+      toast({ title: `Movido para o Dia ${target.day}`, desc: target.slot, tone: 'success' });
+      return;
+    }
+
+    if (planIntent.intent === 'REMOVE_ACTIVITY') {
+      setTyping(false);
+      if (!tripData.id) {
+        const reply = 'Abra ou crie uma viagem antes de remover um item do roteiro.';
+        setChat(c => [...c, { who: 'gaid', text: reply, source: 'state-guard' }]);
+        persistPlanMessage('assistant', reply, { source: 'state-guard', intent: planIntent.intent });
+        return;
+      }
+      const hadSelectedItem = !!selectedItem;
+      const source = resolveStoredActivityRef(days, selectedItem) ||
+        resolveStoredActivityRef(days, lastModifiedActivityRef.current);
+      if (!source?.item) {
+        if (hadSelectedItem) setSelectedItem(null);
+        const reply = hadSelectedItem
+          ? 'Não encontrei mais esse item no roteiro. Selecione outro item para remover.'
+          : 'Qual item você quer remover?';
+        setChat(c => [...c, { who: 'gaid', text: reply, source: 'state-guard' }]);
+        persistPlanMessage('assistant', reply, { source: 'state-guard', intent: planIntent.intent });
+        return;
+      }
+      const removed = await removeActivity(source);
+      if (!removed) {
+        setSelectedItem(null);
+        const reply = 'Não encontrei mais esse item no roteiro. Selecione outro item para remover.';
+        setChat(c => [...c, { who: 'gaid', text: reply, source: 'state-guard' }]);
+        persistPlanMessage('assistant', reply, { source: 'state-guard', intent: planIntent.intent });
+        return;
+      }
+      const reply = 'Pronto — removi esse item do roteiro.';
+      setChat(c => [...c, { who: 'gaid', text: reply, source: 'itinerary-tool' }]);
+      persistPlanMessage('assistant', reply, {
+        source: 'itinerary-tool',
+        intent: planIntent.intent,
+        removed: source.item.title,
+        from: { day: source.day.d, slot: source.item.t },
+      });
+      toast({ title: 'Item removido', desc: source.item.title, tone: 'success' });
       return;
     }
 
