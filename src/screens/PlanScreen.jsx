@@ -592,7 +592,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
 
         {/* Composer — pill chatbar, mesmo formato da Home */}
         <div className="p-5 pt-2">
-          <div className="bg-white border-half rounded-full shadow-card h-[56px] pl-5 pr-[6px] flex items-center gap-2 transition-shadow hover:shadow-lift focus-within:shadow-lift">
+          <div className="bg-white border-half rounded-full shadow-card h-[56px] pl-5 pr-[6px] flex items-center gap-2 transition-shadow hover:shadow-lift focus-within:shadow-lift focus-within:border-brand-200 focus-within:ring-4 focus-within:ring-brand-50">
             <Icon.Sparkles size={15} className="text-ink-500 shrink-0"/>
             <input
               value={draft}
@@ -604,7 +604,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
               <Icon.Plus size={15}/>
             </button>
             <button onClick={() => send()}
-              className="h-11 px-5 rounded-full bg-ink-900 text-paper hover:bg-ink-800 transition-colors flex items-center gap-2 text-[13.5px] font-medium shrink-0">
+              className="h-11 px-5 rounded-full bg-ink-900 text-paper hover:bg-brand-700 focus-visible:ring-4 focus-visible:ring-brand-200 transition-colors flex items-center gap-2 text-[13.5px] font-medium shrink-0">
               <Icon.Send size={14}/>
               Enviar
             </button>
@@ -679,9 +679,9 @@ const Bubble = ({ m, onCta }) => {
               className={`h-8 px-3 rounded-full border-half bg-white text-[12.5px] transition-colors flex items-center gap-1.5 ${
                 m.ctaApplied
                   ? 'text-sage-700 cursor-default'
-                  : 'text-ink-800 hover:border-ink-400 hover:bg-ink-50'
+                  : 'text-ink-800 hover:border-brand-200 hover:bg-brand-50'
               }`}>
-              {m.ctaApplied ? <Icon.Check size={12} className="text-sage-700"/> : <Icon.Sparkles size={12} className="text-ink-900"/>}{c}
+              {m.ctaApplied ? <Icon.Check size={12} className="text-sage-700"/> : <Icon.Sparkles size={12} className="text-brand-700"/>}{c}
             </button>
           ))}
         </div>
@@ -700,12 +700,12 @@ const PlanHeader = ({ trip, days, activeMode, onApplyMode, onShare, onCalendar, 
   return (
     <div className="px-8 pt-7 pb-5 border-b hairline bg-paper">
       <div className="flex items-center gap-4">
-        <SmartImg src={trip.coverImage?.url} seed={trip.coverSeed} tone={trip.cover} label={trip.coverLabel} w={240} h={180} className="h-[72px] w-[100px] rounded-xl shrink-0"/>
+        <SmartImg src={trip.coverImage?.url} seed={trip.coverSeed} tone={trip.cover} w={240} h={180} className="h-[72px] w-[100px] rounded-xl shrink-0"/>
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
               <div className="label mb-1">{trip.status || 'Em planejamento'}</div>
-              <h1 className="text-[22px] tracking-tight font-medium text-ink-900 leading-tight truncate">{trip.title}</h1>
+              <h1 className="text-[22px] tracking-tight font-serif font-medium text-ink-900 leading-tight truncate">{trip.title}</h1>
               <p className="text-[13px] text-ink-600 mt-0.5 truncate">{subtitle}</p>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
@@ -743,7 +743,7 @@ const PlanHeader = ({ trip, days, activeMode, onApplyMode, onShare, onCalendar, 
           <span>{progressPct}%</span>
         </div>
         <div className="h-1.5 rounded-full bg-ink-100 overflow-hidden">
-          <div className="h-full bg-ink-900 rounded-full transition-all duration-500"
+          <div className="h-full bg-brand-700 rounded-full transition-all duration-500"
                style={{ width: `${progressPct}%` }}/>
         </div>
       </div>
@@ -799,7 +799,7 @@ const PlanPrep = ({ trip, prep, onToggle }) => {
     <div className="px-8 py-6 border-b hairline">
       {/* Header */}
       <div className="flex items-start gap-3 mb-4">
-        <div className="h-9 w-9 rounded-xl bg-ink-900 text-paper flex items-center justify-center shrink-0"><Icon.Sparkles size={16}/></div>
+        <div className="h-9 w-9 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center shrink-0"><Icon.Sparkles size={16}/></div>
         <div className="flex-1 min-w-0">
           <div className="label">Concierge proativo</div>
           <div className="text-[16px] font-medium tracking-tight text-ink-900 mt-0.5">{trip.prepTitle}</div>
@@ -810,14 +810,14 @@ const PlanPrep = ({ trip, prep, onToggle }) => {
       {/* Progress */}
       <div className="flex items-center gap-3 mb-4">
         <div className="flex-1 h-1.5 rounded-full bg-ink-100 overflow-hidden">
-          <div className="h-full bg-ink-900 transition-all duration-300" style={{ width: `${pct}%` }}/>
+          <div className="h-full bg-brand-700 transition-all duration-300" style={{ width: `${pct}%` }}/>
         </div>
         <div className="text-[11.5px] text-ink-500 shrink-0"><span className="font-medium text-ink-900">{doneItems}</span>/{totalItems} resolvidos</div>
       </div>
 
       {/* Hint about chat */}
       <div className="mb-4 bg-ink-50 border-half rounded-lg px-3 py-2 flex items-center gap-2 text-[12px] text-ink-600">
-        <Icon.Sparkles size={13} className="text-ink-900 shrink-0"/>
+        <Icon.Sparkles size={13} className="text-brand-700 shrink-0"/>
         Marque manualmente ou avise a Gaid no chat — ex: <span className="text-ink-900">"já peguei o passaporte do Joaquim"</span>.
       </div>
 
@@ -831,7 +831,7 @@ const PlanPrep = ({ trip, prep, onToggle }) => {
           return (
             <button key={idx} onClick={() => setGi(idx)}
               className={`shrink-0 h-9 pl-2.5 pr-3 rounded-xl border-half flex items-center gap-2 transition-colors
-                          ${isActive ? 'bg-ink-900 text-paper border-ink-900' : 'bg-white text-ink-700 hover:border-ink-400'}`}>
+                          ${isActive ? 'bg-brand-50 text-brand-700 border-brand-200' : 'bg-white text-ink-700 hover:border-brand-200'}`}>
               <Ic size={14}/>
               <span className="text-[12.5px] font-medium">{g.title}</span>
               {g.urgent && !allDone && <span className={`h-1.5 w-1.5 rounded-full ${isActive ? 'bg-coral-500' : 'bg-coral-500'}`}/>}
@@ -853,7 +853,7 @@ const PlanPrep = ({ trip, prep, onToggle }) => {
             <button key={ii} onClick={() => onToggle && onToggle(gi, ii)}
               className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-ink-50 transition-colors group">
               <div className={`h-5 w-5 rounded-md flex items-center justify-center shrink-0 mt-0.5 transition-colors
-                              ${it.done ? 'bg-ink-900 text-paper' : 'border-half bg-white group-hover:border-ink-900'}`}>
+                              ${it.done ? 'bg-brand-700 text-paper' : 'border-half bg-white group-hover:border-brand-200'}`}>
                 {it.done && <Icon.Check size={12}/>}
               </div>
               <div className="flex-1 min-w-0">
@@ -888,7 +888,7 @@ const Timeline = ({ days, onAdd, onEdit, onTogglePin, onRemove }) => {
         <div key={day.d} className="grid grid-cols-[88px_1fr] gap-6">
           {/* day rail */}
           <div className="pt-3">
-            <div className="text-[42px] tracking-tight font-medium text-ink-900 leading-none">{String(day.d).padStart(2,'0')}</div>
+            <div className="text-[42px] tracking-tight font-serif font-medium text-ink-900 leading-none">{String(day.d).padStart(2,'0')}</div>
             <div className="text-[12px] text-ink-500 mt-1">{day.date}</div>
             <div className="text-[12.5px] font-medium text-ink-800 mt-2 flex items-center gap-1.5">
               <Icon.MapPin size={12}/> {day.city}
@@ -903,7 +903,7 @@ const Timeline = ({ days, onAdd, onEdit, onTogglePin, onRemove }) => {
               return (
                 <div key={slot}>
                   <div className="flex items-center gap-2 mb-2">
-                    <div className="h-6 w-6 rounded-md bg-ink-100 text-ink-700 flex items-center justify-center"><Ic size={12}/></div>
+                    <div className="h-6 w-6 rounded-md bg-brand-50 text-brand-700 flex items-center justify-center"><Ic size={12}/></div>
                     <div className="text-[11.5px] uppercase tracking-wider text-ink-500 font-medium">{slot}</div>
                     <div className="flex-1 h-px bg-ink-200"/>
                     <button onClick={() => onAdd(di, slot)}
@@ -914,7 +914,7 @@ const Timeline = ({ days, onAdd, onEdit, onTogglePin, onRemove }) => {
                   <div className="space-y-2">
                     {items.length === 0 ? (
                       <button onClick={() => onAdd(di, slot)}
-                        className="w-full text-left bg-ink-50/60 border border-dashed border-ink-200 rounded-xl px-4 py-3 text-[12.5px] text-ink-500 hover:bg-ink-100 hover:text-ink-700 transition-colors">
+                        className="w-full text-left bg-ink-50/60 border border-dashed border-ink-200 rounded-xl px-4 py-3 text-[12.5px] text-ink-500 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 transition-colors">
                         Bloco livre · clique para adicionar
                       </button>
                     ) : items.map((it, idx) => {
@@ -957,7 +957,7 @@ const ItemCard = ({ it, onEdit, onTogglePin, onRemove }) => {
   const cfg = tagPalette[it.tag] || { tone:'ink', icon: Icon.MapPin };
   const Ic = cfg.icon;
   return (
-    <div className="group bg-white border hairline rounded-xl p-4 hover:border-ink-400/80 transition-colors flex items-start gap-3">
+    <div className="group bg-white border hairline rounded-xl p-4 hover:border-brand-200 focus-within:border-brand-200 transition-colors flex items-start gap-3">
       <div className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0
                        ${cfg.tone === 'brand' ? 'bg-brand-50 text-brand-700' :
                          cfg.tone === 'coral' ? 'bg-coral-50 text-coral-700' :
@@ -1048,12 +1048,12 @@ const EditItemDrawer = ({ open, onClose, editing, days, onSave, onReplace, onRem
         <div className="flex items-center gap-2 mb-3">
           <button onClick={()=>setTab('alts')}
             className={`h-8 px-3 rounded-lg text-[12.5px] font-medium transition-colors
-                       ${tab === 'alts' ? 'bg-ink-900 text-paper' : 'text-ink-600 hover:bg-ink-100'}`}>
+                       ${tab === 'alts' ? 'bg-brand-50 text-brand-700' : 'text-ink-600 hover:bg-brand-50 hover:text-brand-700'}`}>
             <Icon.Sparkles size={12} className="inline -mt-0.5 mr-1"/> Alternativas curadas
           </button>
           <button onClick={()=>setTab('edit')}
             className={`h-8 px-3 rounded-lg text-[12.5px] font-medium transition-colors
-                       ${tab === 'edit' ? 'bg-ink-900 text-paper' : 'text-ink-600 hover:bg-ink-100'}`}>
+                       ${tab === 'edit' ? 'bg-brand-50 text-brand-700' : 'text-ink-600 hover:bg-brand-50 hover:text-brand-700'}`}>
             <Icon.Edit size={12} className="inline -mt-0.5 mr-1"/> Editar manualmente
           </button>
         </div>
@@ -1085,15 +1085,15 @@ const EditItemDrawer = ({ open, onClose, editing, days, onSave, onReplace, onRem
 
           <div className="pt-5 mt-3 border-t hairline">
             <div className="label mb-2">Mais opções</div>
-            <button className="w-full bg-white border-half rounded-xl px-4 py-3 flex items-center gap-3 hover:border-ink-400 transition-colors text-left">
-              <div className="h-9 w-9 rounded-lg bg-ink-900 text-paper flex items-center justify-center"><Icon.Wand size={15}/></div>
+            <button className="w-full bg-white border-half rounded-xl px-4 py-3 flex items-center gap-3 hover:border-brand-200 transition-colors text-left">
+              <div className="h-9 w-9 rounded-lg bg-brand-50 text-brand-700 flex items-center justify-center"><Icon.Wand size={15}/></div>
               <div className="flex-1">
                 <div className="text-[13.5px] font-medium text-ink-900">Pedir algo personalizado</div>
                 <div className="text-[12px] text-ink-500">Descreva no chat e a Gaid monta a alternativa</div>
               </div>
               <Icon.ArrowRight size={14} className="text-ink-500"/>
             </button>
-            <button className="w-full bg-white border-half rounded-xl px-4 py-3 flex items-center gap-3 hover:border-ink-400 transition-colors text-left mt-2">
+            <button className="w-full bg-white border-half rounded-xl px-4 py-3 flex items-center gap-3 hover:border-brand-200 transition-colors text-left mt-2">
               <div className="h-9 w-9 rounded-lg bg-ink-100 text-ink-700 flex items-center justify-center"><Icon.Users size={15}/></div>
               <div className="flex-1">
                 <div className="text-[13.5px] font-medium text-ink-900">Recomendado pela Inês (expert local)</div>
@@ -1148,7 +1148,7 @@ const Mini = ({ label, value, italic }) => (
 
 const AltCard = ({ alt, onPick }) => (
   <button onClick={onPick}
-    className="w-full text-left bg-white border-half rounded-xl overflow-hidden hover:border-ink-400 transition-colors flex group">
+    className="w-full text-left bg-white border-half rounded-xl overflow-hidden hover:border-brand-200 transition-colors flex group">
     <SmartImg seed={alt.seed || alt.title} tone="warm" w={200} h={200} className="h-[112px] w-[112px] shrink-0"/>
     <div className="flex-1 p-3.5 min-w-0">
       <div className="text-[13.5px] font-medium text-ink-900 leading-tight">{alt.title}</div>
@@ -1158,12 +1158,12 @@ const AltCard = ({ alt, onPick }) => (
       </div>
       <div className="text-[11.5px] text-ink-700 mt-1.5 italic">{alt.vibe}</div>
       <div className="text-[11.5px] text-ink-600 mt-2 leading-snug flex items-start gap-1.5">
-        <Icon.Sparkles size={11} className="text-ink-900 mt-0.5 shrink-0"/>
+        <Icon.Sparkles size={11} className="text-brand-700 mt-0.5 shrink-0"/>
         <span>{alt.why}</span>
       </div>
     </div>
     <div className="flex items-center pr-3">
-      <div className="h-7 w-7 rounded-md bg-ink-100 group-hover:bg-ink-900 group-hover:text-paper text-ink-700 flex items-center justify-center transition-colors">
+      <div className="h-7 w-7 rounded-md bg-ink-100 group-hover:bg-brand-50 group-hover:text-brand-700 text-ink-700 flex items-center justify-center transition-colors">
         <Icon.Check size={13}/>
       </div>
     </div>
@@ -1198,13 +1198,13 @@ const AddItemModal = ({ open, onClose, adding, onAdd }) => {
         <div className="space-y-2 max-h-[380px] overflow-y-auto">
           {filtered.map((s, i) => (
             <button key={i} onClick={() => onAdd(s)}
-              className="w-full text-left bg-white border hairline rounded-xl p-3 hover:border-ink-400 flex items-center gap-3 group">
+              className="w-full text-left bg-white border hairline rounded-xl p-3 hover:border-brand-200 flex items-center gap-3 group">
               <Placeholder tone="warm" className="h-10 w-12 rounded-md shrink-0"/>
               <div className="flex-1 min-w-0">
                 <div className="text-[14px] font-medium text-ink-900">{s.title}</div>
                 <div className="text-[12px] text-ink-500">{s.place} · {s.dur} · {s.vibe}</div>
               </div>
-              <Icon.Plus size={16} className="text-ink-500 group-hover:text-ink-900"/>
+              <Icon.Plus size={16} className="text-ink-500 group-hover:text-brand-700"/>
             </button>
           ))}
           {filtered.length === 0 && (
@@ -1224,7 +1224,7 @@ const ShareModal = ({ open, onClose, trip }) => {
       footer={<Button variant="ghost" onClick={onClose}>Fechar</Button>}>
       <div className="space-y-4">
         <div className="bg-ink-50 rounded-xl p-4 flex items-center gap-3">
-          <Placeholder tone="warm" label={(trip && trip.coverLabel) || ''} className="h-14 w-20 rounded-lg shrink-0"/>
+          <Placeholder tone="warm" className="h-14 w-20 rounded-lg shrink-0"/>
           <div>
             <div className="text-[14px] font-medium text-ink-900">{orTBD(trip && trip.title)}</div>
             <div className="text-[12px] text-ink-500">{sub || TBD}</div>
@@ -1267,7 +1267,7 @@ const PermissionRow = ({ label, desc, off }) => {
         <div className="text-[11.5px] text-ink-500">{desc}</div>
       </div>
       <button onClick={() => setOn(o => !o)}
-        className={`h-6 w-10 rounded-full transition-colors relative ${on ? 'bg-ink-900' : 'bg-ink-200'}`}>
+        className={`h-6 w-10 rounded-full transition-colors relative ${on ? 'bg-brand-700' : 'bg-ink-200'}`}>
         <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${on ? 'left-[18px]' : 'left-0.5'}`}/>
       </button>
     </div>
@@ -1370,7 +1370,7 @@ const ChkRow = ({ label, defaultOn }) => {
   return (
     <button onClick={()=>setOn(o=>!o)} className="w-full flex items-center gap-3 py-1">
       <span className={`h-4 w-4 rounded border flex items-center justify-center transition-colors
-                        ${on ? 'bg-ink-900 border-ink-900 text-paper' : 'bg-white border-ink-300'}`}>
+                        ${on ? 'bg-brand-700 border-brand-700 text-paper' : 'bg-white border-ink-300'}`}>
         {on && <Icon.Check size={10}/>}
       </span>
       <span>{label}</span>

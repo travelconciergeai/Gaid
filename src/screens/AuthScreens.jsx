@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Icon } from '../components/icons.jsx';
-import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer } from '../components/ui.jsx';
+import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer, GaidLogo } from '../components/ui.jsx';
 import { EmptyState, EmptyInline } from './EmptyStates.jsx';
 import { Async, CardSkeleton, CatalogCarousel, Carousel, Skeleton, ErrorState, CarouselSkeleton } from '../core/states.jsx';
 import { useAccount, useTrips, useCatalog, deriveTraits, profileCompletion } from '../core/store.jsx';
@@ -37,9 +37,7 @@ const LoginDesktop = ({ onAuthed, onDemo }) => {
   return (
     <AuthShell>
       <div className="w-full max-w-[380px] mx-auto">
-        <div className="h-12 w-12 rounded-2xl bg-ink-900 text-paper flex items-center justify-center mb-7">
-          <Icon.Logo size={26}/>
-        </div>
+        <GaidLogo className="h-12 w-auto max-w-[132px] mb-7" />
         <h1 className="text-[32px] tracking-[-0.03em] font-medium text-ink-900 leading-[1.1]">
           Bem-vindo à <span className="serif-i">Gaid</span>
         </h1>
@@ -49,7 +47,7 @@ const LoginDesktop = ({ onAuthed, onDemo }) => {
           {stage === 'loading' ? (
             <div className="flex items-center gap-3 h-[52px] px-4 rounded-2xl border-half bg-white">
               <div className="relative h-6 w-6">
-                <div className="absolute inset-0 rounded-full bg-ink-900 text-paper flex items-center justify-center"><Icon.Logo size={12}/></div>
+                <div className="absolute inset-0 rounded-full bg-white border-half flex items-center justify-center"><GaidLogo className="h-3 w-auto max-w-[18px]"/></div>
                 <div className="absolute inset-0 rounded-full ring-2 ring-ink-900/25 animate-ping"/>
               </div>
               <span className="text-[13.5px] text-ink-700">Entrando com <span className="font-medium text-ink-900">{provider}</span>…</span>

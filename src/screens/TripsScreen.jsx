@@ -87,7 +87,7 @@ const TripsScreen = ({ setRoute, activeTripId, setActiveTripId }) => {
           return (
             <Card key={t.id} hover className="overflow-hidden" onClick={() => openTrip(t)}>
               <div className="grid grid-cols-[200px_1fr]">
-                <SmartImg src={t.coverImage?.url} seed={`trip-${t.id}`} tone={t.tone} label={t.cover} w={400} h={400} className="min-h-[180px]"/>
+                <SmartImg src={t.coverImage?.url} seed={`trip-${t.id}`} tone={t.tone} w={400} h={400} className="min-h-[180px]"/>
                 <div className="p-5 flex flex-col">
                   <div className="flex items-center justify-between gap-2">
                     <Tag tone={tagToneForState(t.state)}>
@@ -95,7 +95,7 @@ const TripsScreen = ({ setRoute, activeTripId, setActiveTripId }) => {
                     </Tag>
                     {isActive && <Tag tone="brand">aberto agora</Tag>}
                   </div>
-                  <div className="text-[17px] font-medium tracking-tight text-ink-900 mt-3 leading-snug">{t.title}</div>
+                  <div className="text-[17px] font-serif font-medium tracking-tight text-ink-900 mt-3 leading-snug">{t.title}</div>
                   <div className="text-[12.5px] text-ink-500 mt-1">{t.dates} · {t.travelers} viajantes</div>
 
                   <div className="mt-auto pt-4">
@@ -123,7 +123,7 @@ const TripsScreen = ({ setRoute, activeTripId, setActiveTripId }) => {
                       title="Excluir viagem"
                       aria-label={`Excluir viagem ${t.title}`}
                       onClick={(event) => requestDelete(event, t)}
-                      className="h-8 w-8 rounded-lg border border-edge bg-white text-ink-600 hover:border-coral-50 hover:bg-coral-50 hover:text-coral-700 transition-colors flex items-center justify-center"
+                      className="h-8 w-8 rounded-lg border border-edge bg-white text-ink-600 hover:border-coral-50 hover:bg-coral-50 hover:text-coral-700 focus-visible:ring-4 focus-visible:ring-brand-200 transition-colors flex items-center justify-center"
                     >
                       <Icon.Trash size={14}/>
                     </button>

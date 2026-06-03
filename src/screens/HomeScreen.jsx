@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Icon } from '../components/icons.jsx';
-import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer } from '../components/ui.jsx';
+import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer, GaidLogo } from '../components/ui.jsx';
 import { EmptyState, EmptyInline } from './EmptyStates.jsx';
 import { Async, CardSkeleton, CatalogCarousel, Carousel, Skeleton, ErrorState, CarouselSkeleton } from '../core/states.jsx';
 import { useAccount, useTrips, useCatalog, deriveTraits, profileCompletion } from '../core/store.jsx';
@@ -1054,8 +1054,8 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
             <Icon.ChevronLeft size={14}/> Voltar ao início
           </button>
           <div className="flex items-center gap-2">
-            <div className="h-7 w-7 rounded-full bg-ink-900 text-paper flex items-center justify-center">
-              <Icon.Logo size={12}/>
+            <div className="h-7 w-7 rounded-full bg-white border-half flex items-center justify-center">
+              <GaidLogo className="h-3 w-auto max-w-[18px]"/>
             </div>
             <div>
               <div className="text-[13px] font-medium text-ink-900 leading-tight">Gaid · concierge</div>
@@ -1089,7 +1089,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         {/* bottom chatbar — always visible */}
         <div className="px-10 pb-6 pt-3 bg-gradient-to-t from-canvas via-canvas to-canvas/0">
           <div className="max-w-[780px] mx-auto">
-            <div className="bg-white border-half rounded-full shadow-card h-[56px] pl-5 pr-[6px] flex items-center gap-2 transition-shadow hover:shadow-lift focus-within:shadow-lift">
+            <div className="bg-white border-half rounded-full shadow-card h-[56px] pl-5 pr-[6px] flex items-center gap-2 transition-shadow hover:shadow-lift focus-within:shadow-lift focus-within:border-brand-200 focus-within:ring-4 focus-within:ring-brand-50">
               <Icon.Sparkles size={15} className="text-ink-500 shrink-0"/>
               <input
                 value={input}
@@ -1102,7 +1102,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
                 <Icon.Plus size={15}/>
               </button>
               <button onClick={() => submit()} disabled={phase === 'generating'}
-                className="h-11 px-5 rounded-full bg-ink-900 text-paper hover:bg-ink-800 transition-colors flex items-center gap-2 text-[13.5px] font-medium shrink-0 disabled:opacity-40 disabled:cursor-not-allowed">
+                className="h-11 px-5 rounded-full bg-ink-900 text-paper hover:bg-brand-700 focus-visible:ring-4 focus-visible:ring-brand-200 transition-colors flex items-center gap-2 text-[13.5px] font-medium shrink-0 disabled:opacity-40 disabled:cursor-not-allowed">
                 <Icon.Send size={14}/>
                 Enviar
               </button>
@@ -1123,22 +1123,22 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   // ===== IDLE MODE =====
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="px-10 pt-8 pb-2 flex items-center justify-end gap-2">
+      <header className="px-10 pt-6 pb-0 flex items-center justify-end gap-2">
         <Button variant="ghost" icon={Icon.Bell}>Atualizações</Button>
         <Button variant="secondary" icon={Icon.Plus} onClick={() => setRoute('trips')}>Nova viagem</Button>
       </header>
 
-      <section className="px-10 pt-2 pb-10">
+      <section className="px-10 pt-[7vh] pb-6">
         <div className="max-w-[860px] mx-auto text-center">
           <Tag tone="brand" className="mx-auto"><Icon.Sparkles size={12}/> Concierge premium · IA + experts reais</Tag>
-          <h2 className="mt-5 text-[52px] leading-[1.04] tracking-[-0.025em] font-medium text-ink-900">
+          <h2 className="mt-4 text-[52px] leading-[1.04] tracking-[-0.025em] font-serif font-medium text-ink-900">
             {greetName ? `Olá, ${greetName}!` : 'Olá!'}
             <br/>
             <span className="serif-i">Qual será a sua próxima viagem?</span>
           </h2>
 
-          <div className="mt-9 mx-auto max-w-[720px]">
-            <div className="bg-white border-half rounded-full shadow-card h-[60px] pl-5 pr-[6px] flex items-center gap-3 transition-shadow hover:shadow-lift focus-within:shadow-lift">
+          <div className="mt-7 mx-auto max-w-[720px]">
+            <div className="bg-white border-half rounded-full shadow-card h-[60px] pl-5 pr-[6px] flex items-center gap-3 transition-shadow hover:shadow-lift focus-within:shadow-lift focus-within:border-brand-200 focus-within:ring-4 focus-within:ring-brand-50">
               <Icon.Sparkles size={16} className="text-ink-500 shrink-0"/>
               <input
                 value={input}
@@ -1152,7 +1152,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
                 </svg>
               </button>
               <button onClick={() => submit()}
-                className="h-12 px-5 rounded-full bg-ink-900 text-paper hover:bg-ink-800 transition-colors flex items-center gap-2 text-[14px] font-medium shrink-0">
+                className="h-12 px-5 rounded-full bg-ink-900 text-paper hover:bg-brand-700 focus-visible:ring-4 focus-visible:ring-brand-200 transition-colors flex items-center gap-2 text-[14px] font-medium shrink-0">
                 <Icon.Send size={15}/>
                 {thinking ? 'Pensando…' : 'Pedir'}
               </button>
@@ -1167,7 +1167,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
           <div className="flex items-center justify-between mb-4">
             <div>
               <div className="label">Continuar onde parou</div>
-              <div className="text-[17px] font-medium tracking-tight text-ink-900 mt-1">{liveTrip.title}</div>
+          <div className="text-[17px] font-serif font-medium tracking-tight text-ink-900 mt-1">{liveTrip.title}</div>
               <div className="text-[12.5px] text-ink-500 mt-0.5">{liveTrip.dates} · {liveTrip.travelers} viajantes</div>
             </div>
             <div className="flex items-center gap-2">
@@ -1176,19 +1176,13 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
             </div>
           </div>
 
-          <SmartImg src={liveTrip.coverImage?.url} seed={liveTrip.coverSeed} tone={liveTrip.cover} label={liveTrip.coverLabel} w={800} h={420} className="h-[180px] rounded-xl"/>
+          <SmartImg src={liveTrip.coverImage?.url} seed={liveTrip.coverSeed} tone={liveTrip.cover} w={800} h={420} className="h-[180px] rounded-xl"/>
 
           <div className="mt-5 grid grid-cols-2 gap-6">
             <Stat label="Progresso" value={`${liveTrip.progress}%`} hint={`${liveTrip.days?.length || 0} dias planejados`}/>
             <Stat label="Estimativa" value={liveTrip.budget} hint="vs. orçamento" tone="sage"/>
           </div>
 
-          <div className="mt-5 flex items-center gap-2 text-[12.5px] text-ink-600">
-            <Icon.Sparkles size={14} className="text-ink-900"/>
-            <span>{liveTrip.insights?.[0]?.text || 'Quer abrir o roteiro?'}</span>
-            <button onClick={() => { setRoute('plan'); }}
-                    className="ml-auto text-ink-900 hover:underline font-medium">Ver</button>
-          </div>
         </Card>
 
         <Card className="p-6">
@@ -1354,9 +1348,9 @@ const InlineWizard = ({ stepIdx, step, wizard, answered, onPick }) => {
           return (
           <li key={o.id}>
             <button onClick={() => multi ? toggle(o) : onPick(o.id, o.label)}
-              className={`w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl bg-white border-half hover:border-ink-900 hover:bg-ink-50 transition-colors group ${on ? 'border-ink-900 bg-ink-50' : ''}`}>
+              className={`w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl bg-white border-half hover:border-brand-200 hover:bg-brand-50 transition-colors group ${on ? 'border-brand-200 bg-brand-50' : ''}`}>
               <div className={`h-6 w-6 ${multi ? 'rounded-md' : 'rounded-full'} border-half flex items-center justify-center transition-colors shrink-0 ${
-                on ? 'bg-ink-900 text-paper border-ink-900' : 'text-ink-400 group-hover:border-ink-900 group-hover:text-ink-900'
+                on ? 'bg-brand-700 text-paper border-brand-700' : 'text-ink-400 group-hover:border-brand-200 group-hover:text-brand-700'
               }`}>
                 {multi && on ? <Icon.Check size={12}/> : <Icon.ChevronRight size={12}/>}
               </div>
@@ -1384,7 +1378,7 @@ const InlineWizard = ({ stepIdx, step, wizard, answered, onPick }) => {
           className="flex-1 outline-none text-[13px] bg-transparent placeholder:text-ink-500"/>
         {custom.trim() && (
           <button onClick={() => { multi ? confirmMulti() : onPick('custom', custom.trim()); setCustom(''); }}
-            className="h-7 px-2.5 rounded-md bg-ink-900 text-paper text-[11.5px] font-medium hover:bg-ink-800 transition-colors inline-flex items-center gap-1">
+            className="h-7 px-2.5 rounded-md bg-ink-900 text-paper text-[11.5px] font-medium hover:bg-brand-700 transition-colors inline-flex items-center gap-1">
             Enviar <Icon.ArrowRight size={11}/>
           </button>
         )}
@@ -1392,7 +1386,7 @@ const InlineWizard = ({ stepIdx, step, wizard, answered, onPick }) => {
 
       {multi && (
         <button onClick={confirmMulti} disabled={selected.length === 0 && !custom.trim()}
-          className="h-9 px-4 rounded-lg bg-ink-900 text-paper text-[12.5px] font-medium hover:bg-ink-800 disabled:opacity-35 disabled:cursor-not-allowed inline-flex items-center gap-1.5">
+          className="h-9 px-4 rounded-lg bg-ink-900 text-paper text-[12.5px] font-medium hover:bg-brand-700 disabled:opacity-35 disabled:cursor-not-allowed inline-flex items-center gap-1.5">
           Continuar <Icon.ArrowRight size={12}/>
         </button>
       )}
@@ -1450,8 +1444,8 @@ const GeneratingCard = ({ steps, totalDuration = 30000, onDone, onSkip, embedded
 
       <div className="flex items-start gap-4">
         <div className="relative h-12 w-12 shrink-0">
-          <div className="absolute inset-0 rounded-full bg-ink-900 text-paper flex items-center justify-center">
-            <Icon.Logo size={20}/>
+          <div className="absolute inset-0 rounded-full bg-white border-half flex items-center justify-center">
+            <GaidLogo className="h-4 w-auto max-w-[26px]"/>
           </div>
           <div className="absolute inset-0 rounded-full ring-2 ring-ink-900/30 animate-ping"/>
         </div>
@@ -1622,7 +1616,7 @@ const HomeFirstRun = ({ acct, setRoute, onPickIdea }) => {
   ];
 
   return (
-    <section className="px-10 pb-12 -mt-5">
+    <section className="px-10 pb-10 -mt-1">
       <div className="flex flex-wrap justify-center gap-1">
         {starters.map(s => {
           const Ic = s.icon;
@@ -1772,8 +1766,8 @@ const StartersBoard = ({ onPick }) => {
                 onDragEnd={onDragEnd}
                 className={`group relative bg-white border-half rounded-2xl text-left overflow-hidden transition-all shrink-0 snap-start w-[260px]
                             ${isDragging ? 'opacity-40 scale-[.98]' : ''}
-                            ${isOver ? 'ring-2 ring-ink-900 ring-offset-2 ring-offset-canvas' : 'hover:border-ink-400 hover:shadow-card'}
-                            ${isEditing ? 'shadow-lift ring-1 ring-ink-900' : ''}`}>
+                            ${isOver ? 'ring-2 ring-brand-200 ring-offset-2 ring-offset-canvas' : 'hover:border-brand-200 hover:shadow-card'}
+                            ${isEditing ? 'shadow-lift ring-1 ring-brand-200' : ''}`}>
                 <SmartImg seed={`starter-${s.id}-${s.label.slice(0,10)}`} tone={s.tone} w={500} h={400} className="h-[170px] w-full"/>
 
                 {!isEditing && (

@@ -3,6 +3,11 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, createContext, useContext } from 'react';
 import { Icon } from './icons.jsx';
 import { useAccount, useTrips } from '../core/store.jsx';
+import gaidLogoUrl from '../assets/logo-gaid.svg';
+
+const GaidLogo = ({ className = 'h-8 w-auto', alt = 'Gaid' }) => (
+  <img src={gaidLogoUrl} alt={alt} className={`block object-contain ${className}`} />
+);
 
 // ---------- Placeholder "photography" ----------
 // We never draw real imagery; show striped placeholders with a caption.
@@ -37,10 +42,10 @@ const Button = ({ variant = 'primary', size = 'md', children, icon: IconC, iconR
     lg: 'h-12 px-5 text-[15px] rounded-xl',
   }[size];
   const variants = {
-    primary:   'bg-brand-700 text-paper hover:bg-brand-900',
-    secondary: 'bg-white border border-edge text-ink-900 hover:border-ink-400 hover:bg-ink-50',
-    ghost:     'text-ink-700 hover:bg-ink-100 hover:text-ink-900',
-    accent:    'bg-gold-500 text-ink-900 hover:bg-gold-700 hover:text-white',
+    primary:   'bg-brand-700 text-paper hover:bg-brand-500 focus-visible:ring-4 focus-visible:ring-brand-200',
+    secondary: 'bg-white border border-edge text-ink-900 hover:border-brand-200 hover:bg-brand-50 focus-visible:ring-4 focus-visible:ring-brand-200',
+    ghost:     'text-ink-700 hover:bg-brand-50 hover:text-brand-700 focus-visible:ring-4 focus-visible:ring-brand-200',
+    accent:    'bg-gold-500 text-ink-900 hover:bg-brand-500 hover:text-white focus-visible:ring-4 focus-visible:ring-brand-200',
     soft:      'bg-ink-100 text-ink-900 hover:bg-ink-200',
     danger:    'bg-coral-500 text-white hover:bg-coral-700',
   }[variant];
@@ -74,7 +79,7 @@ const Tag = ({ children, tone = 'ink', className = '' }) => {
 // ---------- Card ----------
 const Card = ({ className = '', children, hover = false, ...rest }) => (
   <div {...rest}
-    className={`bg-white border hairline rounded-2xl shadow-soft ${hover ? 'card-h cursor-pointer hover:border-brand-100 hover:shadow-lift' : ''} ${className}`}>
+    className={`bg-white border hairline rounded-2xl shadow-soft ${hover ? 'card-h cursor-pointer hover:border-brand-200 hover:shadow-lift' : ''} ${className}`}>
     {children}
   </div>
 );
@@ -163,7 +168,7 @@ const Sidebar = ({ route, setRoute, openCmd }) => {
       <button
         onClick={() => setRoute(it.id)}
         className={`group w-full flex items-center gap-3 px-3 h-9 rounded-lg text-[13px] transition-colors
-                    ${active ? 'bg-brand-700 text-paper' : 'text-ink-700 hover:bg-brand-50 hover:text-brand-900'}`}>
+                    ${active ? 'bg-brand-50 text-brand-700' : 'text-ink-700 hover:bg-brand-50 hover:text-brand-700'}`}>
         <ActiveIcon size={16}/>
         <span>{it.label}</span>
       </button>
@@ -172,17 +177,14 @@ const Sidebar = ({ route, setRoute, openCmd }) => {
   return (
     <aside className="w-[248px] shrink-0 h-screen sticky top-0 border-r hairline bg-paper flex flex-col">
       <div className="px-5 pt-6 pb-4 flex items-center gap-2">
-        <div className="h-8 w-8 rounded-lg bg-brand-700 text-paper flex items-center justify-center">
-          <Icon.Logo size={18}/>
-        </div>
+        <GaidLogo className="h-8 w-auto max-w-[112px]" />
         <div className="flex-1">
-          <div className="text-[15px] font-medium tracking-tight text-ink-900">Gaid</div>
           <div className="text-[11px] text-ink-500 -mt-0.5">concierge de viagens</div>
         </div>
       </div>
 
       <button onClick={openCmd}
-        className="mx-3 mb-4 h-9 px-3 rounded-lg bg-white border hairline text-[12.5px] text-ink-500 flex items-center gap-2 hover:border-ink-400 transition-colors">
+        className="mx-3 mb-4 h-9 px-3 rounded-lg bg-white border hairline text-[12.5px] text-ink-500 flex items-center gap-2 hover:border-brand-200 focus-visible:ring-4 focus-visible:ring-brand-200 transition-colors">
         <Icon.Search size={14}/>
         <span>Pesquisar ou pedir</span>
         <span className="ml-auto mono text-[10px] text-ink-400">⌘K</span>
@@ -199,7 +201,7 @@ const Sidebar = ({ route, setRoute, openCmd }) => {
       <div className="mt-auto p-3">
         <button onClick={() => setRoute('profile')}
           className={`w-full bg-white border rounded-xl p-3 flex items-center gap-3 text-left transition-colors
-                      ${route === 'profile' ? 'border-ink-900' : 'hairline hover:border-ink-400'}`}>
+                      ${route === 'profile' ? 'border-brand-200 ring-2 ring-brand-50' : 'hairline hover:border-brand-200'}`}>
           <div className="h-9 w-9 rounded-full overflow-hidden ring-1 ring-ink-200 shrink-0 bg-ink-100 flex items-center justify-center">
             {u.avatar
               ? <img src={u.avatar} alt="" className="h-full w-full object-cover img-grayscale"/>
@@ -380,7 +382,7 @@ const OptimizeMenu = ({ onApply, anchor = 'right' }) => {
     <div ref={ref} className="relative">
       <button onClick={() => setOpen(o => !o)}
         className={`inline-flex items-center gap-2 h-8 pl-3 pr-2.5 rounded-lg text-[12.5px] font-medium transition-colors
-                   ${open ? 'bg-ink-900 text-paper' : 'bg-white border-half text-ink-900 hover:border-ink-400'}`}>
+                   ${open ? 'bg-brand-50 text-brand-700 border border-brand-200' : 'bg-white border-half text-ink-900 hover:border-brand-200'}`}>
         <Icon.Sparkles size={13}/>
         Otimizar roteiro
         <Icon.ChevronDown size={13} className={`transition-transform ${open ? 'rotate-180' : ''}`}/>
@@ -399,8 +401,8 @@ const OptimizeMenu = ({ onApply, anchor = 'right' }) => {
               return (
                 <button key={m.id}
                   onClick={() => { setOpen(false); onApply && onApply(m); }}
-                  className="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-ink-100 transition-colors group">
-                  <div className="h-8 w-8 rounded-lg bg-ink-100 group-hover:bg-white text-ink-900 flex items-center justify-center shrink-0 transition-colors">
+                  className="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-brand-50 transition-colors group">
+                  <div className="h-8 w-8 rounded-lg bg-ink-100 group-hover:bg-white text-ink-900 group-hover:text-brand-700 flex items-center justify-center shrink-0 transition-colors">
                     <Ic size={14}/>
                   </div>
                   <div className="flex-1 min-w-0">
@@ -408,15 +410,15 @@ const OptimizeMenu = ({ onApply, anchor = 'right' }) => {
                     <div className="text-[12px] text-ink-600 mt-0.5 leading-snug">{m.desc}</div>
                     <div className="text-[11px] mono text-ink-500 mt-1.5">{m.delta}</div>
                   </div>
-                  <Icon.ArrowRight size={13} className="text-ink-400 group-hover:text-ink-900 mt-2 shrink-0"/>
+                  <Icon.ArrowRight size={13} className="text-ink-400 group-hover:text-brand-700 mt-2 shrink-0"/>
                 </button>
               );
             })}
           </div>
           <div className="h-px bg-ink-200 mx-1.5 my-1.5"/>
           <button onClick={() => { setOpen(false); onApply && onApply({ id: 'custom', label: 'Personalizado' }); }}
-            className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-ink-100 transition-colors">
-            <div className="h-8 w-8 rounded-lg bg-ink-900 text-paper flex items-center justify-center shrink-0">
+            className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-brand-50 transition-colors">
+            <div className="h-8 w-8 rounded-lg bg-brand-50 text-brand-700 flex items-center justify-center shrink-0">
               <Icon.Wand size={14}/>
             </div>
             <div className="flex-1">
@@ -545,11 +547,11 @@ const AddToTripDrawer = ({ open, onClose, item }) => {
           {addable.map(t => (
             <button key={t.id} onClick={() => doAdd(t)}
               className={`w-full flex items-center gap-3 p-2.5 rounded-xl border transition-colors text-left
-                          ${added === t.id ? 'bg-ink-900 text-paper border-ink-900' : 'bg-white border-half hover:border-ink-400'}`}>
+                          ${added === t.id ? 'bg-brand-50 text-brand-700 border-brand-200' : 'bg-white border-half hover:border-brand-200'}`}>
               <SmartImg seed={`trip-${t.id}`} tone={t.tone} w={120} h={120} className="h-11 w-11 rounded-lg shrink-0"/>
               <div className="flex-1 min-w-0">
                 <div className="text-[13.5px] font-medium leading-tight truncate">{t.title}</div>
-                <div className={`text-[11.5px] mt-0.5 ${added === t.id ? 'text-paper/70' : 'text-ink-500'}`}>{t.dates} · {t.state}</div>
+                <div className={`text-[11.5px] mt-0.5 ${added === t.id ? 'text-brand-700/70' : 'text-ink-500'}`}>{t.dates} · {t.state}</div>
               </div>
               {added === t.id ? <Icon.Check size={16}/> : <Icon.Plus size={15} className="text-ink-500"/>}
             </button>
@@ -564,4 +566,4 @@ const AddToTripDrawer = ({ open, onClose, item }) => {
 };
 
 
-export { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, ToastCtx, ToastProvider, useToast, Sidebar, Topbar, SectionHeader, CmdPalette, Stat, TabRow, OptimizeMenu, OPTIMIZE_MODES, AddToTripDrawer };
+export { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, ToastCtx, ToastProvider, useToast, Sidebar, Topbar, SectionHeader, CmdPalette, Stat, TabRow, OptimizeMenu, OPTIMIZE_MODES, AddToTripDrawer, GaidLogo };
