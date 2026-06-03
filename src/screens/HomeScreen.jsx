@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Icon } from '../components/icons.jsx';
-import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, TabRow, AddToTripDrawer, GaidLogo } from '../components/ui.jsx';
+import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer, GaidLogo } from '../components/ui.jsx';
 import { EmptyState, EmptyInline } from './EmptyStates.jsx';
 import { Async, CardSkeleton, CatalogCarousel, Carousel, Skeleton, ErrorState, CarouselSkeleton } from '../core/states.jsx';
 import { useAccount, useCatalog } from '../core/store.jsx';
@@ -1166,27 +1166,24 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       <section className="px-10 pb-16 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-6">
         <div>
           {hasTrip ? (
-            <Card className="p-5">
-              <div className="flex items-start justify-between gap-3 mb-4">
-                <div className="min-w-0">
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
                   <div className="label">Continuar onde parou</div>
-                  <div className="text-[17px] font-serif font-medium tracking-tight text-ink-900 mt-1 leading-snug">{liveTrip.title}</div>
+                  <div className="text-[17px] font-serif font-medium tracking-tight text-ink-900 mt-1">{liveTrip.title}</div>
                   <div className="text-[12.5px] text-ink-500 mt-0.5">{liveTrip.dates} · {liveTrip.travelers} viajantes</div>
                 </div>
-                <Button variant="secondary" size="sm" iconRight={Icon.ArrowRight} onClick={() => setRoute('plan')}>Abrir</Button>
+                <div className="flex items-center gap-2">
+                  <OptimizeMenu onApply={(m) => { toast({title:`Otimizando · ${m.label}`, desc: m.delta || 'Aplicando…', tone:'success'}); setTimeout(() => setRoute('plan'), 500); }}/>
+                  <Button variant="secondary" iconRight={Icon.ArrowRight} onClick={() => setRoute('plan')}>Abrir</Button>
+                </div>
               </div>
 
-              <SmartImg src={liveTrip.coverImage?.url} seed={liveTrip.coverSeed} tone={liveTrip.cover} w={640} h={420} className="h-[140px] rounded-xl"/>
+              <SmartImg src={liveTrip.coverImage?.url} seed={liveTrip.coverSeed} tone={liveTrip.cover} w={800} h={420} className="h-[180px] rounded-xl"/>
 
-              <div className="mt-4">
-                <div className="flex items-center justify-between text-[12px] text-ink-500 mb-2">
-                  <span>Progresso</span>
-                  <span className="font-medium text-ink-900">{liveTrip.progress}%</span>
-                </div>
-                <div className="h-1.5 rounded-full bg-ink-100 overflow-hidden">
-                  <div className="h-full bg-brand-700 rounded-full" style={{ width: `${liveTrip.progress}%` }}/>
-                </div>
-                <div className="text-[12px] text-ink-500 mt-2">{liveTrip.days?.length || 0} dias planejados · {liveTrip.budget}</div>
+              <div className="mt-5 grid grid-cols-2 gap-6">
+                <Stat label="Progresso" value={`${liveTrip.progress}%`} hint={`${liveTrip.days?.length || 0} dias planejados`}/>
+                <Stat label="Estimativa" value={liveTrip.budget} hint="vs. orçamento" tone="sage"/>
               </div>
             </Card>
           ) : (
@@ -1200,7 +1197,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
 
         <div className="min-w-0">
           {inspoQ?.status === 'empty' ? (
-            <Card className="h-[260px] p-5 flex items-center">
+            <Card className="h-[360px] p-6 flex items-center">
               <div className="max-w-[420px]">
                 <div className="h-10 w-10 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center mb-4">
                   <Icon.Compass size={17}/>
