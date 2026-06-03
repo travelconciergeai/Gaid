@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Icon } from '../components/icons.jsx';
-import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer } from '../components/ui.jsx';
+import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer, GaidLogo } from '../components/ui.jsx';
 import { EmptyState, EmptyInline } from './EmptyStates.jsx';
 import { Async, CardSkeleton, CatalogCarousel, Carousel, Skeleton, ErrorState, CarouselSkeleton } from '../core/states.jsx';
 import { useAccount, useTrips, useCatalog, deriveTraits, profileCompletion } from '../core/store.jsx';
@@ -554,8 +554,8 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       <section className="border-r hairline flex flex-col bg-paper min-h-0">
         <header className="px-7 h-[60px] shrink-0 border-b hairline bg-paper flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="h-7 w-7 rounded-full bg-ink-900 text-paper flex items-center justify-center">
-              <Icon.Logo size={13}/>
+            <div className="h-7 w-7 rounded-full bg-white border-half flex items-center justify-center">
+              <GaidLogo className="h-3 w-auto max-w-[18px]"/>
             </div>
             <span className="text-[15px] font-medium tracking-tight text-ink-900">Concierge AI</span>
           </div>
