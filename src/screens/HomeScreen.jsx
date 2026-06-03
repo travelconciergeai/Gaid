@@ -425,6 +425,39 @@ function wizardQaText(step, label) {
   return `P: ${step?.q || 'Pergunta'}\nR: ${label}`;
 }
 
+function sentenceList(values) {
+  const items = values.map(value => filledString(value)).filter(Boolean);
+  if (items.length <= 1) return items[0] || '';
+  if (items.length === 2) return `${items[0]} e ${items[1]}`;
+  return `${items.slice(0, -1).join(', ')} e ${items[items.length - 1]}`;
+}
+
+function buildWizardSummary(context) {
+  const destination = filledString(context.destination, 'uma viagem');
+  const dates = filledString(context.dates?.label, context.period);
+  const count = parseNumberFromText(context.travelers?.count);
+  const composition = filledString(context.travelers?.composition, context.travelerComposition);
+  const travelerText = count
+    ? `${count} ${count === 1 ? 'pessoa' : 'pessoas'}`
+    : composition || '';
+  const budget = filledString(
+    typeof context.budget === 'object' ? context.budget?.label : context.budget,
+    context.comfortLevel
+  );
+  const style = filledString(context.stylePace);
+  const priorities = Array.isArray(context.priorities) ? context.priorities : [];
+  const focus = sentenceList([style, ...priorities].filter(Boolean));
+  const parts = [`Quero criar um roteiro para ${destination}`];
+  if (dates) parts.push(`de ${dates}`);
+  if (travelerText) parts.push(`para ${travelerText}`);
+  const qualifiers = sentenceList([
+    budget ? `uma viagem ${budget}` : '',
+    focus ? `foco em ${focus}` : '',
+  ]);
+  if (qualifiers) parts.push(`com ${qualifiers}`);
+  return `${parts.join(', ')}.`;
+}
+
 function buildTripContext(answers, prompt, { context = {}, mode = 'deterministic', qa = [] } = {}) {
   const destination = filledString(answerLabel(answers, 'destination'), context.destination);
   const period = filledString(answerLabel(answers, 'period'), context.period, context.dates?.label);
@@ -464,6 +497,7 @@ function buildTripContext(answers, prompt, { context = {}, mode = 'deterministic
     wizard: {
       completed: true,
       mode,
+      originalPrompt: prompt,
       qa,
       answers,
     },
@@ -661,9 +695,17 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
           mode,
           qa: currentQa,
         });
+        const summary = buildWizardSummary(fallbackContext);
+        const handoffContext = {
+          ...fallbackContext,
+          wizard: {
+            ...fallbackContext.wizard,
+            summary,
+          },
+        };
         Promise.resolve(kickoffPlan && kickoffPlan({
-          prompt: initialPrompt,
-          context: fallbackContext,
+          prompt: summary,
+          context: handoffContext,
         }))
           .then(() => {
             setRoute && setRoute('plan');
