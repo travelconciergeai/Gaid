@@ -312,6 +312,37 @@ function normalizeDates(answers, context) {
   return null;
 }
 
+function isGenericInitialPrompt(value) {
+  const text = normText(value).trim();
+  if (!text) return true;
+  return [
+    /^ola\b/,
+    /^oi\b/,
+    /^quero viajar$/,
+    /^quero uma viagem$/,
+    /^planejar viagem$/,
+    /^criar roteiro$/,
+    /^montar roteiro$/,
+    /^me ajuda/,
+    /^nao sei/,
+    /^ainda nao sei/,
+  ].some(pattern => pattern.test(text));
+}
+
+function initialDestinationAnswer(destination) {
+  const label = filledString(destination);
+  if (!label) return null;
+  return { optId: 'custom', label };
+}
+
+function periodStepForDestination(destination) {
+  const label = filledString(destination);
+  return {
+    ...BASE_TRIP_WIZARD[1],
+    q: label ? `Quando você imagina viajar para ${label}?` : BASE_TRIP_WIZARD[1].q,
+  };
+}
+
 function chooseDestinationStep(answers) {
   const nights = parseNights(answers) || 0;
   if (isDestination(answers, /orlando|disney/)) return CONTEXTUAL_TRIP_STEPS.orlandoPriority;
@@ -574,14 +605,60 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     setMode('chat');
     setChat([{ id: 'u-0', who: 'user', text: userText }]);
     setThinking(true);
-    setTimeout(() => {
+    setTimeout(async () => {
+      let initialAnswers = {};
+      let initialContext = {};
+      let initialHistory = [];
+      let firstWizardStep = 0;
+      let firstAiQuestion = null;
+      let firstChatMessages = [];
+
+      if (key === 'trip') {
+        try {
+          const response = await requestAiWizardQuestion({
+            prompt: userText,
+            answers: {},
+            lastAnswer: null,
+            stepCount: 0,
+          });
+          initialContext = mergeWizardContext({}, response.normalizedPatch);
+          firstAiQuestion = response;
+        } catch (_error) {
+          if (!isGenericInitialPrompt(userText)) {
+            initialContext = { destination: userText };
+          }
+        }
+
+        const initialDestination = filledString(initialContext.destination);
+        const destinationAnswer = initialDestinationAnswer(initialDestination);
+        if (destinationAnswer) {
+          initialAnswers = { destination: destinationAnswer };
+          initialHistory = [BASE_TRIP_WIZARD[0]];
+          firstWizardStep = 1;
+          firstChatMessages = [{ who: 'user', text: wizardQaText(BASE_TRIP_WIZARD[0], destinationAnswer.label) }];
+        }
+
+        const firstAiStep = destinationAnswer ? aiQuestionToStep(firstAiQuestion) : null;
+        if (destinationAnswer) {
+          const nextStep = firstAiStep && firstAiStep.id !== 'destination'
+            ? firstAiStep
+            : periodStepForDestination(destinationAnswer.label);
+          initialHistory = syncWizardHistory(initialHistory, 0, BASE_TRIP_WIZARD[0], nextStep);
+        }
+      }
+
+      setAnswers(initialAnswers);
+      setWizardContext(initialContext);
+      setAiWizardQuestion(firstAiQuestion);
+      setWizardHistory(initialHistory);
       setThinking(false);
       setChat(c => [
         ...c,
         { id: 'a-intro', who: 'agent', text: FLOW_CFG[key].intro },
-        { id: 'q-0', who: 'agent', wizardStep: 0 },
+        ...firstChatMessages,
+        { id: `q-${firstWizardStep}`, who: 'agent', wizardStep: firstWizardStep },
       ]);
-      setWizardStep(0);
+      setWizardStep(firstWizardStep);
       setPhase('asking');
     }, 700);
   };
