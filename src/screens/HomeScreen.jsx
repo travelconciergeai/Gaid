@@ -63,6 +63,28 @@ const BASE_TRIP_WIZARD = [
 ];
 
 const CONTEXTUAL_TRIP_STEPS = {
+  familyCount: {
+    id: 'travelerCount',
+    q: 'Quantas pessoas vão viajar no total?',
+    sub: 'Inclua adultos e crianças para eu calibrar quartos, ritmo e logística.',
+    options: [
+      { id: '3', label: '3 pessoas', hint: 'família pequena' },
+      { id: '4', label: '4 pessoas', hint: 'formato clássico', recommended: true },
+      { id: '5', label: '5 pessoas', hint: 'precisa de mais estrutura' },
+      { id: '6', label: '6+ pessoas', hint: 'grupo familiar maior' },
+    ],
+  },
+  friendsCount: {
+    id: 'travelerCount',
+    q: 'Quantas pessoas vão viajar?',
+    sub: 'Isso ajuda a pensar em quartos, transfers e reservas.',
+    options: [
+      { id: '3', label: '3 pessoas', hint: 'grupo pequeno' },
+      { id: '4', label: '4 pessoas', hint: 'fácil de coordenar', recommended: true },
+      { id: '5', label: '5 pessoas', hint: 'mais energia e logística' },
+      { id: '6', label: '6+ pessoas', hint: 'grupo maior' },
+    ],
+  },
   childrenAges: {
     id: 'childrenAges',
     q: 'Qual a idade das crianças?',
@@ -194,7 +216,18 @@ function travelerCountFrom(answer) {
   const id = answerId(answer, 'travelers');
   if (id === 'solo') return 1;
   if (id === 'couple') return 2;
+  const explicit = Number(answerId(answer, 'travelerCount') || String(answerLabel(answer, 'travelerCount')).match(/\d+/)?.[0]);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
   return null;
+}
+
+function travelerCompositionFrom(answer) {
+  const id = answerId(answer, 'travelers');
+  if (id === 'solo') return 'Solo';
+  if (id === 'couple') return 'Casal';
+  if (id === 'family') return 'Família';
+  if (id === 'friends') return 'Amigos';
+  return answerLabel(answer, 'travelers') || null;
 }
 
 function chooseDestinationStep(answers) {
@@ -217,13 +250,23 @@ function buildAdaptiveTripWizard(answers) {
   const steps = [...BASE_TRIP_WIZARD];
   const travelers = answerId(answers, 'travelers');
   if (travelers === 'family') {
-    steps.push(CONTEXTUAL_TRIP_STEPS.childrenAges);
+    steps.push(CONTEXTUAL_TRIP_STEPS.familyCount);
+    if (answerId(answers, 'travelerCount')) {
+      steps.push(CONTEXTUAL_TRIP_STEPS.childrenAges);
+    }
     if (answerId(answers, 'childrenAges')) {
       const destinationStep = chooseDestinationStep(answers);
       if (destinationStep) steps.push(destinationStep);
       if (!destinationStep || (destinationStep.id === 'firstTime' && answerId(answers, 'firstTime'))) {
         steps.push(CONTEXTUAL_TRIP_STEPS.defaultStyle);
       }
+    }
+  } else if (travelers === 'friends') {
+    steps.push(CONTEXTUAL_TRIP_STEPS.friendsCount);
+    if (answerId(answers, 'travelerCount')) {
+      const destinationStep = chooseDestinationStep(answers);
+      if (destinationStep) steps.push(destinationStep);
+      steps.push(CONTEXTUAL_TRIP_STEPS.friendsVibe);
     }
   } else if (travelers) {
     const destinationStep = chooseDestinationStep(answers);
@@ -236,10 +279,58 @@ function buildAdaptiveTripWizard(answers) {
   return steps;
 }
 
+function mergeWizardContext(base, patch) {
+  const out = { ...(base || {}) };
+  Object.entries(patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : {}).forEach(([key, value]) => {
+    if (value && typeof value === 'object' && !Array.isArray(value) && out[key] && typeof out[key] === 'object' && !Array.isArray(out[key])) {
+      out[key] = mergeWizardContext(out[key], value);
+    } else {
+      out[key] = value;
+    }
+  });
+  return out;
+}
+
+function aiQuestionToStep(question) {
+  if (!question || question.isComplete || !question.question) return null;
+  return {
+    id: question.field || 'notes',
+    q: question.question,
+    sub: 'Escolha uma opção ou descreva com suas palavras.',
+    options: Array.isArray(question.options)
+      ? question.options.map((option) => ({
+        id: option.id || option.label,
+        label: option.label || option.id,
+        hint: '',
+      })).filter(option => option.label)
+      : [],
+    allowFreeText: question.allowFreeText !== false,
+  };
+}
+
+function syncWizardHistory(history, index, currentStep, nextStep) {
+  const next = [...history];
+  if (currentStep) next[index] = currentStep;
+  if (nextStep) next[index + 1] = nextStep;
+  return next;
+}
+
+async function requestAiWizardQuestion({ prompt, answers, lastAnswer, stepCount }) {
+  const response = await fetch('/api/wizard-next', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, answers, lastAnswer, stepCount }),
+  });
+  if (!response.ok) throw new Error('wizard-next failed');
+  return response.json();
+}
+
 function buildTripContext(answers, prompt) {
   const destination = answerLabel(answers, 'destination');
   const period = answerLabel(answers, 'period');
   const childrenAges = answerLabel(answers, 'childrenAges') || null;
+  const travelerCount = travelerCountFrom(answers);
+  const travelerComposition = travelerCompositionFrom(answers);
   return {
     prompt,
     wizard: {
@@ -251,8 +342,11 @@ function buildTripContext(answers, prompt) {
     dates: period ? { label: period } : null,
     nights: parseNights(answers),
     duration: answerLabel(answers, 'duration') || null,
-    travelers: travelerCountFrom(answers),
-    travelerComposition: answerLabel(answers, 'travelers') || null,
+    travelers: {
+      count: travelerCount,
+      composition: travelerComposition,
+    },
+    travelerComposition,
     childrenAges,
     budget: answerLabel(answers, 'budget') || null,
     stylePace: answerLabel(answers, 'stylePace') || null,
@@ -278,6 +372,9 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   const [phase, setPhase] = useState('asking');                // asking | generating | done
   const [flowKey, setFlowKey] = useState('trip');              // trip | disney | kids | dog
   const [initialPrompt, setInitialPrompt] = useState('');
+  const [aiWizardQuestion, setAiWizardQuestion] = useState(null);
+  const [wizardContext, setWizardContext] = useState({});
+  const [wizardHistory, setWizardHistory] = useState([]);
   const toast = useToast();
   const scrollerRef = useRef(null);
 
@@ -293,7 +390,15 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       intro:'Viajar com cachorro pra Europa tem prazos que começam ~30 dias antes. Vou fazer 3 perguntas e montar tudo — documentos, voo na cabine, hotéis pet-friendly e pontos de atenção.' },
   };
   const cfg = FLOW_CFG[flowKey] || FLOW_CFG.trip;
-  const wizard = flowKey === 'trip' ? buildAdaptiveTripWizard(answers) : [];
+  const deterministicWizard = flowKey === 'trip' ? buildAdaptiveTripWizard(answers) : [];
+  const wizard = flowKey === 'trip'
+    ? (wizardHistory.length
+      ? Array.from(
+        { length: Math.max(deterministicWizard.length, wizardHistory.length) },
+        (_, index) => wizardHistory[index] || deterministicWizard[index]
+      ).filter(Boolean)
+      : deterministicWizard)
+    : [];
 
   const detectFlow = (t) => {
     const s = (t || '').toLowerCase();
@@ -314,6 +419,9 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     setFlowKey(key);
     setInitialPrompt(userText);
     setAnswers({});
+    setAiWizardQuestion(null);
+    setWizardContext({});
+    setWizardHistory([]);
     setMode('chat');
     setChat([{ id: 'u-0', who: 'user', text: userText }]);
     setThinking(true);
@@ -379,16 +487,46 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     if (!step) return;
     const nextAnswers = { ...answers, [step.id]: { optId, label } };
     setAnswers(nextAnswers);
+    setWizardHistory(history => syncWizardHistory(history, wizardStep, step));
     // Lock the current wizard message + append user reply
     setChat(c => [
       ...c.map(m => (m.wizardStep === wizardStep ? { ...m, answered: { optId, label } } : m)),
       { who: 'user', text: label },
     ]);
     setThinking(true);
-    setTimeout(() => {
+    setTimeout(async () => {
+      let nextWizard = flowKey === 'trip' ? buildAdaptiveTripWizard(nextAnswers) : wizard;
+      let completedByAi = false;
+      let nextAiStep = null;
+      let nextWizardContext = wizardContext;
+
+      if (flowKey === 'trip') {
+        try {
+          const response = await requestAiWizardQuestion({
+            prompt: initialPrompt,
+            answers: nextAnswers,
+            lastAnswer: { field: step.id, value: optId, label },
+            stepCount: wizardStep + 1,
+          });
+          nextWizardContext = mergeWizardContext(wizardContext, response.normalizedPatch);
+          setWizardContext(nextWizardContext);
+          setAiWizardQuestion(response);
+          completedByAi = response.isComplete === true;
+          nextAiStep = aiQuestionToStep(response);
+          if (nextAiStep) {
+            nextWizard = syncWizardHistory(wizardHistory, wizardStep, step, nextAiStep);
+            setWizardHistory(nextWizard);
+          }
+        } catch (_error) {
+          nextWizardContext = wizardContext;
+          completedByAi = false;
+          nextWizard = buildAdaptiveTripWizard(nextAnswers);
+          setAiWizardQuestion(null);
+        }
+      }
+
       setThinking(false);
-      const nextWizard = flowKey === 'trip' ? buildAdaptiveTripWizard(nextAnswers) : wizard;
-      if (wizardStep < nextWizard.length - 1) {
+      if (!completedByAi && wizardStep < nextWizard.length - 1) {
         const next = wizardStep + 1;
         setWizardStep(next);
         setChat(c => [...c, { who: 'agent', wizardStep: next }]);
@@ -400,9 +538,18 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
           ...c,
           { who: 'agent', text: genMsg },
         ]);
+        const fallbackContext = buildTripContext(nextAnswers, initialPrompt);
         Promise.resolve(kickoffPlan && kickoffPlan({
           prompt: initialPrompt,
-          context: buildTripContext(nextAnswers, initialPrompt),
+          context: {
+            ...fallbackContext,
+            ...nextWizardContext,
+            wizard: {
+              completed: true,
+              mode: completedByAi ? 'ai-guided' : 'deterministic',
+              answers: nextAnswers,
+            },
+          },
         }))
           .then(() => {
             setRoute && setRoute('plan');
@@ -433,6 +580,9 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       setChat([]);
       setWizardStep(0);
       setAnswers({});
+      setAiWizardQuestion(null);
+      setWizardContext({});
+      setWizardHistory([]);
       setPhase('asking');
     }, 400);
   };
@@ -442,6 +592,9 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     setChat([]);
     setWizardStep(0);
     setAnswers({});
+    setAiWizardQuestion(null);
+    setWizardContext({});
+    setWizardHistory([]);
     setPhase('asking');
   };
 

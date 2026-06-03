@@ -20,7 +20,7 @@ function toTripSummary(trip) {
     dates: fmtDateRangeShort(trip.dates),
     state: TRIP_STATUS_LABEL[status] || 'Em planejamento',
     _status: status,                       // raw, for filtering
-    travelers: has(trip.travelers) ? trip.travelers : 0,
+    travelers: travelerCount(trip.travelers),
     tone: trip.cover || 'warm',
     cover: trip.coverShort || destination || (Array.isArray(trip.cities) && trip.cities[0]) || trip.title || '',
     progress: has(trip.progress) ? trip.progress : 0,
@@ -75,7 +75,7 @@ function toTripDetail(trip) {
     blurb: trip.blurb || '',
     dates: fmtTripDates(trip.dates),
     nights: has(trip.nights) ? trip.nights : null,
-    travelers: has(trip.travelers) ? trip.travelers : 0,
+    travelers: travelerCount(trip.travelers),
     budget: fmtMoney(trip.budget),
     status: TRIP_STATUS_LABEL[trip.status] || 'Em planejamento',
     cover: trip.cover || 'warm',
@@ -91,6 +91,15 @@ function toTripDetail(trip) {
 }
 
 const SLOT_PT = { manha: 'manhã', tarde: 'tarde', noite: 'noite' };
+function travelerCount(value) {
+  if (typeof value === 'number') return value;
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const count = Number(value.count);
+    return Number.isFinite(count) ? count : 0;
+  }
+  return has(value) ? value : 0;
+}
+
 function inferPlaceholderDayCount(trip, dates) {
   const nights = Number(trip.nights ?? trip.tripContext?.nights);
   if (Number.isFinite(nights) && nights > 0) return Math.min(Math.floor(nights), 30);

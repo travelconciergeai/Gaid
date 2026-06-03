@@ -52,6 +52,15 @@ function buildTripTitle({ title, destination, prompt }) {
   return 'Nova viagem';
 }
 
+function travelerCount(value) {
+  if (typeof value === 'number') return value;
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const count = Number(value.count);
+    return Number.isFinite(count) ? count : 0;
+  }
+  return 0;
+}
+
 function rowToTrip(row) {
   if (!row) return null;
   const tripContext = normalizeTripContext(row.trip_context);
@@ -64,7 +73,7 @@ function rowToTrip(row) {
     status: row.status || 'planning',
     dates: tripContext.dates || metadata.dates || null,
     nights: tripContext.nights ?? metadata.nights ?? null,
-    travelers: tripContext.travelers ?? metadata.travelers ?? 0,
+    travelers: travelerCount(tripContext.travelers ?? metadata.travelers),
     budget: tripContext.budget || metadata.budget || null,
     cities: destination ? [destination] : [],
     cover: metadata.cover || tripContext.cover || 'warm',
