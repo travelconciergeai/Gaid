@@ -73,7 +73,7 @@ function toTripDetail(trip) {
     title: orTBD(trip.title),
     destination,
     blurb: trip.blurb || '',
-    dates: has(trip.dates) ? fmtDateLong(trip.dates) : TBD,
+    dates: fmtTripDates(trip.dates),
     nights: has(trip.nights) ? trip.nights : null,
     travelers: has(trip.travelers) ? trip.travelers : 0,
     budget: fmtMoney(trip.budget),
@@ -125,6 +125,12 @@ function fmtDayDate(date) {
   if (!date || isNaN(date)) return TBD;
   const MONTHS_SHORT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   return `${date.getDate()} ${MONTHS_SHORT[date.getMonth()]}`;
+}
+
+function fmtTripDates(dates) {
+  if (has(dates?.start)) return fmtDateLong(dates);
+  if (has(dates?.label)) return dates.label;
+  return TBD;
 }
 
 function fmtDateLong(dates) {            // "12–22 outubro"
