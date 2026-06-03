@@ -47,6 +47,7 @@ function toTripDetail(trip) {
           ? d.items
             .filter(it => it && typeof it === 'object' && !Array.isArray(it))
             .map(it => ({
+              id: it.id || null,
               t: SLOT_PT[it.slot] || it.t || 'item',
               title: it.title || TBD,
               place: it.place || TBD,

@@ -25,15 +25,27 @@ const EMPTY_TRIP = { id: null, title: 'Sua viagem', blurb: '', dates: TBD, night
 function safeClone(value) {
   return JSON.parse(JSON.stringify(value || []));
 }
+function itemStableId(dayNumber, item, index) {
+  if (item?.id) return item.id;
+  const seed = `${dayNumber || 'd'}-${item?.t || item?.slot || 'slot'}-${item?.title || 'item'}-${item?.place || ''}-${index}`;
+  return `it-${normText(seed).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 72) || `${dayNumber}-${index}`}`;
+}
 function normalizeDays(value) {
   return Array.isArray(value)
-    ? value.map((day, idx) => ({
-      ...day,
-      d: day?.d ?? idx + 1,
-      date: day?.date || TBD,
-      city: day?.city || TBD,
-      items: Array.isArray(day?.items) ? day.items : [],
-    }))
+    ? value.map((day, idx) => {
+      const dayNumber = day?.d ?? idx + 1;
+      return {
+        ...day,
+        d: dayNumber,
+        date: day?.date || TBD,
+        city: day?.city || TBD,
+        items: Array.isArray(day?.items)
+          ? day.items
+            .filter(item => item && typeof item === 'object' && !Array.isArray(item))
+            .map((item, itemIdx) => ({ ...item, id: itemStableId(dayNumber, item, itemIdx) }))
+          : [],
+      };
+    })
     : [];
 }
 function normalizeInsights(value) {
@@ -394,29 +406,38 @@ function localReplacementSuggestion(message, trip, target) {
     vibe: `substitui "${target.item.title}" mantendo o mesmo período do roteiro`,
   };
 }
-function buildLocalItineraryItem(message, trip, targetDay) {
+function buildLocalItineraryItem(message, trip, targetDay, dayContext = null) {
   const text = normText(message);
-  const destination = knownTripDestination(trip) || 'destino';
+  const destination = dayContext?.city && dayContext.city !== TBD ? dayContext.city : knownTripDestination(trip) || 'destino';
+  const nearby = Array.isArray(dayContext?.items) ? dayContext.items.map(item => item.place).filter(Boolean).slice(0, 2) : [];
+  const areaHint = nearby.length > 0 ? nearby[0] : destination;
+  const priorities = [
+    ...(Array.isArray(trip?.tripContext?.priorities) ? trip.tripContext.priorities : []),
+    ...(Array.isArray(trip?.tripContext?.stylePace) ? trip.tripContext.stylePace : []),
+    trip?.tripContext?.tripPriority,
+  ].flat().filter(Boolean).map(item => normText(item)).join(' ');
   const tag = inferItemTag(message);
   const slot = inferItemSlot(message);
   const title =
-    /restaurante/.test(text) ? `Restaurante especial em ${destination}` :
-    /cafe da manha|café da manhã|cafe|café|brunch/.test(text) ? `Café especial em ${destination}` :
-    /museu/.test(text) ? `Museu bem escolhido em ${destination}` :
-    /bate.?volta/.test(text) ? `Bate-volta a partir de ${destination}` :
-    /crianca|criança|kids/.test(text) ? `Atividade para crianças em ${destination}` :
-    /rooftop/.test(text) ? `Rooftop em ${destination}` :
-    /almoco|almoço/.test(text) ? `Parada para almoço em ${destination}` :
-    /gastronom/.test(text) ? `Passeio gastronômico em ${destination}` :
-    `Experiência em ${destination}`;
+    /restaurante/.test(text) ? `Restaurante de cozinha local perto de ${areaHint}` :
+    /cafe da manha|café da manhã|cafe|café|brunch/.test(text) ? `Café da manhã em uma cafeteria autoral em ${areaHint}` :
+    /museu/.test(text) ? `Museu com curadoria local em ${destination}` :
+    /bate.?volta/.test(text) ? `Bate-volta bem encaixado a partir de ${destination}` :
+    /crianca|criança|kids/.test(text) ? `Atividade lúdica para crianças em ${destination}` :
+    /rooftop/.test(text) ? `Rooftop com vista em ${areaHint}` :
+    /almoco|almoço/.test(text) ? `Almoço em um restaurante tradicional em ${areaHint}` :
+    /gastronom/.test(text) ? `Passeio gastronômico por sabores locais em ${destination}` :
+    priorities.includes('cultura') ? `Experiência cultural guiada em ${destination}` :
+    tag !== 'experiência' ? `Experiência de ${tag} em ${destination}` :
+    `Experiência personalizada em ${destination}`;
   return {
     day: targetDay,
     slot,
     title,
-    place: destination,
+    place: areaHint,
     dur: tag === 'bate-volta' ? 'dia inteiro' : '1h30',
     tag,
-    vibe: 'incluído a partir do pedido no chat',
+    vibe: nearby.length > 0 ? `encaixado perto de ${nearby.join(' e ')}` : 'incluído a partir do pedido no chat',
   };
 }
 function latestSuggestionMessageIndex(messages) {
@@ -601,6 +622,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
   const [days, setDays] = useState(() => safeClone(tripData.days));
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(null);
+  const [selectedItem, setSelectedItem] = useState(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [calOpen, setCalOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -639,6 +661,12 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       return safeDays;
     });
   };
+  const commitTimelineDays = async (nextDays) => {
+    const safeDays = normalizeDays(nextDays);
+    setDays(safeDays);
+    await persistTimelineDays(safeDays);
+    return safeDays;
+  };
 
   const replaceActivity = async (target, suggestion) => {
     const normalized = normalizeItinerarySuggestions([{
@@ -668,10 +696,12 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     });
     setDays(nextDays);
     lastEditedDayRef.current = target.day.d;
-    lastModifiedActivityRef.current = storedActivityRefFromEntry({
+    const nextRef = storedActivityRefFromEntry({
       day: nextDays[target.dayIdx],
       item: nextDays[target.dayIdx]?.items?.[target.itemIdx],
     });
+    lastModifiedActivityRef.current = nextRef;
+    setSelectedItem(nextRef ? { ...nextRef, dayIdx: target.dayIdx, itemIdx: target.itemIdx } : null);
     await persistTimelineDays(nextDays);
     return true;
   };
@@ -682,6 +712,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     setActiveMode(null);
     setEditing(null);
     setAdding(null);
+    setSelectedItem(null);
     setPendingPlacementMessageIndex(null);
     setPrep(tripData.prep ? JSON.parse(JSON.stringify(tripData.prep)) : null);
     let alive = true;
@@ -782,47 +813,46 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     ].sort((a, b) => a.d - b.d);
   };
 
-  const applySuggestionListToTimeline = (suggestions, placement = null) => {
+  const buildTimelineWithSuggestions = (baseDays, suggestions, placement = null) => {
     const normalized = normalizeItinerarySuggestions(suggestions);
     const placedSuggestions = normalized.map(item => ({
       ...item,
       day: item.day || placement?.day,
       slot: item.slot || placement?.slot,
     })).filter(item => item.day && item.slot);
-    if (placedSuggestions.length === 0) return 0;
-    updateDays(currentDays => {
-      const nextDays = normalizeDays(currentDays).map(day => ({ ...day, items: [...day.items] }));
-      const maxDay = Math.max(...placedSuggestions.map(item => item.day));
-      for (let dayNumber = 1; dayNumber <= maxDay; dayNumber += 1) {
-        if (!nextDays.some(day => day.d === dayNumber)) nextDays.push(placeholderDay(dayNumber));
-      }
-      placedSuggestions.forEach((suggestion) => {
-        const day = nextDays.find(item => item.d === suggestion.day);
-        if (!day) return;
-        lastEditedDayRef.current = suggestion.day;
-        day.items.push({
-          t: suggestion.slot,
-          title: suggestion.title,
-          place: suggestion.place,
-          dur: suggestion.dur,
-          tag: suggestion.tag,
-          vibe: suggestion.vibe,
-          conf: false,
-        });
-        lastModifiedActivityRef.current = {
-          dayNumber: day.d,
-          itemTitle: suggestion.title,
-          itemPlace: suggestion.place,
-          itemSlot: suggestion.slot,
-          itemTag: suggestion.tag,
-        };
-      });
-      return nextDays.sort((a, b) => a.d - b.d);
+    const nextDays = normalizeDays(baseDays).map(day => ({ ...day, items: [...day.items] }));
+    if (placedSuggestions.length === 0) return { nextDays, count: 0 };
+    const maxDay = Math.max(...placedSuggestions.map(item => item.day));
+    for (let dayNumber = 1; dayNumber <= maxDay; dayNumber += 1) {
+      if (!nextDays.some(day => day.d === dayNumber)) nextDays.push(placeholderDay(dayNumber));
+    }
+    placedSuggestions.forEach((suggestion) => {
+      const day = nextDays.find(item => item.d === suggestion.day);
+      if (!day) return;
+      lastEditedDayRef.current = suggestion.day;
+      const nextItem = {
+        t: suggestion.slot,
+        title: suggestion.title,
+        place: suggestion.place,
+        dur: suggestion.dur,
+        tag: suggestion.tag,
+        vibe: suggestion.vibe,
+        conf: false,
+      };
+      day.items.push(nextItem);
+      lastModifiedActivityRef.current = storedActivityRefFromEntry({ day, item: nextItem });
     });
-    return placedSuggestions.length;
+    return { nextDays: nextDays.sort((a, b) => a.d - b.d), count: placedSuggestions.length };
   };
 
-  const applyItinerarySuggestions = (messageIndex, placement = null, { confirm = false, confirmText = 'Pronto — adicionei isso ao roteiro.' } = {}) => {
+  const applySuggestionListToTimeline = async (suggestions, placement = null) => {
+    const { nextDays, count } = buildTimelineWithSuggestions(days, suggestions, placement);
+    if (count === 0) return 0;
+    await commitTimelineDays(nextDays);
+    return count;
+  };
+
+  const applyItinerarySuggestions = async (messageIndex, placement = null, { confirm = false, confirmText = 'Pronto — adicionei isso ao roteiro.' } = {}) => {
     const message = chat[messageIndex];
     const suggestions = getMessageSuggestions(message);
     if (suggestions.length === 0 || message?.ctaApplied) return 'none';
@@ -846,7 +876,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       }]);
       return 'needs-placement';
     }
-    const appliedCount = applySuggestionListToTimeline(suggestions, placement);
+    const appliedCount = await applySuggestionListToTimeline(suggestions, placement);
     if (appliedCount === 0) return 'none';
     setChat(current => {
       const next = current.map((item, index) => index === messageIndex
@@ -893,7 +923,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         assumedDuration: duration.assumed,
         tripContext: tripData.tripContext,
       },
-    }).then((response) => {
+    }).then(async (response) => {
       if (!alive) return;
       setTyping(false);
       const suggestions = normalizeItinerarySuggestions(response.itinerarySuggestions);
@@ -905,7 +935,8 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
           ? withDurationAssumptionText('Montei uma primeira versão do roteiro para você. Podemos ajustar tudo a partir daqui.', duration)
           : 'Criei a estrutura dos dias do roteiro. Me peça para montar uma primeira versão quando quiser.';
         if (initialSuggestions.length > 0) {
-          applySuggestionListToTimeline(initialSuggestions);
+          const { nextDays, count } = buildTimelineWithSuggestions(days, initialSuggestions);
+          if (count > 0) await commitTimelineDays(nextDays);
         }
         setChat(c => [...c, {
           who: 'gaid',
@@ -952,7 +983,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       setTyping(false);
       if (placement) {
         const reply = 'Pronto — adicionei esse dia ao roteiro.';
-        applyItinerarySuggestions(pendingPlacementMessageIndex, placement, { confirm: true, confirmText: reply });
+        await applyItinerarySuggestions(pendingPlacementMessageIndex, placement, { confirm: true, confirmText: reply });
         persistPlanMessage('assistant', reply, { source: 'local' });
       } else {
         const placementReply = 'Claro. Em qual dia e período você quer encaixar isso? Exemplos: “Dia 2 de manhã”, “Dia 3 à tarde”, “No primeiro dia à noite”.';
@@ -982,7 +1013,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         if (suggestionsHavePlacement(suggestions)) {
           const createsNewDay = suggestions.some(item => Number(item.day) > maxTimelineDay(days));
           const reply = createsNewDay ? 'Pronto — adicionei esse dia ao roteiro.' : 'Pronto — adicionei isso ao roteiro.';
-          applyItinerarySuggestions(suggestionIndex, null, { confirm: true, confirmText: reply });
+          await applyItinerarySuggestions(suggestionIndex, null, { confirm: true, confirmText: reply });
           persistPlanMessage('assistant', reply, { source: 'local' });
         } else {
           setPendingPlacementMessageIndex(suggestionIndex);
@@ -1007,7 +1038,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
           persistPlanMessage('assistant', guard, { source: 'state-guard', intent: planIntent.intent });
           return;
         }
-        applySuggestionListToTimeline(fallbackSuggestions);
+        await applySuggestionListToTimeline(fallbackSuggestions);
         const reply = 'Pronto — adicionei esse dia ao roteiro.';
         setChat(current => [...current, { who: 'gaid', text: reply, source: 'local' }]);
         persistPlanMessage('assistant', reply, { source: 'local' });
@@ -1026,7 +1057,8 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         persistPlanMessage('assistant', guard, { source: 'state-guard', intent: planIntent.intent });
         return;
       }
-      const item = buildLocalItineraryItem(t, tripData, resolvedDay);
+      const targetDayData = normalizeDays(days).find(day => day.d === resolvedDay);
+      const item = buildLocalItineraryItem(t, tripData, resolvedDay, targetDayData);
       const nextDays = normalizeDays(days).map(day => day.d === resolvedDay
         ? {
           ...day,
@@ -1127,7 +1159,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       const target = resolveActivityTarget({
         message: t,
         days,
-        editing,
+        editing: selectedItem || editing,
         lastModifiedRef: lastModifiedActivityRef,
         chat,
       });
@@ -1168,7 +1200,9 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
           ? { ...structured, day: target.day.d, slot: target.item.t }
           : localReplacementSuggestion(t, tripData, target);
         await replaceActivity(target, suggestion);
-        const reply = 'Pronto — substituí a atividade por uma alternativa mais alinhada ao que você pediu.';
+        const reply = selectedItem
+          ? 'Pronto — substituí esse item no roteiro.'
+          : 'Pronto — substituí a atividade por uma alternativa mais alinhada ao que você pediu.';
         setChat(c => [...c, { who: 'gaid', text: reply, source: structured ? response.source : 'local' }]);
         persistPlanMessage('assistant', reply, {
           source: structured ? response.source : 'local',
@@ -1254,6 +1288,8 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     const currentItem = currentDay?.items?.[itemIdx];
     if (currentDay && currentItem) {
       lastModifiedActivityRef.current = storedActivityRefFromEntry({ day: currentDay, item: currentItem });
+      const selected = resolveStoredActivityRef(days, selectedItem);
+      if (selected?.dayIdx === dayIdx && selected?.itemIdx === itemIdx) setSelectedItem(null);
     }
     updateDays(ds => ds.map((d, i) => i === dayIdx ? { ...d, items: d.items.filter((_, j) => j !== itemIdx) } : d));
     toast({ title: 'Item removido', tone: 'success' });
@@ -1296,6 +1332,19 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       : d));
     toast({ title: 'Adicionado ao roteiro', tone: 'success', desc: payload.title });
   };
+  const selectItem = (dayIdx, itemIdx) => {
+    const day = days[dayIdx];
+    const item = day?.items?.[itemIdx];
+    if (!day || !item) return;
+    const nextRef = storedActivityRefFromEntry({ day, item });
+    setSelectedItem({ ...nextRef, dayIdx, itemIdx });
+    lastEditedDayRef.current = day.d;
+    lastModifiedActivityRef.current = nextRef;
+  };
+  const selectedEntry = useMemo(
+    () => resolveStoredActivityRef(days, selectedItem),
+    [days, selectedItem]
+  );
 
   return (
     <div className="grid grid-cols-[400px_1fr] xl:grid-cols-[440px_1fr] h-screen sticky top-0">
@@ -1313,7 +1362,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
 
         <div ref={chatEndRef} className="flex-1 overflow-y-auto px-7 py-5 space-y-4">
           {chat.map((m, i) => <Bubble key={i} m={m} onCta={(t) => {
-            if (t === 'Adicionar ao roteiro' || t === 'Aplicar ao roteiro') applyItinerarySuggestions(i);
+            if (t === 'Adicionar ao roteiro' || t === 'Aplicar ao roteiro') void applyItinerarySuggestions(i);
             else send(t);
           }} />)}
           {typing && (
@@ -1341,6 +1390,20 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
 
         {/* Composer — pill chatbar, mesmo formato da Home */}
         <div className="p-5 pt-2">
+          {selectedEntry && (
+            <div className="mb-2 inline-flex max-w-full items-center gap-2 rounded-full border-half bg-white px-3 h-9 text-[12.5px] text-ink-800 shadow-soft">
+              <Icon.Edit size={12} className="text-brand-700 shrink-0"/>
+              <span className="truncate">
+                {selectedEntry.item.title} · Dia {selectedEntry.day.d} / {selectedEntry.item.t || 'item'}
+              </span>
+              <button
+                onClick={() => setSelectedItem(null)}
+                className="h-5 w-5 rounded-full hover:bg-ink-100 text-ink-500 flex items-center justify-center shrink-0"
+                title="Remover seleção">
+                <Icon.X size={12}/>
+              </button>
+            </div>
+          )}
           <div className="bg-white border-half rounded-full shadow-card h-[56px] pl-5 pr-[6px] flex items-center gap-2 transition-shadow hover:shadow-lift focus-within:shadow-lift focus-within:border-brand-200 focus-within:ring-4 focus-within:ring-brand-50">
             <Icon.Sparkles size={15} className="text-ink-500 shrink-0"/>
             <input
@@ -1373,8 +1436,10 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         {prep && <PlanPrep trip={tripData} prep={prep} onToggle={togglePrep}/>}
         <Timeline
           days={days}
+          selectedItem={selectedItem}
+          onSelect={selectItem}
           onAdd={(dayIdx, slot) => setAdding({ dayIdx, slot })}
-          onEdit={(dayIdx, itemIdx) => setEditing({ dayIdx, itemIdx })}
+          onEdit={(dayIdx, itemIdx) => { selectItem(dayIdx, itemIdx); setEditing({ dayIdx, itemIdx }); }}
           onTogglePin={togglePin}
           onRemove={removeItem}
         />
@@ -1618,8 +1683,9 @@ const PlanPrep = ({ trip, prep, onToggle }) => {
 };
 
 // ---------- Timeline ----------
-const Timeline = ({ days, onAdd, onEdit, onTogglePin, onRemove }) => {
+const Timeline = ({ days, selectedItem, onSelect, onAdd, onEdit, onTogglePin, onRemove }) => {
   const safeDays = normalizeDays(days);
+  const selectedEntry = resolveStoredActivityRef(safeDays, selectedItem);
   if (safeDays.length === 0) {
     return (
       <div className="px-8 py-10">
@@ -1670,7 +1736,9 @@ const Timeline = ({ days, onAdd, onEdit, onTogglePin, onRemove }) => {
                       // we need the absolute item index
                       const itemIdx = day.items.indexOf(it);
                       return (
-                        <ItemCard key={idx} it={it}
+                        <ItemCard key={it.id || `${day.d}-${slot}-${idx}`} it={it}
+                          selected={selectedEntry?.dayIdx === di && selectedEntry?.itemIdx === itemIdx}
+                          onSelect={() => onSelect(di, itemIdx)}
                           onEdit={() => onEdit(di, itemIdx)}
                           onTogglePin={() => onTogglePin(di, itemIdx)}
                           onRemove={() => onRemove(di, itemIdx)}/>
@@ -1702,11 +1770,27 @@ const tagPalette = {
   'day-trip':  { tone: 'sage', icon: Icon.Map },
 };
 
-const ItemCard = ({ it, onEdit, onTogglePin, onRemove }) => {
+const ItemCard = ({ it, selected = false, onSelect, onEdit, onTogglePin, onRemove }) => {
   const cfg = tagPalette[it.tag] || { tone:'ink', icon: Icon.MapPin };
   const Ic = cfg.icon;
+  const stop = (handler) => (event) => {
+    event.stopPropagation();
+    handler && handler(event);
+  };
   return (
-    <div className="group bg-white border hairline rounded-xl p-4 hover:border-brand-200 focus-within:border-brand-200 transition-colors flex items-start gap-3">
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect && onSelect();
+        }
+      }}
+      className={`group bg-white border hairline rounded-xl p-4 focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-50 transition-colors flex items-start gap-3 ${
+        selected ? 'border-brand-200 ring-2 ring-brand-50' : 'hover:border-brand-200 focus-within:border-brand-200'
+      }`}>
       <div className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0
                        ${cfg.tone === 'brand' ? 'bg-brand-50 text-brand-700' :
                          cfg.tone === 'coral' ? 'bg-coral-50 text-coral-700' :
@@ -1730,13 +1814,13 @@ const ItemCard = ({ it, onEdit, onTogglePin, onRemove }) => {
         </div>
       </div>
       <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 shrink-0">
-        <button onClick={onTogglePin} className="h-7 w-7 rounded-md hover:bg-ink-100 text-ink-600 flex items-center justify-center" title="Alternar confirmação">
+        <button onClick={stop(onTogglePin)} className="h-7 w-7 rounded-md hover:bg-ink-100 text-ink-600 flex items-center justify-center" title="Alternar confirmação">
           <Icon.Check size={14}/>
         </button>
-        <button onClick={onEdit} className="h-7 w-7 rounded-md hover:bg-ink-100 text-ink-600 flex items-center justify-center" title="Editar">
+        <button onClick={stop(onEdit)} className="h-7 w-7 rounded-md hover:bg-ink-100 text-ink-600 flex items-center justify-center" title="Editar">
           <Icon.Edit size={14}/>
         </button>
-        <button onClick={onRemove} className="h-7 w-7 rounded-md hover:bg-coral-50 text-coral-700 flex items-center justify-center" title="Remover">
+        <button onClick={stop(onRemove)} className="h-7 w-7 rounded-md hover:bg-coral-50 text-coral-700 flex items-center justify-center" title="Remover">
           <Icon.Trash size={14}/>
         </button>
       </div>
