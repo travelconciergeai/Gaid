@@ -31,9 +31,80 @@ Limites:
 
 Estilo ideal:
 Responda como uma mensagem de chat. Curta, natural e acionavel.
+
+Formato tecnico obrigatorio:
+- Retorne somente JSON valido, sem markdown e sem texto fora do JSON.
+- Use esta forma:
+{
+  "text": "mensagem natural para aparecer no chat",
+  "itinerarySuggestions": [
+    {
+      "day": 1,
+      "slot": "manhã",
+      "title": "string",
+      "place": "string",
+      "dur": "string",
+      "tag": "string",
+      "vibe": "string"
+    }
+  ]
+}
+- O campo text e obrigatorio.
+- Inclua itinerarySuggestions somente quando o usuario pedir roteiro, atividades, plano por dia, ou disser aplicar/adicionar ao roteiro, e voce tiver sugestoes concretas.
+- Se nao tiver certeza do dia ou periodo, nao inclua itinerarySuggestions.
+- Use slot apenas como "manhã", "tarde" ou "noite".
+- Nao invente reservas confirmadas.
 `.trim();
 
 const fallbackText = 'Ainda nao estou conectada a OpenAI aqui, mas posso continuar te ajudando: me diga destino, datas e quem vai viajar.';
+
+function stripJsonFences(value = '') {
+  return String(value)
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+}
+
+function parseAssistantPayload(rawText) {
+  const cleaned = stripJsonFences(rawText);
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+  } catch (_error) {
+    return null;
+  }
+  return null;
+}
+
+function normalizeSlot(value) {
+  const text = String(value || '').trim().toLowerCase();
+  if (text === 'manha') return 'manhã';
+  if (['manhã', 'tarde', 'noite'].includes(text)) return text;
+  return null;
+}
+
+function normalizeItinerarySuggestion(item) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+  const day = Number(item.day);
+  const slot = normalizeSlot(item.slot);
+  const title = typeof item.title === 'string' ? item.title.trim() : '';
+  if (!Number.isFinite(day) || day < 1 || !slot || !title) return null;
+  return {
+    day: Math.floor(day),
+    slot,
+    title,
+    place: typeof item.place === 'string' && item.place.trim() ? item.place.trim() : 'A definir',
+    dur: typeof item.dur === 'string' && item.dur.trim() ? item.dur.trim() : 'A definir',
+    tag: typeof item.tag === 'string' && item.tag.trim() ? item.tag.trim() : 'item',
+    vibe: typeof item.vibe === 'string' && item.vibe.trim() ? item.vibe.trim() : '',
+  };
+}
+
+function normalizeItinerarySuggestions(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(normalizeItinerarySuggestion).filter(Boolean).slice(0, 12);
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -94,14 +165,14 @@ export default async function handler(req, res) {
       });
     }
 
-    const text =
+    const rawText =
       data.output_text ||
       data.output
         ?.flatMap(item => item.content || [])
         ?.find(content => content.type === 'output_text')
         ?.text;
 
-    if (!text) {
+    if (!rawText) {
       return res.status(502).json({
         text: 'Não consegui obter uma resposta da IA agora. Tente novamente em instantes.',
         source: 'openai-error',
@@ -109,10 +180,22 @@ export default async function handler(req, res) {
       });
     }
 
-    return res.status(200).json({
+    const parsedPayload = parseAssistantPayload(rawText);
+    const text = typeof parsedPayload?.text === 'string' && parsedPayload.text.trim()
+      ? parsedPayload.text.trim()
+      : rawText.trim();
+    const itinerarySuggestions = parsedPayload
+      ? normalizeItinerarySuggestions(parsedPayload.itinerarySuggestions)
+      : [];
+
+    const payload = {
       text,
       source: 'openai',
-    });
+    };
+    if (itinerarySuggestions.length > 0) {
+      payload.itinerarySuggestions = itinerarySuggestions;
+    }
+    return res.status(200).json(payload);
   } catch (error) {
     const detail = error?.message || String(error);
     console.error('[api/chat] Handler error', error);

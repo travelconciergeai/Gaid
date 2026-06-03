@@ -57,6 +57,39 @@ function storedMessageToBubble(message) {
     source: message.source || message.metadata?.source,
   };
 }
+function normalizeSuggestionSlot(value) {
+  const slot = String(value || '').toLowerCase().trim();
+  if (slot === 'manha') return 'manhã';
+  return ['manhã', 'tarde', 'noite'].includes(slot) ? slot : 'manhã';
+}
+function normalizeItinerarySuggestions(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+    const day = Number(item.day);
+    const title = String(item.title || '').trim();
+    if (!Number.isFinite(day) || day < 1 || !title) return null;
+    return {
+      day: Math.floor(day),
+      slot: normalizeSuggestionSlot(item.slot),
+      title,
+      place: String(item.place || TBD).trim() || TBD,
+      dur: String(item.dur || TBD).trim() || TBD,
+      tag: String(item.tag || 'item').trim() || 'item',
+      vibe: String(item.vibe || '').trim(),
+    };
+  }).filter(Boolean);
+}
+function assistantResponseToBubble(response) {
+  const itinerarySuggestions = normalizeItinerarySuggestions(response?.itinerarySuggestions);
+  return {
+    who: 'gaid',
+    text: response.text,
+    source: response.source,
+    itinerarySuggestions,
+    cta: itinerarySuggestions.length > 0 ? ['Adicionar ao roteiro'] : null,
+  };
+}
 
 const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
   const toast = useToast();
@@ -161,6 +194,46 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     setChat(c => [...c, { who: 'gaid', text: `Apliquei o modo “${m.label}” ao seu roteiro. ${m.delta ? `(${m.delta})` : ''} Posso ajustar mais alguma coisa?` }]);
   };
 
+  const placeholderDay = (dayNumber) => ({
+    d: dayNumber,
+    date: TBD,
+    city: tripData.destination || tripData.tripContext?.destination || TBD,
+    flight: false,
+    items: [],
+  });
+
+  const applyItinerarySuggestions = (messageIndex) => {
+    const message = chat[messageIndex];
+    const suggestions = normalizeItinerarySuggestions(message?.itinerarySuggestions);
+    if (suggestions.length === 0 || message?.ctaApplied) return;
+    setDays(currentDays => {
+      const nextDays = normalizeDays(currentDays).map(day => ({ ...day, items: [...day.items] }));
+      const maxDay = Math.max(...suggestions.map(item => item.day));
+      for (let dayNumber = 1; dayNumber <= maxDay; dayNumber += 1) {
+        if (!nextDays.some(day => day.d === dayNumber)) nextDays.push(placeholderDay(dayNumber));
+      }
+      suggestions.forEach((suggestion) => {
+        const day = nextDays.find(item => item.d === suggestion.day);
+        if (!day) return;
+        day.items.push({
+          t: suggestion.slot,
+          title: suggestion.title,
+          place: suggestion.place,
+          dur: suggestion.dur,
+          tag: suggestion.tag,
+          vibe: suggestion.vibe,
+          conf: false,
+        });
+      });
+      return nextDays.sort((a, b) => a.d - b.d);
+    });
+    setChat(current => current.map((item, index) => index === messageIndex
+      ? { ...item, cta: ['Adicionado ao roteiro'], ctaApplied: true }
+      : item
+    ));
+    toast({ title: 'Adicionado ao roteiro', desc: `${suggestions.length} sugestão${suggestions.length === 1 ? '' : 'ões'} adicionada${suggestions.length === 1 ? '' : 's'}.`, tone: 'success' });
+  };
+
   useEffect(() => {
     chatEndRef.current?.scrollTo({ top: 99999, behavior: 'smooth' });
   }, [chat, typing]);
@@ -183,7 +256,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     }).then((response) => {
       if (!alive) return;
       setTyping(false);
-      setChat(c => [...c, { who: 'gaid', text: response.text, source: response.source }]);
+      setChat(c => [...c, assistantResponseToBubble(response)]);
       persistPlanMessage('assistant', response.text, { source: response.source });
       clearKickoff && clearKickoff();
     }).catch(() => {
@@ -225,7 +298,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
           .map(m => ({ role: m.who === 'user' ? 'user' : 'assistant', text: m.text })),
         context: { surface: 'plan', tripTitle: tripData.title, tab },
       });
-      setChat(c => [...c, { who: 'gaid', text: response.text, source: response.source }]);
+      setChat(c => [...c, assistantResponseToBubble(response)]);
       persistPlanMessage('assistant', response.text, { source: response.source });
     } catch (_error) {
       const fallback = 'Não consegui responder agora. Tente novamente em instantes.';
@@ -289,7 +362,10 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         </header>
 
         <div ref={chatEndRef} className="flex-1 overflow-y-auto px-7 py-5 space-y-4">
-          {chat.map((m, i) => <Bubble key={i} m={m} onCta={(t) => send(t)} />)}
+          {chat.map((m, i) => <Bubble key={i} m={m} onCta={(t) => {
+            if (t === 'Adicionar ao roteiro') applyItinerarySuggestions(i);
+            else send(t);
+          }} />)}
           {typing && (
             <div className="flex gap-1 pt-2">
               <span className="dot h-1.5 w-1.5 rounded-full bg-ink-400"/>
@@ -396,9 +472,13 @@ const Bubble = ({ m, onCta }) => {
       {m.cta && (
         <div className="mt-3 flex flex-wrap gap-2">
           {m.cta.map(c => (
-            <button key={c} onClick={() => onCta(c)}
-              className="h-8 px-3 rounded-full border-half bg-white text-[12.5px] text-ink-800 hover:border-ink-400 hover:bg-ink-50 transition-colors flex items-center gap-1.5">
-              <Icon.Sparkles size={12} className="text-ink-900"/>{c}
+            <button key={c} onClick={() => !m.ctaApplied && onCta(c)} disabled={m.ctaApplied}
+              className={`h-8 px-3 rounded-full border-half bg-white text-[12.5px] transition-colors flex items-center gap-1.5 ${
+                m.ctaApplied
+                  ? 'text-sage-700 cursor-default'
+                  : 'text-ink-800 hover:border-ink-400 hover:bg-ink-50'
+              }`}>
+              {m.ctaApplied ? <Icon.Check size={12} className="text-sage-700"/> : <Icon.Sparkles size={12} className="text-ink-900"/>}{c}
             </button>
           ))}
         </div>
