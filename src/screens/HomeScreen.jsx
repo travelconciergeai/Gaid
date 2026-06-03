@@ -1199,32 +1199,44 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         </div>
 
         <div className="min-w-0">
-          <SectionHeader eyebrow="Inspiração editorial" title="Roteiros que combinam com você"
-            action={<Button variant="ghost" iconRight={Icon.ArrowRight} onClick={() => setRoute('explore')}>Explorar todos</Button>}/>
-          <CatalogCarousel
-            query={inspoQ}
-            itemClass="w-[300px]"
-            empty={<EmptyState icon={Icon.Compass} eyebrow="Inspiração"
-              title="Roteiros sob medida aparecem aqui"
-              desc="Conte pra Gaid o que você procura e ela cura roteiros assinados por experts — em carrossel, prontos pra adaptar."
-              primary={<Button icon={Icon.Sparkles} onClick={() => setRoute('home')}>Conversar com a Gaid</Button>}/>}
-            render={(r) => (
-              <button key={r.id} onClick={() => setRoute('explore')}
-                className="bg-white border-half rounded-2xl overflow-hidden text-left card-h flex flex-col h-[360px] w-full">
-                <SmartImg seed={`route-${r.id}`} tone={r.tone} label={r.category} w={500} h={300} className="h-[170px] w-full shrink-0"/>
-                <div className="p-4 flex flex-col flex-1">
-                  <div className="text-[10.5px] uppercase tracking-wider text-ink-500 mb-1">{orTBD(r.category)}</div>
-                  <div className="text-[14.5px] font-medium text-ink-900 leading-snug line-clamp-2">{orTBD(r.title)}</div>
-                  {has(r.expert) && <div className="text-[11.5px] text-ink-500 mt-2 flex items-center gap-1.5"><Icon.Sparkles size={11} className="text-ink-900"/> Por {r.expert}</div>}
-                  <div className="mt-auto pt-3 text-[12px] text-ink-500 flex items-center justify-between">
-                    <span className="whitespace-nowrap">{has(r.days) ? `${r.days} dias` : TBD}</span>
-                    <span className="whitespace-nowrap">desde <span className="text-ink-900 font-medium">{orTBD(r.from)}</span></span>
-                  </div>
+          {inspoQ?.status === 'empty' ? (
+            <Card className="h-[260px] p-5 flex items-center">
+              <div className="max-w-[420px]">
+                <div className="h-10 w-10 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center mb-4">
+                  <Icon.Compass size={17}/>
                 </div>
-              </button>
-            )}
-          />
-        </div>
+                <div className="text-[16px] font-serif font-medium tracking-tight text-ink-900">Roteiros sob medida aparecem aqui</div>
+                <div className="text-[13px] text-ink-500 mt-2 leading-relaxed">
+                  Quando houver sugestões prontas para o seu perfil, elas aparecem nesta área.
+                </div>
+              </div>
+            </Card>
+          ) : (
+            <>
+              <SectionHeader eyebrow="Inspiração editorial" title="Roteiros que combinam com você"
+                action={<Button variant="ghost" iconRight={Icon.ArrowRight} onClick={() => setRoute('explore')}>Explorar todos</Button>}/>
+              <CatalogCarousel
+                query={inspoQ}
+                itemClass="w-[300px]"
+                render={(r) => (
+                  <button key={r.id} onClick={() => setRoute('explore')}
+                    className="bg-white border-half rounded-2xl overflow-hidden text-left card-h flex flex-col h-[360px] w-full">
+                    <SmartImg seed={`route-${r.id}`} tone={r.tone} label={r.category} w={500} h={300} className="h-[170px] w-full shrink-0"/>
+                    <div className="p-4 flex flex-col flex-1">
+                      <div className="text-[10.5px] uppercase tracking-wider text-ink-500 mb-1">{orTBD(r.category)}</div>
+                      <div className="text-[14.5px] font-medium text-ink-900 leading-snug line-clamp-2">{orTBD(r.title)}</div>
+                      {has(r.expert) && <div className="text-[11.5px] text-ink-500 mt-2 flex items-center gap-1.5"><Icon.Sparkles size={11} className="text-ink-900"/> Por {r.expert}</div>}
+                      <div className="mt-auto pt-3 text-[12px] text-ink-500 flex items-center justify-between">
+                        <span className="whitespace-nowrap">{has(r.days) ? `${r.days} dias` : TBD}</span>
+                        <span className="whitespace-nowrap">desde <span className="text-ink-900 font-medium">{orTBD(r.from)}</span></span>
+                      </div>
+                    </div>
+                  </button>
+                )}
+              />
+            </>
+          )}
+                  </div>
       </section>
 
       <footer className="px-10 pb-10 pt-2">
