@@ -103,7 +103,7 @@ function suggestionsHavePlacement(suggestions) {
 }
 function isApplyIntent(value) {
   const text = normText(value);
-  return /(aplicar|adicionar ao roteiro|aplicar ao roteiro|pode adicionar|pode aplicar|pode fazer|faz isso|coloca no roteiro|incluir no roteiro|gostei\b|gostei,\s*adiciona|gostei.*adiciona|gostei.*coloca)/.test(text);
+  return /(escolha por mim|aplicar|aplica|adicionar ao roteiro|aplicar ao roteiro|pode adicionar|pode aplicar|pode fazer|faz isso|coloca no roteiro|incluir no roteiro|gostei\b|gostei,\s*adiciona|gostei.*adiciona|gostei.*coloca)/.test(text);
 }
 function isAddDayIntent(value) {
   const text = normText(value);
@@ -124,6 +124,10 @@ function isRemoveActivityIntent(value) {
 function isReplaceActivityIntent(value) {
   const text = normText(value);
   return /(trocar|substituir|mudar|remover).*(atividade|passeio|restaurante|museu|item)|(?:atividade|passeio|restaurante|museu|item).*(trocar|substituir|mudar)|nao gostei|não gostei|outra opcao|outra opção|me da uma alternativa|me dá uma alternativa|algo mais romantico|algo mais romântico|algo menos turistico|algo menos turístico|algo mais barato|algo melhor para criancas|algo melhor para crianças/.test(text);
+}
+function isSelectedItemApplyCommand(value) {
+  const text = normText(value);
+  return /(escolha por mim|aplique|aplica|pode aplicar|faz isso|substitui|substituir|troca|trocar)/.test(text);
 }
 function isOptimizeItineraryIntent(value) {
   const text = normText(value);
@@ -1243,6 +1247,17 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     toast({ title: 'Roteiro reorganizado', desc: action.payload?.summary || 'Mudanças aplicadas.', tone: 'success' });
     return 'applied';
   };
+  const clearPendingItineraryActions = () => {
+    setChat(current => current.map((item) => {
+      const hasPendingItineraryAction = item?.pendingAction?.type === 'ADD_ACTIVITY' ||
+        item?.pendingAction?.type === 'ADD_DAY' ||
+        (Array.isArray(item?.itinerarySuggestions) && item.itinerarySuggestions.length > 0);
+      return hasPendingItineraryAction
+        ? { ...item, cta: null, ctaApplied: true, pendingAction: null }
+        : item;
+    }));
+    setPendingPlacementMessageIndex(null);
+  };
 
   // If trip changes (user opened a different trip), reset state.
   useEffect(() => {
@@ -1510,7 +1525,17 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     const userMsg = { who: 'user', text: t };
     const nextChat = [...chat, userMsg];
     const lastAssistant = latestAssistantMessage(chat);
-    const planIntent = classifyPlanChatIntent(t, tripData, lastAssistant);
+    const selectedTarget = resolveStoredActivityRef(days, selectedItem);
+    let planIntent = classifyPlanChatIntent(t, tripData, lastAssistant);
+    if (selectedTarget?.item && isSelectedItemApplyCommand(t)) {
+      planIntent = {
+        intent: 'REPLACE_ACTIVITY',
+        confidence: 0.96,
+        requiresTrip: true,
+        nextTool: 'Itinerary Editor',
+        reason: 'Usuário pediu aplicação/troca enquanto havia um item selecionado.',
+      };
+    }
     setChat(nextChat);
     setDraft('');
     setTyping(true);
@@ -1531,7 +1556,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       return;
     }
 
-    if (isApplyIntent(t)) {
+    if (isApplyIntent(t) && planIntent.intent !== 'REPLACE_ACTIVITY') {
       const replanIndex = latestPendingActionMessageIndex(nextChat, 'PENDING_REPLAN');
       if (replanIndex >= 0) {
         setTyping(false);
@@ -1885,13 +1910,16 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
           ? { ...structured, day: target.day.d, slot: target.item.t }
           : localReplacementSuggestion(t, tripData, target);
         await replaceActivity(target, suggestion);
+        clearPendingItineraryActions();
+        setSelectedItem(null);
         const reply = selectedItem
           ? 'Pronto — substituí esse item no roteiro.'
           : 'Pronto — substituí a atividade por uma alternativa mais alinhada ao que você pediu.';
-        setChat(c => [...c, { who: 'gaid', text: reply, source: structured ? response.source : 'local' }]);
+        setChat(c => [...c, { who: 'gaid', text: reply, source: structured ? response.source : 'local', status: 'applied', ctaApplied: true }]);
         persistPlanMessage('assistant', reply, {
           source: structured ? response.source : 'local',
           intent: planIntent.intent,
+          status: 'applied',
           replaced: target.item.title,
           replacement: suggestion.title,
         });
@@ -2162,7 +2190,8 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
 // ---------- Chat bubble ----------
 const Bubble = ({ m, onCta }) => {
   const ctas = Array.isArray(m.cta) ? m.cta.filter(Boolean) : [];
-  const showCta = ctas.length > 0 && !m.initialKickoff;
+  const hasPendingAction = !!m.pendingAction;
+  const showCta = ctas.length > 0 && hasPendingAction && !m.initialKickoff && !m.ctaApplied && m.status !== 'applied';
   if (m.who === 'user') {
     return (
       <div className="flex justify-end">
