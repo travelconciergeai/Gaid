@@ -14,6 +14,129 @@ import { tripApi } from '../core/tripApi.jsx';
 //             The Disney wizard renders inline inside agent messages (list of
 //             single-click options + "outra opção" free-text field).
 
+const TRIP_WIZARD = [
+  {
+    id: 'destination',
+    q: 'Para onde você quer viajar?',
+    sub: 'Pode ser um destino exato, uma região ou uma ideia ainda aberta.',
+    options: [
+      { id: 'paris', label: 'Paris', hint: 'clássico, gastronomia e cultura' },
+      { id: 'lisboa', label: 'Lisboa e Porto', hint: 'Portugal com ritmo gostoso' },
+      { id: 'japao', label: 'Japão', hint: 'Tóquio, Kyoto e experiências locais' },
+      { id: 'praia', label: 'Praia', hint: 'quero sol, mar e descanso' },
+    ],
+  },
+  {
+    id: 'period',
+    q: 'Quando você imagina viajar?',
+    sub: 'Se ainda não tiver data, um mês ou estação já ajuda.',
+    options: [
+      { id: 'julho', label: 'Julho', hint: 'férias escolares' },
+      { id: 'dezembro', label: 'Dezembro', hint: 'fim de ano' },
+      { id: 'flexivel', label: 'Datas flexíveis', hint: 'a Gaid pode sugerir melhor janela', recommended: true },
+      { id: 'nao-sei', label: 'Ainda não sei', hint: 'vamos deixar em aberto' },
+    ],
+  },
+  {
+    id: 'duration',
+    q: 'Quantas noites você quer ficar?',
+    sub: 'Uso isso para abrir os dias do roteiro sem inventar atividades.',
+    options: [
+      { id: '3', label: '3 noites', hint: 'escapada curta' },
+      { id: '5', label: '5 noites', hint: 'ritmo enxuto' },
+      { id: '7', label: '7 noites', hint: 'uma semana completa', recommended: true },
+      { id: '10', label: '10+ noites', hint: 'viagem mais profunda' },
+    ],
+  },
+  {
+    id: 'travelers',
+    q: 'Quem vai viajar?',
+    sub: 'Isso muda ritmo, hotel, deslocamentos e experiências.',
+    options: [
+      { id: 'solo', label: 'Só eu', hint: 'liberdade total' },
+      { id: 'couple', label: 'Casal', hint: 'ritmo mais íntimo' },
+      { id: 'family', label: 'Família', hint: 'com crianças ou parentes', recommended: true },
+      { id: 'friends', label: 'Amigos', hint: 'grupo e energia social' },
+    ],
+  },
+  {
+    id: 'childrenAges',
+    q: 'Tem crianças na viagem?',
+    sub: 'Se tiver, me diga a faixa etária para eu ajustar ritmo e cuidados.',
+    options: [
+      { id: 'none', label: 'Sem crianças', hint: 'pode seguir sem adaptações' },
+      { id: 'baby', label: 'Bebê ou toddler', hint: '0 a 3 anos' },
+      { id: 'kids', label: 'Crianças', hint: '4 a 11 anos' },
+      { id: 'teens', label: 'Adolescentes', hint: '12+ anos' },
+    ],
+  },
+  {
+    id: 'budget',
+    q: 'Qual faixa de orçamento combina melhor?',
+    sub: 'Não precisa ser exato. É só para calibrar as sugestões.',
+    options: [
+      { id: 'smart', label: 'Custo-benefício', hint: 'bom padrão sem exageros' },
+      { id: 'premium', label: 'Premium', hint: 'conforto e boas escolhas', recommended: true },
+      { id: 'luxury', label: 'Luxo', hint: 'hotéis e experiências especiais' },
+      { id: 'open', label: 'A definir', hint: 'vamos calibrar depois' },
+    ],
+  },
+  {
+    id: 'stylePace',
+    q: 'Qual estilo de viagem você prefere?',
+    sub: 'Isso define o ritmo do roteiro.',
+    options: [
+      { id: 'relaxed', label: 'Mais respiro', hint: 'menos correria, mais tempo livre' },
+      { id: 'classic', label: 'Clássicos bem feitos', hint: 'principais atrações com curadoria' },
+      { id: 'food-culture', label: 'Gastronomia e cultura', hint: 'restaurantes, arte e bairros' },
+      { id: 'mixed', label: 'Misturado', hint: 'equilíbrio entre tudo', recommended: true },
+    ],
+  },
+];
+
+function answerLabel(answers, key) {
+  return answers[key]?.label || '';
+}
+
+function answerId(answers, key) {
+  return answers[key]?.optId || '';
+}
+
+function parseNights(answer) {
+  const value = Number(answerId(answer, 'duration') || String(answerLabel(answer, 'duration')).match(/\d+/)?.[0]);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function travelerCountFrom(answer) {
+  const id = answerId(answer, 'travelers');
+  if (id === 'solo') return 1;
+  if (id === 'couple') return 2;
+  return null;
+}
+
+function buildTripContext(answers, prompt) {
+  const destination = answerLabel(answers, 'destination');
+  const period = answerLabel(answers, 'period');
+  const childrenAges = answerId(answers, 'childrenAges') === 'none' ? null : answerLabel(answers, 'childrenAges');
+  return {
+    prompt,
+    wizard: {
+      completed: true,
+      answers,
+    },
+    destination: destination || null,
+    period: period || null,
+    dates: period ? { label: period } : null,
+    nights: parseNights(answers),
+    duration: answerLabel(answers, 'duration') || null,
+    travelers: travelerCountFrom(answers),
+    travelerComposition: answerLabel(answers, 'travelers') || null,
+    childrenAges,
+    budget: answerLabel(answers, 'budget') || null,
+    stylePace: answerLabel(answers, 'stylePace') || null,
+  };
+}
+
 const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   const acct = useAccount();
   const hasTrip = !!activeTrip;
@@ -29,12 +152,15 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   const [wizardStep, setWizardStep] = useState(0);
   const [answers, setAnswers] = useState({});
   const [phase, setPhase] = useState('asking');                // asking | generating | done
-  const [flowKey, setFlowKey] = useState('disney');            // disney | kids | dog
+  const [flowKey, setFlowKey] = useState('trip');              // trip | disney | kids | dog
+  const [initialPrompt, setInitialPrompt] = useState('');
   const toast = useToast();
   const scrollerRef = useRef(null);
 
   // Flow configs — each maps to a wizard, a generation script, and a target trip.
   const FLOW_CFG = {
+    trip: { wizardKey:'tripWizard', genKey:'genSteps', tripKey:'trip',
+      intro:'Perfeito. Vou te fazer algumas perguntas rápidas para montar a base do seu roteiro.' },
     disney: { wizardKey:'disneyWizard', genKey:'genSteps',     tripKey:'disneyTrip',
       intro:'Disney em família é uma das minhas especialidades. Vou te perguntar algumas coisas rápidas — clica numa opção ou descreve com suas palavras.' },
     kids:   { wizardKey:'kidsWizard',   genKey:'genStepsKids', tripKey:'disneyTrip',
@@ -42,8 +168,8 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     dog:    { wizardKey:'dogWizard',    genKey:'genStepsDog',  tripKey:'dogTrip',
       intro:'Viajar com cachorro pra Europa tem prazos que começam ~30 dias antes. Vou fazer 3 perguntas e montar tudo — documentos, voo na cabine, hotéis pet-friendly e pontos de atenção.' },
   };
-  const cfg = FLOW_CFG[flowKey] || FLOW_CFG.disney;
-  const wizard = [];   // guided wizard is backend-driven; chatbar routes to the concierge
+  const cfg = FLOW_CFG[flowKey] || FLOW_CFG.trip;
+  const wizard = flowKey === 'trip' ? TRIP_WIZARD : [];
 
   const detectFlow = (t) => {
     const s = (t || '').toLowerCase();
@@ -62,6 +188,8 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   // ---- flow control ----
   const startFlow = (userText, key) => {
     setFlowKey(key);
+    setInitialPrompt(userText);
+    setAnswers({});
     setMode('chat');
     setChat([{ id: 'u-0', who: 'user', text: userText }]);
     setThinking(true);
@@ -105,28 +233,9 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     if (!t) return;
     setInput('');
 
-    // From idle: create a real trip through App/store, then open the plan.
+    // From idle: collect the core trip context before creating the real trip.
     if (mode === 'idle') {
-      const f = null;   // guided flows remain backend-driven
-      if (f) {
-        startFlow(t, f);
-      } else {
-        setThinking(true);
-        Promise.resolve(kickoffPlan && kickoffPlan(t))
-          .then(() => setRoute && setRoute('plan'))
-          .catch(() => {
-            setMode('chat');
-            setChat([{ id: `u-${Date.now()}`, who: 'user', text: t }]);
-            setPhase('done');
-            setChat(c => [...c, {
-              id: `a-${Date.now()}`,
-              who: 'agent',
-              text: 'Não consegui criar sua viagem agora. Tente novamente em instantes.',
-              source: 'error',
-            }]);
-          })
-          .finally(() => setThinking(false));
-      }
+      startFlow(t, 'trip');
       return;
     }
 
@@ -143,7 +252,9 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
 
   const answerWizard = (optId, label) => {
     const step = wizard[wizardStep];
-    setAnswers(a => ({ ...a, [step.id]: { optId, label } }));
+    if (!step) return;
+    const nextAnswers = { ...answers, [step.id]: { optId, label } };
+    setAnswers(nextAnswers);
     // Lock the current wizard message + append user reply
     setChat(c => [
       ...c.map(m => (m.wizardStep === wizardStep ? { ...m, answered: { optId, label } } : m)),
@@ -157,18 +268,29 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         setWizardStep(next);
         setChat(c => [...c, { who: 'agent', wizardStep: next }]);
       } else {
-        // Finished — kick off generation
+        // Finished — create the trip with the collected context and open Plan.
         setPhase('generating');
-        const genMsg = flowKey === 'dog'
-          ? 'Perfeito. Estou montando o roteiro e o checklist completo do pet — leva uns 30 segundos.'
-          : flowKey === 'kids'
-            ? 'Ótimo. Vou montar o roteiro e pensar em cada detalhe das crianças — leva uns 30 segundos.'
-            : 'Beleza, tenho tudo. Estou montando seu roteiro agora — leva uns 30 segundos.';
+        const genMsg = 'Perfeito. Vou abrir a base do seu roteiro agora.';
         setChat(c => [
           ...c,
           { who: 'agent', text: genMsg },
-          { who: 'agent', generating: true },
         ]);
+        Promise.resolve(kickoffPlan && kickoffPlan({
+          prompt: initialPrompt,
+          context: buildTripContext(nextAnswers, initialPrompt),
+        }))
+          .then(() => {
+            setRoute && setRoute('plan');
+          })
+          .catch(() => {
+            setPhase('done');
+            setChat(c => [...c, {
+              id: `a-${Date.now()}`,
+              who: 'agent',
+              text: 'Não consegui criar sua viagem agora. Tente novamente em instantes.',
+              source: 'error',
+            }]);
+          });
       }
     }, 700);
   };
