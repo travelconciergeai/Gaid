@@ -62,6 +62,74 @@ const BASE_TRIP_WIZARD = [
   },
 ];
 
+function classifyGaidIntent(message) {
+  try {
+    const text = normText(message);
+    const planRe = /\b(roteiro|viagem|viajar|planej|planejar|monte|montar|criar|crie|itinerario|itinerario|dias?|noites?)\b/;
+    const recommendationRe = /\b(o que fazer|indica|indique|recomenda|recomende|restaurante|cafe|café|hotel|hoteis|hotéis|bar\b|bares|atividade|passeio|onde|lugar|lugares|hoje|agora)\b/;
+    const barePlaceRe = /^[a-z\s\u00C0-\u017F]{2,32}$/i;
+
+    if (recommendationRe.test(text) && !/\b(roteiro|planej|planejar|monte|montar|criar|crie)\b/.test(text)) {
+      return { intent: 'GET_RECOMMENDATION', confidence: 0.84, reason: 'Pedido de indicação rápida de lugar ou atividade.' };
+    }
+    if (planRe.test(text)) {
+      return { intent: 'PLAN_TRIP', confidence: 0.86, reason: 'Pedido de roteiro, viagem completa ou planejamento.' };
+    }
+    if (barePlaceRe.test(String(message || '').trim())) {
+      return { intent: 'UNCLEAR', confidence: 0.58, reason: 'Destino isolado sem intenção clara.' };
+    }
+    return { intent: 'UNCLEAR', confidence: 0.5, reason: 'Mensagem sem intenção suficiente para criar viagem.' };
+  } catch (_error) {
+    return { intent: 'UNCLEAR', confidence: 0, reason: 'Falha local ao classificar intenção.' };
+  }
+}
+
+function inferRecommendationQuery(message) {
+  const raw = String(message || '').trim();
+  const text = normText(raw);
+  const category =
+    /\b(restaurante|jantar|almoco|almoço|comer)\b/.test(text) ? 'Restaurante' :
+    /\b(cafe|café|cafeteria)\b/.test(text) ? 'Café' :
+    /\b(hotel|hoteis|hotéis|hospedagem)\b/.test(text) ? 'Hotel' :
+    /\b(bar|bares|drink)\b/.test(text) ? 'Bar' :
+    'Experiência';
+  const known = [
+    'Rio de Janeiro', 'Ipanema', 'Paris', 'Orlando', 'São Paulo', 'Sao Paulo',
+    'Lisboa', 'Porto', 'Bogotá', 'Bogota', 'Bahia', 'Tokyo', 'Tóquio',
+  ];
+  const area = known.find(place => text.includes(normText(place))) || raw.replace(/^(me indica|indica|indique|recomenda|recomende|onde|o que fazer|quais?)\s+/i, '').slice(0, 42) || 'sua região';
+  return { category, area };
+}
+
+function buildLocalRecommendations(message) {
+  const { category, area } = inferRecommendationQuery(message);
+  const areaLabel = area || 'sua região';
+  const categoryLabel = category || 'Experiência';
+  return [
+    {
+      name: categoryLabel === 'Restaurante' ? `Mesa autoral em ${areaLabel}` : categoryLabel === 'Café' ? `Café charmoso em ${areaLabel}` : categoryLabel === 'Hotel' ? `Hotel bem localizado em ${areaLabel}` : `Passeio leve em ${areaLabel}`,
+      category: categoryLabel,
+      area: areaLabel,
+      reason: 'Boa primeira opção para calibrar gosto, ritmo e localização.',
+      rating: 'Fonte local futura',
+    },
+    {
+      name: categoryLabel === 'Restaurante' ? `Bistrô casual em ${areaLabel}` : categoryLabel === 'Café' ? `Cafeteria de bairro em ${areaLabel}` : categoryLabel === 'Hotel' ? `Hospedagem boutique em ${areaLabel}` : `Experiência cultural em ${areaLabel}`,
+      category: categoryLabel,
+      area: areaLabel,
+      reason: 'Alternativa mais tranquila, com cara de descoberta.',
+      rating: 'Google Places em breve',
+    },
+    {
+      name: categoryLabel === 'Restaurante' ? `Clássico confiável em ${areaLabel}` : categoryLabel === 'Café' ? `Café para ir sem pressa em ${areaLabel}` : categoryLabel === 'Hotel' ? `Base confortável em ${areaLabel}` : `Programa curado em ${areaLabel}`,
+      category: categoryLabel,
+      area: areaLabel,
+      reason: 'Escolha segura para quando você quer acertar sem pesquisar demais.',
+      rating: 'Curadoria Gaid',
+    },
+  ];
+}
+
 const CONTEXTUAL_TRIP_STEPS = {
   familyCount: {
     id: 'travelerCount',
@@ -865,7 +933,6 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       setChat(c => [
         ...c,
         { id: 'a-intro', who: 'agent', text: FLOW_CFG[key].intro },
-        { id: `q-${firstWizardStep}`, who: 'agent', wizardStep: firstWizardStep },
       ]);
       setWizardStep(firstWizardStep);
       setPhase('asking');
@@ -902,7 +969,39 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
 
     // From idle: collect the core trip context before creating the real trip.
     if (mode === 'idle') {
-      startFlow(t, 'trip');
+      const classification = classifyGaidIntent(t);
+      setMode('chat');
+      setChat([{ id: 'u-0', who: 'user', text: t }]);
+
+      if (classification.intent === 'PLAN_TRIP') {
+        startFlow(t, 'trip');
+        return;
+      }
+
+      if (classification.intent === 'GET_RECOMMENDATION') {
+        setPhase('done');
+        setChat([
+          { id: 'u-0', who: 'user', text: t },
+          {
+            id: `rec-${Date.now()}`,
+            who: 'agent',
+            text: 'Claro. Posso te dar algumas ideias rápidas sem abrir um roteiro completo.',
+            recommendations: buildLocalRecommendations(t),
+          },
+        ]);
+        return;
+      }
+
+      setPhase('done');
+      setChat([
+        { id: 'u-0', who: 'user', text: t },
+        {
+          id: `clarify-${Date.now()}`,
+          who: 'agent',
+          text: 'Você quer que eu monte uma viagem completa ou prefere uma indicação rápida para agora?',
+          source: 'intent-router',
+        },
+      ]);
       return;
     }
 
@@ -967,7 +1066,6 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       const next = nextUnknownStepIndex(nextWizard, wizardStep + 1, nextAnswers, nextWizardContext);
       if (!completedByAi && next >= 0) {
         setWizardStep(next);
-        setChat(c => [...c, { who: 'agent', wizardStep: next }]);
       } else {
         // Finished — create the trip with the collected context and open Plan.
         setPhase('generating');
@@ -1087,6 +1185,17 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         {/* bottom chatbar — always visible */}
         <div className="px-10 pb-6 pt-3 bg-gradient-to-t from-canvas via-canvas to-canvas/0">
           <div className="max-w-[780px] mx-auto">
+            {phase === 'asking' && wizard.length > 0 && (
+              <div className="mb-4">
+                <ActionWizardPanel
+                  stepIdx={wizardStep}
+                  wizard={wizard}
+                  step={wizard[wizardStep]}
+                  answered={null}
+                  onPick={answerWizard}
+                />
+              </div>
+            )}
             <div className="bg-white border-half rounded-full shadow-card h-[56px] pl-5 pr-[6px] flex items-center gap-2 transition-shadow hover:shadow-lift focus-within:shadow-lift focus-within:border-brand-200 focus-within:ring-4 focus-within:ring-brand-50">
               <Icon.Sparkles size={15} className="text-ink-500 shrink-0"/>
               <input
@@ -1293,6 +1402,15 @@ const ChatMsg = ({ m, wizard, genSteps, onAnswer, onGenDone, onOpenTrip }) => {
     return <TripReadyInline tripId={m.tripReady} onOpen={onOpenTrip}/>;
   }
 
+  if (Array.isArray(m.recommendations) && m.recommendations.length > 0) {
+    return (
+      <div className="space-y-3 max-w-[760px]">
+        {m.text && <div className="text-[14.5px] text-ink-900 leading-relaxed max-w-[85%]">{m.text}</div>}
+        <RecommendationCarousel items={m.recommendations}/>
+      </div>
+    );
+  }
+
   // plain agent text
   return (
     <div className="text-[14.5px] text-ink-900 leading-relaxed max-w-[85%]">
@@ -1301,10 +1419,47 @@ const ChatMsg = ({ m, wizard, genSteps, onAnswer, onGenDone, onOpenTrip }) => {
   );
 };
 
+const RecommendationCarousel = ({ items }) => (
+  <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
+    {items.map((item, index) => (
+      <div key={`${item.name}-${index}`} className="shrink-0 w-[230px] bg-white border-half rounded-2xl p-4 shadow-soft">
+        <div className="h-9 w-9 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center mb-3">
+          <Icon.MapPin size={15}/>
+        </div>
+        <div className="text-[10.5px] uppercase tracking-wider text-ink-500">{item.category}</div>
+        <div className="text-[14px] font-medium text-ink-900 leading-tight mt-1">{item.name}</div>
+        <div className="text-[12px] text-ink-500 mt-1">{item.area}</div>
+        <div className="text-[12px] text-ink-600 leading-snug mt-3">{item.reason}</div>
+        <div className="mt-4 flex items-center justify-between gap-2">
+          <span className="text-[11px] text-ink-400">{item.rating}</span>
+          <button className="h-7 px-2.5 rounded-lg border-half text-[11.5px] text-ink-700 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 transition-colors">
+            Ver detalhes
+          </button>
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+// TODO: replace local recommendation cards with Google Maps Places API results.
+
+const ActionWizardPanel = ({ stepIdx, step, wizard, answered, onPick }) => (
+  <div className="bg-white border-half rounded-2xl shadow-lift p-4">
+    <InlineWizard
+      stepIdx={stepIdx}
+      wizard={wizard}
+      step={step}
+      answered={answered}
+      onPick={onPick}
+      compact
+    />
+  </div>
+);
+
 // ============ Inline wizard question ============
 // Rendered as an agent message inside the chat. Vertical list of options +
 // an "Outra opção" free-text input. Collapses once answered.
-const InlineWizard = ({ stepIdx, step, wizard, answered, onPick }) => {
+const InlineWizard = ({ stepIdx, step, wizard, answered, onPick, compact = false }) => {
   const [custom, setCustom] = useState('');
   const [selected, setSelected] = useState([]);
   if (!step) return null;
@@ -1339,7 +1494,12 @@ const InlineWizard = ({ stepIdx, step, wizard, answered, onPick }) => {
   }
 
   return (
-    <div className="space-y-4 max-w-[600px]">
+    <div className={`space-y-4 ${compact ? 'max-w-none' : 'max-w-[600px]'}`}>
+      {compact && (
+        <div className="text-[10.5px] mono uppercase tracking-wider text-ink-400">
+          etapa {String(stepIdx+1).padStart(2,'0')} de {String(total).padStart(2,'0')}
+        </div>
+      )}
       <div>
         <div className="text-[15.5px] text-ink-900 font-medium leading-snug">{step.q}</div>
         <div className="text-[12.5px] text-ink-500 mt-1">{step.sub}</div>
@@ -1394,9 +1554,9 @@ const InlineWizard = ({ stepIdx, step, wizard, answered, onPick }) => {
         </button>
       )}
 
-      <div className="text-[10.5px] mono uppercase tracking-wider text-ink-400">
+      {!compact && <div className="text-[10.5px] mono uppercase tracking-wider text-ink-400">
         pergunta {String(stepIdx+1).padStart(2,'0')} de {String(total).padStart(2,'0')}
-      </div>
+      </div>}
     </div>
   );
 };
