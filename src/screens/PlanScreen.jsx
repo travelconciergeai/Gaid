@@ -91,7 +91,104 @@ function suggestionsHavePlacement(suggestions) {
 }
 function isApplyIntent(value) {
   const text = normText(value);
-  return /(adicionar ao roteiro|aplicar ao roteiro|pode adicionar|coloca no roteiro|incluir no roteiro|gostei,\s*adiciona|gostei.*adiciona)/.test(text);
+  return /(aplicar|adicionar ao roteiro|aplicar ao roteiro|pode adicionar|pode aplicar|pode fazer|coloca no roteiro|incluir no roteiro|gostei,\s*adiciona|gostei.*adiciona|gostei.*coloca)/.test(text);
+}
+function isAddDayIntent(value) {
+  const text = normText(value);
+  return /(adicionar um dia|mais um dia|incluir mais um dia|criar mais um dia|adicionar um dia a mais|aumentar para \d+ dias?)/.test(text);
+}
+function isReplaceActivityIntent(value) {
+  const text = normText(value);
+  return /(trocar|substituir|mudar|remover).*(atividade|passeio|restaurante|museu|item)|(?:atividade|passeio|restaurante|museu|item).*(trocar|substituir|mudar)/.test(text);
+}
+function isOptimizeItineraryIntent(value) {
+  const text = normText(value);
+  return /(otimizar|reorganizar|melhorar|deixar mais leve|mais barato|menos corrido|mais premium|ajustar ritmo|reduzir custo)/.test(text);
+}
+function isRecommendationIntent(value) {
+  const text = normText(value);
+  return /\b(indica|indique|recomenda|recomende|onde|restaurante|cafe|café|bar|hotel|passeio|atividade|o que fazer)\b/.test(text);
+}
+function pendingActionFromSuggestions(type, suggestions) {
+  const normalized = normalizeItinerarySuggestions(suggestions);
+  if (normalized.length === 0) return null;
+  return {
+    type,
+    payload: { itinerarySuggestions: normalized },
+    expiresAfterTurns: 3,
+  };
+}
+function classifyPlanChatIntent(message, currentTrip, lastAssistantMessage) {
+  const text = normText(message);
+  if (isApplyIntent(message)) {
+    return {
+      intent: 'ADD_TO_ITINERARY',
+      confidence: 0.9,
+      requiresTrip: true,
+      nextTool: 'Itinerary Editor',
+      reason: 'Usuário pediu para aplicar a sugestão ao roteiro.',
+    };
+  }
+  if (isAddDayIntent(message)) {
+    return {
+      intent: 'ADD_DAY',
+      confidence: 0.86,
+      requiresTrip: true,
+      nextTool: 'Itinerary Editor',
+      reason: /bate.?volta|day trip/.test(text)
+        ? 'Usuário pediu um novo dia com bate-volta.'
+        : 'Usuário pediu para adicionar mais um dia.',
+    };
+  }
+  if (isReplaceActivityIntent(message)) {
+    return {
+      intent: 'REPLACE_ACTIVITY',
+      confidence: 0.78,
+      requiresTrip: true,
+      nextTool: 'Itinerary Editor',
+      reason: 'Usuário quer trocar uma atividade do roteiro.',
+    };
+  }
+  if (isOptimizeItineraryIntent(message)) {
+    return {
+      intent: 'OPTIMIZE_ITINERARY',
+      confidence: 0.78,
+      requiresTrip: true,
+      nextTool: 'Replanning Engine',
+      reason: 'Usuário quer otimizar ou reorganizar o roteiro.',
+    };
+  }
+  if (isRecommendationIntent(message)) {
+    return {
+      intent: 'GET_RECOMMENDATION',
+      confidence: 0.72,
+      requiresTrip: false,
+      nextTool: 'Discovery Engine',
+      reason: 'Usuário quer uma recomendação rápida no contexto do roteiro.',
+    };
+  }
+  if (!currentTrip?.id) {
+    return {
+      intent: 'UNCLEAR',
+      confidence: 0.5,
+      requiresTrip: false,
+      nextTool: 'Intent Router',
+      reason: 'Não há viagem ativa para uma ação de roteiro.',
+    };
+  }
+  return {
+    intent: 'CHAT',
+    confidence: lastAssistantMessage ? 0.5 : 0.4,
+    requiresTrip: false,
+    nextTool: 'Local Assistant',
+    reason: currentTrip?.id ? 'Mensagem comum no chat do roteiro.' : 'Sem roteiro ativo.',
+  };
+}
+function latestAssistantMessage(messages) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.who === 'gaid') return messages[index];
+  }
+  return null;
 }
 function parsePlacement(value) {
   const text = normText(value);
@@ -114,11 +211,96 @@ function parsePlacement(value) {
 function latestSuggestionMessageIndex(messages) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    if (message?.who === 'gaid' && !message.ctaApplied && normalizeItinerarySuggestions(message.itinerarySuggestions).length > 0) {
+    const suggestions = normalizeItinerarySuggestions(
+      message?.pendingAction?.payload?.itinerarySuggestions || message?.itinerarySuggestions
+    );
+    const userTurnsAfter = messages.slice(index + 1).filter(item => item?.who === 'user').length;
+    const expiresAfterTurns = Number(message?.pendingAction?.expiresAfterTurns ?? 3);
+    if (message?.who === 'gaid' && !message.ctaApplied && suggestions.length > 0 && userTurnsAfter <= expiresAfterTurns) {
       return index;
     }
   }
   return -1;
+}
+function getMessageSuggestions(message) {
+  return normalizeItinerarySuggestions(message?.pendingAction?.payload?.itinerarySuggestions || message?.itinerarySuggestions);
+}
+function validateItineraryAction({ action, trip, days, suggestions = [], targetDay = null }) {
+  if (!trip?.id) return 'Abra ou crie uma viagem antes de alterar o roteiro.';
+  if (!trip.tripContext || typeof trip.tripContext !== 'object') return 'Ainda não tenho contexto suficiente dessa viagem para alterar o roteiro.';
+  const safeDays = normalizeDays(days);
+  if (action === 'ADD_TO_ITINERARY') {
+    if (suggestions.length === 0) return 'Não encontrei uma sugestão pendente para aplicar ao roteiro.';
+    const requiresExistingDay = suggestions.some(item => item.day && item.day <= maxTimelineDay(safeDays));
+    if (requiresExistingDay) {
+      const missingDay = suggestions.find(item => item.day && item.day <= maxTimelineDay(safeDays) && !safeDays.some(day => day.d === item.day));
+      if (missingDay) return `Não encontrei o dia ${missingDay.day} no roteiro. Em qual dia você quer encaixar isso?`;
+    }
+  }
+  if (action === 'REPLACE_ACTIVITY' || action === 'OPTIMIZE_ITINERARY') {
+    if (safeDays.length === 0) return 'Ainda não há roteiro suficiente para essa alteração.';
+  }
+  if (targetDay && action !== 'ADD_DAY' && !safeDays.some(day => day.d === targetDay)) {
+    return `Não encontrei o dia ${targetDay} no roteiro.`;
+  }
+  return null;
+}
+function maxTimelineDay(days) {
+  const values = normalizeDays(days).map(day => Number(day.d)).filter(day => Number.isFinite(day) && day > 0);
+  return values.length ? Math.max(...values) : 0;
+}
+function knownTripDestination(trip) {
+  const destination = String(trip?.destination || trip?.tripContext?.destination || '').trim();
+  return destination && destination !== TBD ? destination : '';
+}
+function buildAddDayPrompt({ message, trip, targetDay }) {
+  return [
+    message,
+    '',
+    `O usuário quer adicionar o dia ${targetDay} ao roteiro atual.`,
+    'Gere atividades concretas para esse novo dia e retorne itinerarySuggestions estruturadas.',
+    'Se for bate-volta, monte 3 itens para o mesmo dia: manhã, tarde e noite.',
+    `Use day=${targetDay} em todos os itens e slots exatamente "manhã", "tarde" e "noite".`,
+    'Cada item precisa ter title, place, dur, tag e vibe.',
+    'A resposta será aplicada automaticamente. Não peça aprovação para adicionar.',
+    `Contexto da viagem: ${JSON.stringify(trip?.tripContext || {}).slice(0, 1200)}`,
+  ].join('\n');
+}
+function dayTripFallbackFromText(text, trip, targetDay) {
+  const normalized = normText(text);
+  const destination = trip?.destination || trip?.tripContext?.destination || TBD;
+  if (/zipaquira|catedral de sal/.test(normalized)) {
+    return [
+      {
+        day: targetDay,
+        slot: 'manhã',
+        title: 'Saída para Zipaquirá',
+        place: destination && destination !== TBD ? destination : 'Bogotá',
+        dur: '2h30',
+        tag: 'deslocamento',
+        vibe: 'começo tranquilo para um bate-volta confortável',
+      },
+      {
+        day: targetDay,
+        slot: 'tarde',
+        title: 'Catedral de Sal de Zipaquirá',
+        place: 'Catedral de Sal de Zipaquirá',
+        dur: '3h',
+        tag: 'cultura',
+        vibe: 'experiência marcante e fácil de encaixar como bate-volta',
+      },
+      {
+        day: targetDay,
+        slot: 'noite',
+        title: 'Retorno e jantar leve',
+        place: destination && destination !== TBD ? destination : 'Bogotá',
+        dur: '2h',
+        tag: 'restaurante',
+        vibe: 'fechamento sem pressa depois do deslocamento',
+      },
+    ];
+  }
+  return [];
 }
 function assistantResponseToBubble(response) {
   const itinerarySuggestions = normalizeItinerarySuggestions(response?.itinerarySuggestions);
@@ -127,6 +309,7 @@ function assistantResponseToBubble(response) {
     text: response.text,
     source: response.source,
     itinerarySuggestions,
+    pendingAction: pendingActionFromSuggestions('ADD_ACTIVITY', itinerarySuggestions),
     cta: itinerarySuggestions.length > 0 ? ['Adicionar ao roteiro'] : null,
   };
 }
@@ -319,6 +502,31 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     items: [],
   });
 
+  const buildTimelineWithNewDay = (baseDays, targetDay, suggestions = []) => {
+    const slots = ['manhã', 'tarde', 'noite'];
+    const existingDays = normalizeDays(baseDays).map(day => ({ ...day, items: [...day.items] }));
+    const newItems = normalizeItinerarySuggestions(suggestions)
+      .map((item, index) => ({
+        ...item,
+        day: targetDay,
+        slot: item.slot || slots[index % slots.length],
+      }))
+      .filter(item => item.title && item.slot)
+      .map(item => ({
+        t: item.slot,
+        title: item.title,
+        place: item.place,
+        dur: item.dur,
+        tag: item.tag,
+        vibe: item.vibe,
+        conf: false,
+      }));
+    return [
+      ...existingDays.filter(day => day.d !== targetDay),
+      { ...placeholderDay(targetDay), items: newItems },
+    ].sort((a, b) => a.d - b.d);
+  };
+
   const applySuggestionListToTimeline = (suggestions, placement = null) => {
     const normalized = normalizeItinerarySuggestions(suggestions);
     const placedSuggestions = normalized.map(item => ({
@@ -351,10 +559,21 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     return placedSuggestions.length;
   };
 
-  const applyItinerarySuggestions = (messageIndex, placement = null, { confirm = false } = {}) => {
+  const applyItinerarySuggestions = (messageIndex, placement = null, { confirm = false, confirmText = 'Pronto — adicionei isso ao roteiro.' } = {}) => {
     const message = chat[messageIndex];
-    const suggestions = normalizeItinerarySuggestions(message?.itinerarySuggestions);
+    const suggestions = getMessageSuggestions(message);
     if (suggestions.length === 0 || message?.ctaApplied) return 'none';
+    const guard = validateItineraryAction({
+      action: 'ADD_TO_ITINERARY',
+      trip: tripData,
+      days,
+      suggestions,
+      targetDay: placement?.day || null,
+    });
+    if (guard) {
+      setChat(current => [...current, { who: 'gaid', text: guard, source: 'state-guard' }]);
+      return 'blocked';
+    }
     if (!placement && !suggestionsHavePlacement(suggestions)) {
       setPendingPlacementMessageIndex(messageIndex);
       setChat(current => [...current, {
@@ -372,7 +591,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         : item
       );
       return confirm
-        ? [...next, { who: 'gaid', text: 'Pronto — adicionei isso ao roteiro.', source: 'local' }]
+        ? [...next, { who: 'gaid', text: confirmText, source: 'local' }]
         : next;
     });
     setPendingPlacementMessageIndex(null);
@@ -458,6 +677,8 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     if (!t) return;
     const userMsg = { who: 'user', text: t };
     const nextChat = [...chat, userMsg];
+    const lastAssistant = latestAssistantMessage(chat);
+    const planIntent = classifyPlanChatIntent(t, tripData, lastAssistant);
     setChat(nextChat);
     setDraft('');
     setTyping(true);
@@ -467,8 +688,9 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       const placement = parsePlacement(t);
       setTyping(false);
       if (placement) {
-        applyItinerarySuggestions(pendingPlacementMessageIndex, placement, { confirm: true });
-        persistPlanMessage('assistant', 'Pronto — adicionei isso ao roteiro.', { source: 'local' });
+        const reply = 'Pronto — adicionei esse dia ao roteiro.';
+        applyItinerarySuggestions(pendingPlacementMessageIndex, placement, { confirm: true, confirmText: reply });
+        persistPlanMessage('assistant', reply, { source: 'local' });
       } else {
         const placementReply = 'Claro. Em qual dia e período você quer encaixar isso? Exemplos: “Dia 2 de manhã”, “Dia 3 à tarde”, “No primeiro dia à noite”.';
         setChat(c => [...c, { who: 'gaid', text: placementReply, source: 'local' }]);
@@ -477,15 +699,28 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       return;
     }
 
-    if (isApplyIntent(t)) {
+    if (planIntent.intent === 'ADD_TO_ITINERARY') {
       const suggestionIndex = latestSuggestionMessageIndex(nextChat);
       if (suggestionIndex >= 0) {
         setTyping(false);
         const message = nextChat[suggestionIndex];
-        const suggestions = normalizeItinerarySuggestions(message.itinerarySuggestions);
+        const suggestions = getMessageSuggestions(message);
+        const guard = validateItineraryAction({
+          action: 'ADD_TO_ITINERARY',
+          trip: tripData,
+          days,
+          suggestions,
+        });
+        if (guard) {
+          setChat(c => [...c, { who: 'gaid', text: guard, source: 'state-guard' }]);
+          persistPlanMessage('assistant', guard, { source: 'state-guard', intent: planIntent.intent });
+          return;
+        }
         if (suggestionsHavePlacement(suggestions)) {
-          applyItinerarySuggestions(suggestionIndex, null, { confirm: true });
-          persistPlanMessage('assistant', 'Pronto — adicionei isso ao roteiro.', { source: 'local' });
+          const createsNewDay = suggestions.some(item => Number(item.day) > maxTimelineDay(days));
+          const reply = createsNewDay ? 'Pronto — adicionei esse dia ao roteiro.' : 'Pronto — adicionei isso ao roteiro.';
+          applyItinerarySuggestions(suggestionIndex, null, { confirm: true, confirmText: reply });
+          persistPlanMessage('assistant', reply, { source: 'local' });
         } else {
           setPendingPlacementMessageIndex(suggestionIndex);
           const placementReply = 'Claro. Em qual dia e período você quer encaixar isso? Exemplos: “Dia 2 de manhã”, “Dia 3 à tarde”, “No primeiro dia à noite”.';
@@ -494,6 +729,107 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         }
         return;
       }
+      const targetDay = maxTimelineDay(days) + 1;
+      const fallbackSuggestions = dayTripFallbackFromText(lastAssistant?.text, tripData, targetDay);
+      if (fallbackSuggestions.length > 0) {
+        setTyping(false);
+        const guard = validateItineraryAction({
+          action: 'ADD_TO_ITINERARY',
+          trip: tripData,
+          days,
+          suggestions: fallbackSuggestions,
+        });
+        if (guard) {
+          setChat(current => [...current, { who: 'gaid', text: guard, source: 'state-guard' }]);
+          persistPlanMessage('assistant', guard, { source: 'state-guard', intent: planIntent.intent });
+          return;
+        }
+        applySuggestionListToTimeline(fallbackSuggestions);
+        const reply = 'Pronto — adicionei esse dia ao roteiro.';
+        setChat(current => [...current, { who: 'gaid', text: reply, source: 'local' }]);
+        persistPlanMessage('assistant', reply, { source: 'local' });
+        return;
+      }
+    }
+
+    if (planIntent.intent === 'ADD_DAY') {
+      const targetDay = maxTimelineDay(days) + 1;
+      if (!tripData.id) {
+        setTyping(false);
+        const reply = 'Abra ou crie uma viagem antes de adicionar um novo dia ao roteiro.';
+        setChat(c => [...c, { who: 'gaid', text: reply, source: 'state-guard' }]);
+        persistPlanMessage('assistant', reply, { source: 'state-guard', intent: planIntent.intent });
+        return;
+      }
+      if (!knownTripDestination(tripData)) {
+        setTyping(false);
+        const reply = 'Para adicionar um novo dia, preciso saber o destino da viagem. Para onde é esse roteiro?';
+        setChat(c => [...c, { who: 'gaid', text: reply, source: 'state-guard' }]);
+        persistPlanMessage('assistant', reply, { source: 'state-guard', intent: planIntent.intent });
+        return;
+      }
+      try {
+        const baseDays = normalizeDays(days);
+        const dayOnlyTimeline = buildTimelineWithNewDay(baseDays, targetDay, []);
+        setDays(dayOnlyTimeline);
+        await persistTimelineDays(dayOnlyTimeline);
+
+        const response = await tripApi.sendChatMessage({
+          message: buildAddDayPrompt({ message: t, trip: tripData, targetDay }),
+          history: nextChat
+            .filter(m => m.text)
+            .map(m => ({ role: m.who === 'user' ? 'user' : 'assistant', text: m.text })),
+          context: {
+            surface: 'plan',
+            tripTitle: tripData.title,
+            planEdit: 'ADD_DAY',
+            targetDay,
+            tripContext: tripData.tripContext,
+          },
+        });
+        const slots = ['manhã', 'tarde', 'noite'];
+        const structured = normalizeItinerarySuggestions(response.itinerarySuggestions)
+          .map((item, index) => ({ ...item, day: targetDay, slot: item.slot || slots[index % slots.length] }));
+        const fallback = structured.length > 0 ? [] : dayTripFallbackFromText(`${t}\n${response.text || ''}`, tripData, targetDay);
+        const suggestions = structured.length > 0 ? structured : fallback;
+        const finalTimeline = buildTimelineWithNewDay(baseDays, targetDay, suggestions);
+        setDays(finalTimeline);
+        await persistTimelineDays(finalTimeline);
+        const text = suggestions.length > 0
+          ? `Pronto — criei o dia ${targetDay} e adicionei as atividades ao roteiro.`
+          : `Pronto — criei o dia ${targetDay} no roteiro. Não consegui gerar atividades claras agora, mas os dias anteriores ficaram intactos.`;
+        setChat(c => [...c, { who: 'gaid', text, source: suggestions.length > 0 ? response.source : 'local' }]);
+        persistPlanMessage('assistant', text, {
+          source: suggestions.length > 0 ? response.source : 'local',
+          planEdit: 'ADD_DAY',
+          targetDay,
+          generatedItems: suggestions.length,
+        });
+        toast({ title: `Dia ${targetDay} adicionado`, desc: suggestions.length > 0 ? `${suggestions.length} atividades criadas.` : 'Novo dia criado sem alterar os anteriores.', tone: 'success' });
+      } catch (_error) {
+        const fallback = `Criei o dia ${targetDay}, mas não consegui gerar atividades agora. Tente novamente em instantes.`;
+        setChat(c => [...c, { who: 'gaid', text: fallback, source: 'error' }]);
+        persistPlanMessage('assistant', fallback, { source: 'error', planEdit: 'ADD_DAY', targetDay });
+      } finally {
+        setTyping(false);
+      }
+      return;
+    }
+
+    if (planIntent.intent === 'REPLACE_ACTIVITY' || planIntent.intent === 'OPTIMIZE_ITINERARY') {
+      setTyping(false);
+      const guard = validateItineraryAction({
+        action: planIntent.intent,
+        trip: tripData,
+        days,
+      });
+      const reply = guard || (planIntent.intent === 'REPLACE_ACTIVITY'
+        ? 'Claro. Qual atividade você quer trocar? Pode me dizer o dia e o nome dela.'
+        : 'Claro. Qual foco você quer para a otimização: mais leve, mais barato, mais premium ou menos deslocamento?');
+      const source = guard ? 'state-guard' : 'intent-router';
+      setChat(c => [...c, { who: 'gaid', text: reply, source }]);
+      persistPlanMessage('assistant', reply, { source, intent: planIntent.intent });
+      return;
     }
 
     // First: did the user report resolving a prep item?
@@ -580,7 +916,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
 
         <div ref={chatEndRef} className="flex-1 overflow-y-auto px-7 py-5 space-y-4">
           {chat.map((m, i) => <Bubble key={i} m={m} onCta={(t) => {
-            if (t === 'Adicionar ao roteiro') applyItinerarySuggestions(i);
+            if (t === 'Adicionar ao roteiro' || t === 'Aplicar ao roteiro') applyItinerarySuggestions(i);
             else send(t);
           }} />)}
           {typing && (
