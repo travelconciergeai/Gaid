@@ -98,6 +98,7 @@ const CONTEXTUAL_TRIP_STEPS = {
   },
   coupleStyle: {
     id: 'stylePace',
+    type: 'multiselect',
     q: 'Vocês procuram uma viagem mais romântica, gastronômica, cultural ou um mix?',
     sub: 'Vou usar isso para calibrar experiências, bairros e ritmo.',
     options: [
@@ -109,6 +110,7 @@ const CONTEXTUAL_TRIP_STEPS = {
   },
   soloObjective: {
     id: 'tripPriority',
+    type: 'multiselect',
     q: 'Qual é o principal objetivo dessa viagem?',
     sub: 'Assim eu monto uma base que combine com seu momento.',
     options: [
@@ -120,6 +122,7 @@ const CONTEXTUAL_TRIP_STEPS = {
   },
   friendsVibe: {
     id: 'tripPriority',
+    type: 'multiselect',
     q: 'Qual vibe combina mais com o grupo?',
     sub: 'Grupo bom precisa de roteiro com energia certa e combinados claros.',
     options: [
@@ -131,6 +134,7 @@ const CONTEXTUAL_TRIP_STEPS = {
   },
   orlandoPriority: {
     id: 'tripPriority',
+    type: 'multiselect',
     q: 'Vocês querem focar em parques ou misturar parques e descanso?',
     sub: 'Orlando funciona melhor quando o ritmo é decidido cedo.',
     options: [
@@ -153,6 +157,7 @@ const CONTEXTUAL_TRIP_STEPS = {
   },
   beachPriority: {
     id: 'tripPriority',
+    type: 'multiselect',
     q: 'Na praia, o que importa mais para você?',
     sub: 'Isso define se a base vai ser descanso, natureza ou estrutura.',
     options: [
@@ -164,6 +169,7 @@ const CONTEXTUAL_TRIP_STEPS = {
   },
   defaultStyle: {
     id: 'stylePace',
+    type: 'multiselect',
     q: 'Qual estilo de viagem você prefere?',
     sub: 'Isso define o ritmo do roteiro.',
     options: [
@@ -195,6 +201,18 @@ function answerId(answers, key) {
   return answers[key]?.optId || '';
 }
 
+function answerLabels(answers, key) {
+  const value = answers[key]?.label;
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return value ? [value] : [];
+}
+
+function answerIds(answers, key) {
+  const value = answers[key]?.optId;
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return value ? [value] : [];
+}
+
 function normText(value) {
   return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
@@ -203,8 +221,20 @@ function filledString(...values) {
   return values.find(value => typeof value === 'string' && value.trim())?.trim() || '';
 }
 
+function answerText(answers, key) {
+  return answerLabels(answers, key).join(', ') || answerIds(answers, key).join(', ') || '';
+}
+
+function isMultiField(field) {
+  return ['priorities', 'interests', 'tripPriority', 'stylePace', 'experiences'].includes(field);
+}
+
+function isMultiStep(step) {
+  return step?.type === 'multiselect' || step?.multiple === true || step?.multiselect === true || isMultiField(step?.id);
+}
+
 function destinationText(answers) {
-  return normText(`${answerId(answers, 'destination')} ${answerLabel(answers, 'destination')}`);
+  return normText(`${answerIds(answers, 'destination').join(' ')} ${answerLabels(answers, 'destination').join(' ')}`);
 }
 
 function isDestination(answers, pattern) {
@@ -212,7 +242,7 @@ function isDestination(answers, pattern) {
 }
 
 function parseNights(answer) {
-  const value = Number(answerId(answer, 'duration') || String(answerLabel(answer, 'duration')).match(/\d+/)?.[0]);
+  const value = Number(answerId(answer, 'duration') || String(answerText(answer, 'duration')).match(/\d+/)?.[0]);
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
@@ -226,11 +256,13 @@ function travelerCountFrom(answer) {
   const id = answerId(answer, 'travelers');
   if (id === 'solo') return 1;
   if (id === 'couple') return 2;
+  const composition = parseTravelerComposition(answerText(answer, 'travelers') || answerText(answer, 'travelerCount'));
+  if (composition.count) return composition.count;
   return parseNumberFromText(
     answerId(answer, 'travelerCount') ||
-    answerLabel(answer, 'travelerCount') ||
+    answerText(answer, 'travelerCount') ||
     answerId(answer, 'travelers') ||
-    answerLabel(answer, 'travelers')
+    answerText(answer, 'travelers')
   );
 }
 
@@ -240,13 +272,29 @@ function travelerCompositionFrom(answer) {
   if (id === 'couple') return 'Casal';
   if (id === 'family') return 'Família';
   if (id === 'friends') return 'Amigos';
-  const label = answerLabel(answer, 'travelers');
+  const label = answerText(answer, 'travelers');
   const text = normText(`${id} ${label}`);
   if (/famil|crianc|filh/.test(text)) return 'Família';
   if (/casal/.test(text)) return 'Casal';
   if (/solo|so eu|sozinh/.test(text)) return 'Solo';
   if (/amig|grupo/.test(text)) return 'Amigos';
   return answerLabel(answer, 'travelers') || null;
+}
+
+function parseTravelerComposition(value) {
+  const text = normText(value);
+  const adults = Number(text.match(/(\d+)\s*adult/)?.[1]) || null;
+  const childrenCount = Number(text.match(/(\d+)\s*(crianc|filh)/)?.[1]) || null;
+  const ageSection = text.match(/(?:criancas?|filhos?).*?(?:de|com)?\s*((?:\d+\s*(?:,|e|\+)?\s*)+)/)?.[1] || '';
+  const ages = [...ageSection.matchAll(/\d+/g)].map(match => Number(match[0])).filter(age => age >= 0 && age <= 17);
+  const total = adults || childrenCount ? (adults || 0) + (childrenCount || ages.length || 0) : null;
+  return {
+    count: total,
+    adults,
+    children: childrenCount || (ages.length || null),
+    ages,
+    composition: total || /crianc|filh|famil/.test(text) ? 'Família' : null,
+  };
 }
 
 const PT_MONTHS = {
@@ -300,7 +348,7 @@ function parseDateRange(value) {
 
 function normalizeDates(answers, context) {
   const incoming = context?.dates && typeof context.dates === 'object' && !Array.isArray(context.dates) ? context.dates : null;
-  const label = filledString(answerLabel(answers, 'period'), incoming?.label, context?.period);
+  const label = filledString(answerText(answers, 'period'), incoming?.label, context?.period);
   const parsed = parseDateRange(label);
   if (incoming || parsed) {
     return {
@@ -362,12 +410,14 @@ function chooseTravelerStep(answers) {
 function buildAdaptiveTripWizard(answers) {
   const steps = [...BASE_TRIP_WIZARD];
   const travelers = answerId(answers, 'travelers');
-  if (travelers === 'family') {
-    steps.push(CONTEXTUAL_TRIP_STEPS.familyCount);
-    if (answerId(answers, 'travelerCount')) {
+  const composition = parseTravelerComposition(answerText(answers, 'travelers'));
+  const clearFamilyComposition = composition.composition === 'Família' && composition.count && (composition.children || composition.ages.length > 0);
+  if (travelers === 'family' || clearFamilyComposition) {
+    if (!clearFamilyComposition) steps.push(CONTEXTUAL_TRIP_STEPS.familyCount);
+    if (answerId(answers, 'travelerCount') && !clearFamilyComposition) {
       steps.push(CONTEXTUAL_TRIP_STEPS.childrenAges);
     }
-    if (answerId(answers, 'childrenAges')) {
+    if (answerId(answers, 'childrenAges') || clearFamilyComposition) {
       const destinationStep = chooseDestinationStep(answers);
       if (destinationStep) steps.push(destinationStep);
       if (!destinationStep || (destinationStep.id === 'firstTime' && answerId(answers, 'firstTime'))) {
@@ -406,8 +456,12 @@ function mergeWizardContext(base, patch) {
 
 function aiQuestionToStep(question) {
   if (!question || question.isComplete || !question.question) return null;
+  const field = question.field || 'notes';
+  const inputType = question.type || question.inputType;
+  const multi = question.multiselect === true || question.multiple === true || inputType === 'multiselect' || isMultiField(field);
   return {
-    id: question.field || 'notes',
+    id: field,
+    type: multi ? 'multiselect' : inputType,
     q: question.question,
     sub: 'Escolha uma opção ou descreva com suas palavras.',
     options: Array.isArray(question.options)
@@ -428,6 +482,16 @@ function syncWizardHistory(history, index, currentStep, nextStep) {
   return next;
 }
 
+function hasClearTravelerComposition(answers) {
+  const composition = parseTravelerComposition(answerText(answers, 'travelers'));
+  return composition.composition === 'Família' && composition.count && (composition.children || composition.ages.length > 0);
+}
+
+function shouldSkipAiStep(step, answers) {
+  if (!step) return false;
+  return hasClearTravelerComposition(answers) && ['travelers', 'travelerCount', 'childrenAges'].includes(step.id);
+}
+
 async function requestAiWizardQuestion({ prompt, answers, lastAnswer, stepCount }) {
   const response = await fetch('/api/wizard-next', {
     method: 'POST',
@@ -446,7 +510,7 @@ function buildWizardQa(answers, history = []) {
       seen.add(step.id);
       return {
         question: step.q,
-        answer: answers[step.id]?.label || answers[step.id]?.optId || '',
+        answer: answerText(answers, step.id),
       };
     })
     .filter(item => item.question && item.answer);
@@ -457,7 +521,7 @@ function wizardQaText(step, label) {
 }
 
 function sentenceList(values) {
-  const items = values.map(value => filledString(value)).filter(Boolean);
+  const items = values.flatMap(value => Array.isArray(value) ? value : [value]).map(value => filledString(value)).filter(Boolean);
   if (items.length <= 1) return items[0] || '';
   if (items.length === 2) return `${items[0]} e ${items[1]}`;
   return `${items.slice(0, -1).join(', ')} e ${items[items.length - 1]}`;
@@ -468,14 +532,16 @@ function buildWizardSummary(context) {
   const dates = filledString(context.dates?.label, context.period);
   const count = parseNumberFromText(context.travelers?.count);
   const composition = filledString(context.travelers?.composition, context.travelerComposition);
-  const travelerText = count
+  const travelerText = context.travelers?.adults && context.travelers?.children?.count
+    ? `${context.travelers.adults} adultos e ${context.travelers.children.count} crianças${context.travelers.children.ages?.length ? ` de ${sentenceList(context.travelers.children.ages.map(String))} anos` : ''}`
+    : count
     ? `${count} ${count === 1 ? 'pessoa' : 'pessoas'}`
     : composition || '';
   const budget = filledString(
     typeof context.budget === 'object' ? context.budget?.label : context.budget,
     context.comfortLevel
   );
-  const style = filledString(context.stylePace);
+  const style = Array.isArray(context.stylePace) ? context.stylePace : filledString(context.stylePace);
   const priorities = Array.isArray(context.priorities) ? context.priorities : [];
   const focus = sentenceList([style, ...priorities].filter(Boolean));
   const parts = [`Quero criar um roteiro para ${destination}`];
@@ -490,18 +556,25 @@ function buildWizardSummary(context) {
 }
 
 function buildTripContext(answers, prompt, { context = {}, mode = 'deterministic', qa = [] } = {}) {
-  const destination = filledString(answerLabel(answers, 'destination'), context.destination);
-  const period = filledString(answerLabel(answers, 'period'), context.period, context.dates?.label);
+  const destination = filledString(answerText(answers, 'destination'), context.destination);
+  const period = filledString(answerText(answers, 'period'), context.period, context.dates?.label);
   const dates = normalizeDates(answers, { ...context, period });
-  const childrenAges = filledString(answerLabel(answers, 'childrenAges'), context.childrenAges) || null;
+  const parsedComposition = parseTravelerComposition(`${answerText(answers, 'travelers')} ${answerText(answers, 'travelerCount')} ${answerText(answers, 'childrenAges')}`);
+  const childrenAges = parsedComposition.ages.length > 0
+    ? parsedComposition.ages
+    : filledString(answerText(answers, 'childrenAges'), context.childrenAges) || null;
   const travelerCount = travelerCountFrom(answers);
   const contextTravelerCount = parseNumberFromText(context.travelers?.count);
   const travelerComposition = filledString(travelerCompositionFrom(answers), context.travelerComposition, context.travelers?.composition);
-  const budget = filledString(answerLabel(answers, 'budget'), context.budget?.label, context.budget);
-  const stylePace = filledString(answerLabel(answers, 'stylePace'), context.stylePace);
+  const budget = filledString(answerText(answers, 'budget'), context.budget?.label, context.budget);
+  const stylePace = answerLabels(answers, 'stylePace').length > 0 ? answerLabels(answers, 'stylePace') : filledString(context.stylePace) || null;
   const priorities = [
-    filledString(answerLabel(answers, 'tripPriority'), context.tripPriority),
-    filledString(answerLabel(answers, 'firstTime'), context.firstTime),
+    ...answerLabels(answers, 'tripPriority'),
+    ...answerLabels(answers, 'priorities'),
+    ...answerLabels(answers, 'interests'),
+    ...answerLabels(answers, 'experiences'),
+    filledString(context.tripPriority),
+    filledString(answerText(answers, 'firstTime'), context.firstTime),
     ...(Array.isArray(context.priorities) ? context.priorities : []),
   ].filter(Boolean);
   return {
@@ -511,11 +584,16 @@ function buildTripContext(answers, prompt, { context = {}, mode = 'deterministic
     period: period || null,
     dates,
     nights: parseNights(answers) ?? context.nights ?? null,
-    duration: filledString(answerLabel(answers, 'duration'), context.duration) || null,
+    duration: filledString(answerText(answers, 'duration'), context.duration) || null,
     travelers: {
       ...(context.travelers && typeof context.travelers === 'object' && !Array.isArray(context.travelers) ? context.travelers : {}),
-      count: travelerCount ?? contextTravelerCount ?? null,
+      count: travelerCount ?? parsedComposition.count ?? contextTravelerCount ?? null,
       composition: travelerComposition || null,
+      adults: parsedComposition.adults ?? context.travelers?.adults ?? null,
+      children: {
+        count: parsedComposition.children ?? context.travelers?.children?.count ?? null,
+        ages: parsedComposition.ages.length > 0 ? parsedComposition.ages : context.travelers?.children?.ages ?? [],
+      },
     },
     travelerComposition: travelerComposition || null,
     childrenAges,
@@ -523,8 +601,8 @@ function buildTripContext(answers, prompt, { context = {}, mode = 'deterministic
     budget: budget || context.budget || null,
     stylePace: stylePace || null,
     priorities,
-    tripPriority: filledString(answerLabel(answers, 'tripPriority'), context.tripPriority) || null,
-    firstTime: filledString(answerLabel(answers, 'firstTime'), context.firstTime) || null,
+    tripPriority: answerLabels(answers, 'tripPriority').length > 0 ? answerLabels(answers, 'tripPriority') : filledString(context.tripPriority) || null,
+    firstTime: filledString(answerText(answers, 'firstTime'), context.firstTime) || null,
     wizard: {
       completed: true,
       mode,
@@ -611,7 +689,6 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       let initialHistory = [];
       let firstWizardStep = 0;
       let firstAiQuestion = null;
-      let firstChatMessages = [];
 
       if (key === 'trip') {
         try {
@@ -635,7 +712,6 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
           initialAnswers = { destination: destinationAnswer };
           initialHistory = [BASE_TRIP_WIZARD[0]];
           firstWizardStep = 1;
-          firstChatMessages = [{ who: 'user', text: wizardQaText(BASE_TRIP_WIZARD[0], destinationAnswer.label) }];
         }
 
         const firstAiStep = destinationAnswer ? aiQuestionToStep(firstAiQuestion) : null;
@@ -655,7 +731,6 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       setChat(c => [
         ...c,
         { id: 'a-intro', who: 'agent', text: FLOW_CFG[key].intro },
-        ...firstChatMessages,
         { id: `q-${firstWizardStep}`, who: 'agent', wizardStep: firstWizardStep },
       ]);
       setWizardStep(firstWizardStep);
@@ -716,10 +791,9 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     const currentQa = buildWizardQa(nextAnswers, currentWizardHistory);
     setAnswers(nextAnswers);
     setWizardHistory(currentWizardHistory);
-    // Lock the current wizard message + append user reply
+    // Lock the current wizard message. Answers stay inside the guided form.
     setChat(c => [
       ...c.map(m => (m.wizardStep === wizardStep ? { ...m, answered: { optId, label } } : m)),
-      { who: 'user', text: wizardQaText(step, label) },
     ]);
     setThinking(true);
     setTimeout(async () => {
@@ -741,6 +815,9 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
           setAiWizardQuestion(response);
           completedByAi = response.isComplete === true;
           nextAiStep = aiQuestionToStep(response);
+          if (shouldSkipAiStep(nextAiStep, nextAnswers)) {
+            nextAiStep = null;
+          }
           if (nextAiStep) {
             nextWizard = syncWizardHistory(currentWizardHistory, wizardStep, step, nextAiStep);
             setWizardHistory(nextWizard);
@@ -1097,14 +1174,34 @@ const ChatMsg = ({ m, wizard, genSteps, onAnswer, onGenDone, onOpenTrip }) => {
 // an "Outra opção" free-text input. Collapses once answered.
 const InlineWizard = ({ stepIdx, step, wizard, answered, onPick }) => {
   const [custom, setCustom] = useState('');
+  const [selected, setSelected] = useState([]);
   if (!step) return null;
   const total = (wizard || []).length;
+  const multi = isMultiStep(step);
+  const options = Array.isArray(step.options) ? step.options : [];
+  const answeredText = Array.isArray(answered?.label) ? sentenceList(answered.label) : answered?.label;
+
+  const toggle = (option) => {
+    setSelected(prev => prev.some(item => item.id === option.id)
+      ? prev.filter(item => item.id !== option.id)
+      : [...prev, { id: option.id, label: option.label }]
+    );
+  };
+
+  const confirmMulti = () => {
+    if (selected.length === 0 && !custom.trim()) return;
+    const customOption = custom.trim() ? [{ id: 'custom', label: custom.trim() }] : [];
+    const values = [...selected, ...customOption];
+    onPick(values.map(item => item.id), values.map(item => item.label));
+    setSelected([]);
+    setCustom('');
+  };
 
   if (answered) {
     return (
       <div className="text-[12.5px] text-ink-500 flex items-center gap-2 pl-1">
         <Icon.Check size={12} className="text-ink-900"/>
-        <span>{step.q.replace('?','')} → <span className="text-ink-900 font-medium">{answered.label}</span></span>
+        <span>{step.q.replace('?','')} → <span className="text-ink-900 font-medium">{answeredText}</span></span>
       </div>
     );
   }
@@ -1117,12 +1214,16 @@ const InlineWizard = ({ stepIdx, step, wizard, answered, onPick }) => {
       </div>
 
       <ul className="space-y-1.5">
-        {step.options.map(o => (
+        {options.map(o => {
+          const on = selected.some(item => item.id === o.id);
+          return (
           <li key={o.id}>
-            <button onClick={() => onPick(o.id, o.label)}
-              className="w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl bg-white border-half hover:border-ink-900 hover:bg-ink-50 transition-colors group">
-              <div className="h-6 w-6 rounded-full border-half flex items-center justify-center text-ink-400 group-hover:border-ink-900 group-hover:text-ink-900 transition-colors shrink-0">
-                <Icon.ChevronRight size={12}/>
+            <button onClick={() => multi ? toggle(o) : onPick(o.id, o.label)}
+              className={`w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl bg-white border-half hover:border-ink-900 hover:bg-ink-50 transition-colors group ${on ? 'border-ink-900 bg-ink-50' : ''}`}>
+              <div className={`h-6 w-6 ${multi ? 'rounded-md' : 'rounded-full'} border-half flex items-center justify-center transition-colors shrink-0 ${
+                on ? 'bg-ink-900 text-paper border-ink-900' : 'text-ink-400 group-hover:border-ink-900 group-hover:text-ink-900'
+              }`}>
+                {multi && on ? <Icon.Check size={12}/> : <Icon.ChevronRight size={12}/>}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-[13.5px] font-medium text-ink-900 leading-tight">{o.label}</div>
@@ -1133,7 +1234,8 @@ const InlineWizard = ({ stepIdx, step, wizard, answered, onPick }) => {
               )}
             </button>
           </li>
-        ))}
+          );
+        })}
       </ul>
 
       {/* Outra opção — free text */}
@@ -1142,16 +1244,23 @@ const InlineWizard = ({ stepIdx, step, wizard, answered, onPick }) => {
         <input
           value={custom}
           onChange={e => setCustom(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && custom.trim()) { onPick('custom', custom.trim()); setCustom(''); } }}
+          onKeyDown={e => { if (e.key === 'Enter' && custom.trim()) { multi ? confirmMulti() : onPick('custom', custom.trim()); setCustom(''); } }}
           placeholder="Outra opção · descreva com suas palavras…"
           className="flex-1 outline-none text-[13px] bg-transparent placeholder:text-ink-500"/>
         {custom.trim() && (
-          <button onClick={() => { onPick('custom', custom.trim()); setCustom(''); }}
+          <button onClick={() => { multi ? confirmMulti() : onPick('custom', custom.trim()); setCustom(''); }}
             className="h-7 px-2.5 rounded-md bg-ink-900 text-paper text-[11.5px] font-medium hover:bg-ink-800 transition-colors inline-flex items-center gap-1">
             Enviar <Icon.ArrowRight size={11}/>
           </button>
         )}
       </div>
+
+      {multi && (
+        <button onClick={confirmMulti} disabled={selected.length === 0 && !custom.trim()}
+          className="h-9 px-4 rounded-lg bg-ink-900 text-paper text-[12.5px] font-medium hover:bg-ink-800 disabled:opacity-35 disabled:cursor-not-allowed inline-flex items-center gap-1.5">
+          Continuar <Icon.ArrowRight size={12}/>
+        </button>
+      )}
 
       <div className="text-[10.5px] mono uppercase tracking-wider text-ink-400">
         pergunta {String(stepIdx+1).padStart(2,'0')} de {String(total).padStart(2,'0')}
