@@ -14,13 +14,14 @@ import { tripApi } from '../core/tripApi.jsx';
 //             The Disney wizard renders inline inside agent messages (list of
 //             single-click options + "outra opção" free-text field).
 
-const TRIP_WIZARD = [
+const BASE_TRIP_WIZARD = [
   {
     id: 'destination',
     q: 'Para onde você quer viajar?',
     sub: 'Pode ser um destino exato, uma região ou uma ideia ainda aberta.',
     options: [
       { id: 'paris', label: 'Paris', hint: 'clássico, gastronomia e cultura' },
+      { id: 'orlando', label: 'Orlando', hint: 'parques, família e descanso bem dosado' },
       { id: 'lisboa', label: 'Lisboa e Porto', hint: 'Portugal com ritmo gostoso' },
       { id: 'japao', label: 'Japão', hint: 'Tóquio, Kyoto e experiências locais' },
       { id: 'praia', label: 'Praia', hint: 'quero sol, mar e descanso' },
@@ -59,29 +60,87 @@ const TRIP_WIZARD = [
       { id: 'friends', label: 'Amigos', hint: 'grupo e energia social' },
     ],
   },
-  {
+];
+
+const CONTEXTUAL_TRIP_STEPS = {
+  childrenAges: {
     id: 'childrenAges',
-    q: 'Tem crianças na viagem?',
-    sub: 'Se tiver, me diga a faixa etária para eu ajustar ritmo e cuidados.',
+    q: 'Qual a idade das crianças?',
+    sub: 'Isso muda o ritmo dos dias, pausas, deslocamentos e escolha de hotel.',
     options: [
-      { id: 'none', label: 'Sem crianças', hint: 'pode seguir sem adaptações' },
       { id: 'baby', label: 'Bebê ou toddler', hint: '0 a 3 anos' },
       { id: 'kids', label: 'Crianças', hint: '4 a 11 anos' },
       { id: 'teens', label: 'Adolescentes', hint: '12+ anos' },
+      { id: 'mixed', label: 'Idades misturadas', hint: 'precisa equilibrar interesses' },
     ],
   },
-  {
-    id: 'budget',
-    q: 'Qual faixa de orçamento combina melhor?',
-    sub: 'Não precisa ser exato. É só para calibrar as sugestões.',
+  coupleStyle: {
+    id: 'stylePace',
+    q: 'Vocês procuram uma viagem mais romântica, gastronômica, cultural ou um mix?',
+    sub: 'Vou usar isso para calibrar experiências, bairros e ritmo.',
     options: [
-      { id: 'smart', label: 'Custo-benefício', hint: 'bom padrão sem exageros' },
-      { id: 'premium', label: 'Premium', hint: 'conforto e boas escolhas', recommended: true },
-      { id: 'luxury', label: 'Luxo', hint: 'hotéis e experiências especiais' },
-      { id: 'open', label: 'A definir', hint: 'vamos calibrar depois' },
+      { id: 'romance', label: 'Romântica', hint: 'hotéis charmosos, jantares e respiro' },
+      { id: 'food', label: 'Gastronômica', hint: 'restaurantes, mercados e experiências locais' },
+      { id: 'culture', label: 'Cultural', hint: 'museus, bairros e clássicos bem escolhidos' },
+      { id: 'mixed', label: 'Um mix', hint: 'equilíbrio entre tudo', recommended: true },
     ],
   },
-  {
+  soloObjective: {
+    id: 'tripPriority',
+    q: 'Qual é o principal objetivo dessa viagem?',
+    sub: 'Assim eu monto uma base que combine com seu momento.',
+    options: [
+      { id: 'reset', label: 'Descansar e resetar', hint: 'ritmo leve e confortável' },
+      { id: 'discover', label: 'Explorar bastante', hint: 'dias mais cheios e descobertas' },
+      { id: 'food-culture', label: 'Comer bem e ver cultura', hint: 'restaurantes, bairros e museus' },
+      { id: 'meet', label: 'Conhecer pessoas', hint: 'experiências sociais e lugares vivos' },
+    ],
+  },
+  friendsVibe: {
+    id: 'tripPriority',
+    q: 'Qual vibe combina mais com o grupo?',
+    sub: 'Grupo bom precisa de roteiro com energia certa e combinados claros.',
+    options: [
+      { id: 'nightlife', label: 'Vida noturna', hint: 'bares, jantares e agenda mais tarde' },
+      { id: 'beach', label: 'Praia e descanso', hint: 'menos deslocamento, mais respiro' },
+      { id: 'food', label: 'Gastronomia', hint: 'reservas e experiências locais' },
+      { id: 'adventure', label: 'Aventura', hint: 'natureza, passeios e movimento' },
+    ],
+  },
+  orlandoPriority: {
+    id: 'tripPriority',
+    q: 'Vocês querem focar em parques ou misturar parques e descanso?',
+    sub: 'Orlando funciona melhor quando o ritmo é decidido cedo.',
+    options: [
+      { id: 'parks', label: 'Foco total em parques', hint: 'dias intensos e logística afiada' },
+      { id: 'parks-rest', label: 'Parques + descanso', hint: 'equilíbrio para não cansar', recommended: true },
+      { id: 'parks-shopping', label: 'Parques + compras', hint: 'outlets e pausas planejadas' },
+      { id: 'resort', label: 'Resort e experiências leves', hint: 'menos fila, mais conforto' },
+    ],
+  },
+  japanFamiliarity: {
+    id: 'firstTime',
+    q: 'É sua primeira vez no Japão ou você já conhece o país?',
+    sub: 'Com 10+ noites, isso muda bastante a rota ideal.',
+    options: [
+      { id: 'first-time', label: 'Primeira vez', hint: 'Tóquio, Kyoto e clássicos essenciais', recommended: true },
+      { id: 'returning', label: 'Já conheço', hint: 'dá para ir mais autoral e regional' },
+      { id: 'mixed-group', label: 'Grupo misto', hint: 'alguns conhecem, outros não' },
+      { id: 'not-sure', label: 'Ainda não sei', hint: 'começamos com uma rota equilibrada' },
+    ],
+  },
+  beachPriority: {
+    id: 'tripPriority',
+    q: 'Na praia, o que importa mais para você?',
+    sub: 'Isso define se a base vai ser descanso, natureza ou estrutura.',
+    options: [
+      { id: 'rest', label: 'Descanso total', hint: 'hotel bom, pouca logística' },
+      { id: 'nature', label: 'Natureza e passeios', hint: 'barcos, trilhas leves e paisagens' },
+      { id: 'family', label: 'Estrutura para família', hint: 'segurança, piscina e quartos práticos' },
+      { id: 'scene', label: 'Lugar com movimento', hint: 'restaurantes, bares e energia' },
+    ],
+  },
+  defaultStyle: {
     id: 'stylePace',
     q: 'Qual estilo de viagem você prefere?',
     sub: 'Isso define o ritmo do roteiro.',
@@ -92,7 +151,19 @@ const TRIP_WIZARD = [
       { id: 'mixed', label: 'Misturado', hint: 'equilíbrio entre tudo', recommended: true },
     ],
   },
-];
+};
+
+const BUDGET_STEP = {
+  id: 'budget',
+  q: 'Qual faixa de orçamento combina melhor?',
+  sub: 'Não precisa ser exato. É só para calibrar as sugestões.',
+  options: [
+    { id: 'smart', label: 'Custo-benefício', hint: 'bom padrão sem exageros' },
+    { id: 'premium', label: 'Premium', hint: 'conforto e boas escolhas', recommended: true },
+    { id: 'luxury', label: 'Luxo', hint: 'hotéis e experiências especiais' },
+    { id: 'open', label: 'A definir', hint: 'vamos calibrar depois' },
+  ],
+};
 
 function answerLabel(answers, key) {
   return answers[key]?.label || '';
@@ -100,6 +171,18 @@ function answerLabel(answers, key) {
 
 function answerId(answers, key) {
   return answers[key]?.optId || '';
+}
+
+function normText(value) {
+  return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function destinationText(answers) {
+  return normText(`${answerId(answers, 'destination')} ${answerLabel(answers, 'destination')}`);
+}
+
+function isDestination(answers, pattern) {
+  return pattern.test(destinationText(answers));
 }
 
 function parseNights(answer) {
@@ -114,10 +197,49 @@ function travelerCountFrom(answer) {
   return null;
 }
 
+function chooseDestinationStep(answers) {
+  const nights = parseNights(answers) || 0;
+  if (isDestination(answers, /orlando|disney/)) return CONTEXTUAL_TRIP_STEPS.orlandoPriority;
+  if (isDestination(answers, /japao|japan|tokyo|toquio|kyoto|quioto/) && nights >= 10) return CONTEXTUAL_TRIP_STEPS.japanFamiliarity;
+  if (isDestination(answers, /praia|beach|caribe|nordeste|mar/)) return CONTEXTUAL_TRIP_STEPS.beachPriority;
+  return null;
+}
+
+function chooseTravelerStep(answers) {
+  const travelers = answerId(answers, 'travelers');
+  if (travelers === 'couple') return CONTEXTUAL_TRIP_STEPS.coupleStyle;
+  if (travelers === 'solo') return CONTEXTUAL_TRIP_STEPS.soloObjective;
+  if (travelers === 'friends') return CONTEXTUAL_TRIP_STEPS.friendsVibe;
+  return CONTEXTUAL_TRIP_STEPS.defaultStyle;
+}
+
+function buildAdaptiveTripWizard(answers) {
+  const steps = [...BASE_TRIP_WIZARD];
+  const travelers = answerId(answers, 'travelers');
+  if (travelers === 'family') {
+    steps.push(CONTEXTUAL_TRIP_STEPS.childrenAges);
+    if (answerId(answers, 'childrenAges')) {
+      const destinationStep = chooseDestinationStep(answers);
+      if (destinationStep) steps.push(destinationStep);
+      if (!destinationStep || (destinationStep.id === 'firstTime' && answerId(answers, 'firstTime'))) {
+        steps.push(CONTEXTUAL_TRIP_STEPS.defaultStyle);
+      }
+    }
+  } else if (travelers) {
+    const destinationStep = chooseDestinationStep(answers);
+    if (destinationStep) steps.push(destinationStep);
+    if (!destinationStep || (destinationStep.id === 'firstTime' && answerId(answers, 'firstTime'))) {
+      steps.push(chooseTravelerStep(answers));
+    }
+  }
+  steps.push(BUDGET_STEP);
+  return steps;
+}
+
 function buildTripContext(answers, prompt) {
   const destination = answerLabel(answers, 'destination');
   const period = answerLabel(answers, 'period');
-  const childrenAges = answerId(answers, 'childrenAges') === 'none' ? null : answerLabel(answers, 'childrenAges');
+  const childrenAges = answerLabel(answers, 'childrenAges') || null;
   return {
     prompt,
     wizard: {
@@ -134,6 +256,8 @@ function buildTripContext(answers, prompt) {
     childrenAges,
     budget: answerLabel(answers, 'budget') || null,
     stylePace: answerLabel(answers, 'stylePace') || null,
+    tripPriority: answerLabel(answers, 'tripPriority') || null,
+    firstTime: answerLabel(answers, 'firstTime') || null,
   };
 }
 
@@ -169,7 +293,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       intro:'Viajar com cachorro pra Europa tem prazos que começam ~30 dias antes. Vou fazer 3 perguntas e montar tudo — documentos, voo na cabine, hotéis pet-friendly e pontos de atenção.' },
   };
   const cfg = FLOW_CFG[flowKey] || FLOW_CFG.trip;
-  const wizard = flowKey === 'trip' ? TRIP_WIZARD : [];
+  const wizard = flowKey === 'trip' ? buildAdaptiveTripWizard(answers) : [];
 
   const detectFlow = (t) => {
     const s = (t || '').toLowerCase();
@@ -263,7 +387,8 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     setThinking(true);
     setTimeout(() => {
       setThinking(false);
-      if (wizardStep < wizard.length - 1) {
+      const nextWizard = flowKey === 'trip' ? buildAdaptiveTripWizard(nextAnswers) : wizard;
+      if (wizardStep < nextWizard.length - 1) {
         const next = wizardStep + 1;
         setWizardStep(next);
         setChat(c => [...c, { who: 'agent', wizardStep: next }]);
