@@ -1396,14 +1396,14 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
               : 'rounded-full h-[56px] pl-5 pr-[6px] flex items-center gap-2'
           }`}>
             {selectedEntry && (
-              <div className="inline-flex self-start max-w-full items-center gap-2 rounded-full border border-[var(--gaid-halo-focus)] bg-brand-50/70 px-3 h-8 text-[12px] text-ink-800">
-                <Icon.Edit size={12} className="text-brand-700 shrink-0"/>
+              <div className="inline-flex self-start max-w-full items-center gap-2 rounded-full border border-ink-200 bg-ink-50 px-3 h-8 text-[12px] text-ink-800">
+                <Icon.Edit size={12} className="text-ink-500 shrink-0"/>
                 <span className="truncate">
                   {selectedEntry.item.title} · Dia {selectedEntry.day.d} / {selectedEntry.item.t || 'item'}
                 </span>
                 <button
                   onClick={() => setSelectedItem(null)}
-                  className="h-5 w-5 rounded-full hover:bg-white/80 text-ink-500 flex items-center justify-center shrink-0"
+                  className="h-5 w-5 rounded-full hover:bg-ink-100 text-ink-500 flex items-center justify-center shrink-0"
                   title="Remover seleção">
                   <Icon.X size={12}/>
                 </button>
