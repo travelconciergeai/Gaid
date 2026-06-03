@@ -274,10 +274,14 @@ const _emptyAdapter = {
         source: data?.source || 'error',
       };
     }
-    return {
+    const payload = {
       text: data?.text || 'Não consegui obter uma resposta da IA agora. Tente novamente em instantes.',
       source: data?.source || 'error',
     };
+    if (Array.isArray(data?.itinerarySuggestions)) {
+      payload.itinerarySuggestions = data.itinerarySuggestions;
+    }
+    return payload;
   },
 };
 
