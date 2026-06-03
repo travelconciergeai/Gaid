@@ -52,6 +52,9 @@ Formato tecnico obrigatorio:
 - O campo text e obrigatorio.
 - Inclua itinerarySuggestions somente quando o usuario pedir roteiro, atividades, plano por dia, ou disser aplicar/adicionar ao roteiro, e voce tiver sugestoes concretas.
 - Se nao tiver certeza do dia ou periodo, nao inclua itinerarySuggestions.
+- Quando Contexto da tela indicar initialItinerary true, itinerarySuggestions e obrigatorio: crie 1 item principal por periodo para cada dia solicitado.
+- Para initialItinerary, use exatamente os dias indicados em itineraryDays e gere 3 itens por dia: manhã, tarde e noite.
+- Cada item de itinerarySuggestions deve ter day, slot, title, place, dur, tag e vibe.
 - Use slot apenas como "manhã", "tarde" ou "noite".
 - Nao invente reservas confirmadas.
 `.trim();
@@ -113,9 +116,18 @@ function normalizeItinerarySuggestion(item, { allowPartialPlacement = false } = 
   };
 }
 
+function suggestionLimitForContext(context = {}) {
+  const days = Number(context.itineraryDays);
+  if (context.initialItinerary === true && Number.isFinite(days) && days > 0) {
+    return Math.min(Math.floor(days) * 3, 45);
+  }
+  return 12;
+}
+
 function normalizeItinerarySuggestions(value, options = {}) {
   if (!Array.isArray(value)) return [];
-  return value.map(item => normalizeItinerarySuggestion(item, options)).filter(Boolean).slice(0, 12);
+  const limit = Number.isFinite(options.limit) && options.limit > 0 ? Math.floor(options.limit) : 12;
+  return value.map(item => normalizeItinerarySuggestion(item, options)).filter(Boolean).slice(0, limit);
 }
 
 export default async function handler(req, res) {
@@ -158,7 +170,7 @@ export default async function handler(req, res) {
         model: process.env.OPENAI_MODEL || 'gpt-5.2',
         instructions: `${SYSTEM_PROMPT}\n\nContexto da tela: ${JSON.stringify(context).slice(0, 1200)}`,
         input,
-        max_output_tokens: 500,
+        max_output_tokens: context?.initialItinerary === true ? 5000 : 900,
       }),
     });
 
@@ -198,7 +210,10 @@ export default async function handler(req, res) {
       ? parsedPayload.text.trim()
       : extractTextFromRawJson(rawText) || 'Criei a estrutura dos dias do roteiro. Me peça para montar uma primeira versão quando quiser.';
     const itinerarySuggestions = parsedPayload
-      ? normalizeItinerarySuggestions(parsedPayload.itinerarySuggestions, { allowPartialPlacement: isInitialItinerary })
+      ? normalizeItinerarySuggestions(parsedPayload.itinerarySuggestions, {
+        allowPartialPlacement: isInitialItinerary,
+        limit: suggestionLimitForContext(context),
+      })
       : [];
 
     const payload = {

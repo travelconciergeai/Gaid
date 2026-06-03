@@ -358,6 +358,14 @@ function parseDateRange(value) {
   return { label };
 }
 
+function cleanDateLabel(value) {
+  const label = filledString(value);
+  if (!label) return '';
+  const text = normText(label);
+  if (label.length > 90 || /\b(quero|roteiro|viagem|viajar|criar|montar)\b/.test(text)) return '';
+  return label;
+}
+
 function normalizeDates(answers, context) {
   const incoming = context?.dates && typeof context.dates === 'object' && !Array.isArray(context.dates) ? context.dates : null;
   const label = filledString(answerText(answers, 'period'), incoming?.label, context?.period);
@@ -645,7 +653,7 @@ function sentenceList(values) {
 
 function buildWizardSummary(context) {
   const destination = filledString(context.destination, 'uma viagem');
-  const dates = filledString(context.dates?.label, context.period);
+  const dates = cleanDateLabel(context.dates?.label) || cleanDateLabel(context.period);
   const count = parseNumberFromText(context.travelers?.count);
   const composition = filledString(context.travelers?.composition, context.travelerComposition);
   const travelerText = context.travelers?.adults && context.travelers?.children?.count
@@ -673,7 +681,7 @@ function buildWizardSummary(context) {
 
 function buildTripContext(answers, prompt, { context = {}, mode = 'deterministic', qa = [] } = {}) {
   const destination = filledString(answerText(answers, 'destination'), context.destination);
-  const period = filledString(answerText(answers, 'period'), context.period, context.dates?.label);
+  const period = cleanDateLabel(answerText(answers, 'period')) || cleanDateLabel(context.period) || cleanDateLabel(context.dates?.label);
   const dates = normalizeDates(answers, { ...context, period });
   const parsedComposition = parseTravelerComposition(`${answerText(answers, 'travelers')} ${answerText(answers, 'travelerCount')} ${answerText(answers, 'childrenAges')}`);
   const childrenAges = parsedComposition.ages.length > 0

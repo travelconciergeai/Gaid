@@ -167,7 +167,8 @@ function buildInitialItineraryPrompt(kickoff, trip, duration) {
     assumption,
     'Retorne itinerarySuggestions obrigatoriamente com day, slot, title, place, dur, tag e vibe para cada item.',
     'Use apenas slots "manhã", "tarde" ou "noite".',
-    'Sugira de 2 a 3 itens por dia, com ritmo realista.',
+    `Sugira exatamente 3 itens por dia: 1 de manhã, 1 de tarde e 1 de noite, por ${duration.days} dias.`,
+    'Os itens devem ser especificos para o destino e preferências da viagem, nao placeholders genericos.',
     'Nao invente reservas, precos, disponibilidade, hoteis ou voos confirmados.',
     `Contexto da viagem: ${JSON.stringify(trip.tripContext || {}).slice(0, 1200)}`,
   ].join('\n');
