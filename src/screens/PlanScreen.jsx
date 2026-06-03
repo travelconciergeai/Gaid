@@ -171,6 +171,50 @@ function withDurationAssumptionText(text, duration) {
     ? clean
     : `${note}\n\n${clean}`;
 }
+function completeInitialSuggestions(suggestions, duration) {
+  const normalized = normalizeItinerarySuggestions(suggestions);
+  const slots = ['manhã', 'tarde', 'noite'];
+  return normalized.map((item, index) => ({
+    ...item,
+    day: item.day || (Math.floor(index / slots.length) % duration.days) + 1,
+    slot: item.slot || slots[index % slots.length],
+  }));
+}
+function buildFallbackInitialSuggestions(trip, duration) {
+  const destination = trip.destination || trip.tripContext?.destination || 'destino';
+  return Array.from({ length: duration.days }, (_, index) => {
+    const day = index + 1;
+    return [
+      {
+        day,
+        slot: 'manhã',
+        title: day === 1 ? 'Chegada e reconhecimento' : `Manhã leve em ${destination}`,
+        place: destination,
+        dur: '2h',
+        tag: 'experiência',
+        vibe: day === 1 ? 'começo tranquilo' : 'ritmo confortável',
+      },
+      {
+        day,
+        slot: 'tarde',
+        title: day === 1 ? 'Passeio leve no destino' : `Explorar uma área especial de ${destination}`,
+        place: destination,
+        dur: '3h',
+        tag: 'clássico',
+        vibe: 'curadoria leve',
+      },
+      {
+        day,
+        slot: 'noite',
+        title: 'Jantar tranquilo',
+        place: destination,
+        dur: '1h30',
+        tag: 'comida',
+        vibe: 'sem pressa',
+      },
+    ];
+  }).flat();
+}
 
 const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
   const toast = useToast();
@@ -382,29 +426,23 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       setTyping(false);
       const suggestions = normalizeItinerarySuggestions(response.itinerarySuggestions);
       if (isWizardKickoff) {
-        if (suggestionsHavePlacement(suggestions)) {
-          const text = withDurationAssumptionText(response.text, duration);
-          const appliedCount = applySuggestionListToTimeline(suggestions);
-          if (appliedCount > 0) {
-            setChat(c => [...c, {
-              who: 'gaid',
-              text,
-              source: response.source,
-              itinerarySuggestions: suggestions,
-              cta: ['Adicionado ao roteiro'],
-              ctaApplied: true,
-            }]);
-            persistPlanMessage('assistant', text, { source: response.source, initialItinerary: true });
-          } else {
-            const failure = 'Não consegui criar uma primeira sugestão de roteiro agora. Me peça de novo em instantes ou diga quantos dias você quer planejar.';
-            setChat(c => [...c, { who: 'gaid', text: failure, source: 'error' }]);
-            persistPlanMessage('assistant', failure, { source: 'error', initialItinerary: true });
-          }
-        } else {
-          const failure = 'Não consegui criar uma primeira sugestão de roteiro agora porque a resposta não trouxe dias e períodos claros. Me peça de novo em instantes ou diga quantos dias você quer planejar.';
-          setChat(c => [...c, { who: 'gaid', text: failure, source: 'error' }]);
-          persistPlanMessage('assistant', failure, { source: 'error', initialItinerary: true });
-        }
+        const initialSuggestions = suggestions.length > 0
+          ? completeInitialSuggestions(suggestions, duration)
+          : buildFallbackInitialSuggestions(tripData, duration);
+        const text = withDurationAssumptionText(
+          'Montei uma primeira versão do roteiro para você. Podemos ajustar tudo a partir daqui.',
+          duration
+        );
+        applySuggestionListToTimeline(initialSuggestions);
+        setChat(c => [...c, {
+          who: 'gaid',
+          text,
+          source: suggestions.length > 0 ? response.source : 'local',
+          itinerarySuggestions: initialSuggestions,
+          cta: ['Adicionado ao roteiro'],
+          ctaApplied: true,
+        }]);
+        persistPlanMessage('assistant', text, { source: suggestions.length > 0 ? response.source : 'local', initialItinerary: true });
       } else {
         setChat(c => [...c, assistantResponseToBubble(response)]);
         persistPlanMessage('assistant', response.text, { source: response.source });
@@ -414,10 +452,14 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       if (!alive) return;
       setTyping(false);
       const fallback = isWizardKickoff
-        ? 'Não consegui criar uma primeira sugestão de roteiro agora. Me peça de novo em instantes ou diga quantos dias você quer planejar.'
+        ? 'Montei uma primeira versão do roteiro para você. Podemos ajustar tudo a partir daqui.'
         : 'Não consegui responder agora. Tente novamente em instantes.';
-      setChat(c => [...c, { who: 'gaid', text: fallback, source: 'error' }]);
-      persistPlanMessage('assistant', fallback, { source: 'error', initialItinerary: isWizardKickoff });
+      if (isWizardKickoff) {
+        const fallbackSuggestions = buildFallbackInitialSuggestions(tripData, duration);
+        applySuggestionListToTimeline(fallbackSuggestions);
+      }
+      setChat(c => [...c, { who: 'gaid', text: fallback, source: isWizardKickoff ? 'local' : 'error' }]);
+      persistPlanMessage('assistant', fallback, { source: isWizardKickoff ? 'local' : 'error', initialItinerary: isWizardKickoff });
       clearKickoff && clearKickoff();
     });
     return () => { alive = false; };
