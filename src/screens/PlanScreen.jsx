@@ -355,7 +355,28 @@ function itemTextMatches(item, text) {
   const fields = [item?.title, item?.place]
     .map(value => normText(value))
     .filter(value => value.length >= 4);
-  return fields.some(value => normalized.includes(value) || value.includes(normalized));
+  const words = normalized.split(/[^a-z0-9]+/).filter(word => word.length >= 3);
+  return fields.some((value) => {
+    if (normalized.includes(value) || value.includes(normalized)) return true;
+    const titleParts = value.split(/(?:\+|,|\/| e | com | por | em )/).map(part => part.trim()).filter(part => part.length >= 4);
+    if (titleParts.some(part => normalized.includes(part))) return true;
+    const valueWords = value.split(/[^a-z0-9]+/).filter(word => word.length >= 3);
+    const hits = valueWords.filter(word => words.includes(word)).length;
+    return hits >= Math.min(2, valueWords.length);
+  });
+}
+function findActivityMentionedInText(message, days) {
+  const entries = flattenItineraryItems(days);
+  return entries.find(entry => itemTextMatches(entry.item, message)) || null;
+}
+function replacementInstructionFromMessage(message, target) {
+  const raw = String(message || '').trim();
+  const porMatch = raw.match(/\bpor\s+(.+)$/i);
+  if (porMatch?.[1]) return porMatch[1].trim();
+  const normalizedTarget = normText(target?.item?.title || '');
+  const chunks = raw.split(/trocar|substituir|mudar/i).map(item => item.trim()).filter(Boolean);
+  const candidate = chunks.find(item => !normText(item).includes(normalizedTarget));
+  return candidate || raw;
 }
 function flattenItineraryItems(days) {
   return normalizeDays(days).flatMap((day, dayIdx) =>
@@ -403,6 +424,9 @@ function resolveActivityTarget({ message, days, editing, lastModifiedRef, chat }
   const selected = resolveStoredActivityRef(safeDays, editing);
   if (selected) return selected;
 
+  const mentioned = findActivityMentionedInText(message, safeDays);
+  if (mentioned) return mentioned;
+
   const explicitDay = parseTargetDay(message, safeDays);
   const requestedCategory = inferItemTag(message);
   if (explicitDay) {
@@ -430,7 +454,7 @@ function validateReplaceActivity({ trip, days, target }) {
   if (!safeDays[target.dayIdx].items[target.itemIdx]) return 'Não encontrei essa atividade no roteiro.';
   return null;
 }
-function buildReplaceActivityPrompt({ message, trip, target }) {
+function buildReplaceActivityPrompt({ message, trip, target, instruction = '' }) {
   const category = itemCategory(target.item);
   const preference = replacementPreference(message);
   return [
@@ -440,17 +464,41 @@ function buildReplaceActivityPrompt({ message, trip, target }) {
     `Atividade atual: ${target.item.title} em ${target.item.place || TBD}.`,
     `Categoria a preservar: ${category}.`,
     `Preferencia do usuario: ${preference}.`,
+    instruction ? `Instrucao especifica de substituicao: ${instruction}.` : '',
     `Mantenha day=${target.day.d} e slot="${target.item.t}".`,
     'Retorne uma unica itinerarySuggestion com day, slot, title, place, dur, tag e vibe.',
     'A alternativa precisa ser concreta, coerente com a categoria e especifica para o destino.',
     'Nao invente reserva confirmada, preco ou disponibilidade.',
     `Contexto da viagem: ${JSON.stringify(trip?.tripContext || {}).slice(0, 1200)}`,
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
-function localReplacementSuggestion(message, trip, target) {
+function localReplacementSuggestion(message, trip, target, instruction = '') {
   const destination = knownTripDestination(trip) || target.item.place || 'destino';
   const category = itemCategory(target.item);
   const preference = replacementPreference(message);
+  const text = normText(`${message} ${instruction} ${destination}`);
+  if (/caminhada|andar|walking|walk/.test(text) && /londres|london|covent garden|soho|westminster/.test(text)) {
+    return {
+      day: target.day.d,
+      slot: target.item.t,
+      title: 'Caminhada romântica por Westminster e St James’s Park',
+      place: 'Westminster e St James’s Park',
+      dur: target.item.dur || '1h30',
+      tag: 'romântico',
+      vibe: `substitui "${target.item.title}" por uma caminhada a dois no mesmo período`,
+    };
+  }
+  if (/caminhada|andar|walking|walk/.test(text)) {
+    return {
+      day: target.day.d,
+      slot: target.item.t,
+      title: `Caminhada a dois por ${destination}`,
+      place: destination,
+      dur: target.item.dur || '1h30',
+      tag: 'romântico',
+      vibe: `substitui "${target.item.title}" por uma caminhada no mesmo período`,
+    };
+  }
   const titleByCategory = {
     restaurante: `Restaurante ${preference} em ${destination}`,
     café: `Café ${preference} em ${destination}`,
@@ -1885,8 +1933,9 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         return;
       }
       try {
+        const replacementInstruction = replacementInstructionFromMessage(t, target);
         const response = await tripApi.sendChatMessage({
-          message: buildReplaceActivityPrompt({ message: t, trip: tripData, target }),
+          message: buildReplaceActivityPrompt({ message: t, trip: tripData, target, instruction: replacementInstruction }),
           history: nextChat
             .filter(m => m.text)
             .map(m => ({ role: m.who === 'user' ? 'user' : 'assistant', text: m.text })),
@@ -1908,13 +1957,15 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
           .find(item => item.title);
         const suggestion = structured
           ? { ...structured, day: target.day.d, slot: target.item.t }
-          : localReplacementSuggestion(t, tripData, target);
+          : localReplacementSuggestion(t, tripData, target, replacementInstruction);
         await replaceActivity(target, suggestion);
         clearPendingItineraryActions();
         setSelectedItem(null);
-        const reply = selectedItem
-          ? 'Pronto — substituí esse item no roteiro.'
-          : 'Pronto — substituí a atividade por uma alternativa mais alinhada ao que você pediu.';
+        const oldShort = String(target.item.title || 'a atividade').split(/\s+\+\s+|,\s*/)[0];
+        const newShort = /caminhada/i.test(suggestion.title)
+          ? 'uma caminhada a dois no mesmo período'
+          : suggestion.title;
+        const reply = `Pronto — substituí ${oldShort} por ${newShort}.`;
         setChat(c => [...c, { who: 'gaid', text: reply, source: structured ? response.source : 'local', status: 'applied', ctaApplied: true }]);
         persistPlanMessage('assistant', reply, {
           source: structured ? response.source : 'local',
