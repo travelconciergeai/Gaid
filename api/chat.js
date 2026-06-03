@@ -77,6 +77,17 @@ function parseAssistantPayload(rawText) {
   return null;
 }
 
+function extractTextFromRawJson(value) {
+  const cleaned = stripJsonFences(value);
+  const match = cleaned.match(/"text"\s*:\s*"((?:\\.|[^"\\])*)"/);
+  if (!match) return '';
+  try {
+    return JSON.parse(`"${match[1]}"`).trim();
+  } catch (_error) {
+    return match[1].trim();
+  }
+}
+
 function normalizeSlot(value) {
   const text = String(value || '').trim().toLowerCase();
   if (text === 'manha') return 'manhã';
@@ -84,14 +95,15 @@ function normalizeSlot(value) {
   return null;
 }
 
-function normalizeItinerarySuggestion(item) {
+function normalizeItinerarySuggestion(item, { allowPartialPlacement = false } = {}) {
   if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
   const day = Number(item.day);
   const slot = normalizeSlot(item.slot);
   const title = typeof item.title === 'string' ? item.title.trim() : '';
-  if (!Number.isFinite(day) || day < 1 || !slot || !title) return null;
+  if (!title) return null;
+  if (!allowPartialPlacement && (!Number.isFinite(day) || day < 1 || !slot)) return null;
   return {
-    day: Math.floor(day),
+    day: Number.isFinite(day) && day >= 1 ? Math.floor(day) : null,
     slot,
     title,
     place: typeof item.place === 'string' && item.place.trim() ? item.place.trim() : 'A definir',
@@ -101,9 +113,9 @@ function normalizeItinerarySuggestion(item) {
   };
 }
 
-function normalizeItinerarySuggestions(value) {
+function normalizeItinerarySuggestions(value, options = {}) {
   if (!Array.isArray(value)) return [];
-  return value.map(normalizeItinerarySuggestion).filter(Boolean).slice(0, 12);
+  return value.map(item => normalizeItinerarySuggestion(item, options)).filter(Boolean).slice(0, 12);
 }
 
 export default async function handler(req, res) {
@@ -180,12 +192,13 @@ export default async function handler(req, res) {
       });
     }
 
+    const isInitialItinerary = context?.initialItinerary === true;
     const parsedPayload = parseAssistantPayload(rawText);
     const text = typeof parsedPayload?.text === 'string' && parsedPayload.text.trim()
       ? parsedPayload.text.trim()
-      : rawText.trim();
+      : extractTextFromRawJson(rawText) || 'Criei a estrutura dos dias do roteiro. Me peça para montar uma primeira versão quando quiser.';
     const itinerarySuggestions = parsedPayload
-      ? normalizeItinerarySuggestions(parsedPayload.itinerarySuggestions)
+      ? normalizeItinerarySuggestions(parsedPayload.itinerarySuggestions, { allowPartialPlacement: isInitialItinerary })
       : [];
 
     const payload = {

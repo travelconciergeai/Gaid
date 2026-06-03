@@ -413,8 +413,9 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
           text,
           source: initialSuggestions.length > 0 ? response.source : 'local',
           itinerarySuggestions: initialSuggestions,
-          cta: initialSuggestions.length > 0 ? ['Adicionado ao roteiro'] : null,
+          cta: null,
           ctaApplied: initialSuggestions.length > 0,
+          initialKickoff: true,
         }]);
         persistPlanMessage('assistant', text, { source: initialSuggestions.length > 0 ? response.source : 'local', initialItinerary: true });
       } else {
@@ -654,6 +655,8 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
 
 // ---------- Chat bubble ----------
 const Bubble = ({ m, onCta }) => {
+  const ctas = Array.isArray(m.cta) ? m.cta.filter(Boolean) : [];
+  const showCta = ctas.length > 0 && !m.initialKickoff;
   if (m.who === 'user') {
     return (
       <div className="flex justify-end">
@@ -668,9 +671,9 @@ const Bubble = ({ m, onCta }) => {
       <div className="text-[14px] text-ink-900 leading-relaxed">
         {m.text}
       </div>
-      {m.cta && (
+      {showCta && (
         <div className="mt-3 flex flex-wrap gap-2">
-          {m.cta.map(c => (
+          {ctas.map(c => (
             <button key={c} onClick={() => !m.ctaApplied && onCta(c)} disabled={m.ctaApplied}
               className={`h-8 px-3 rounded-full border-half bg-white text-[12.5px] transition-colors flex items-center gap-1.5 ${
                 m.ctaApplied
