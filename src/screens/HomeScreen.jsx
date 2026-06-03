@@ -199,6 +199,10 @@ function normText(value) {
   return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
+function filledString(...values) {
+  return values.find(value => typeof value === 'string' && value.trim())?.trim() || '';
+}
+
 function destinationText(answers) {
   return normText(`${answerId(answers, 'destination')} ${answerLabel(answers, 'destination')}`);
 }
@@ -212,13 +216,22 @@ function parseNights(answer) {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
+function parseNumberFromText(value) {
+  const match = String(value || '').match(/\d+/);
+  const parsed = match ? Number(match[0]) : null;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 function travelerCountFrom(answer) {
   const id = answerId(answer, 'travelers');
   if (id === 'solo') return 1;
   if (id === 'couple') return 2;
-  const explicit = Number(answerId(answer, 'travelerCount') || String(answerLabel(answer, 'travelerCount')).match(/\d+/)?.[0]);
-  if (Number.isFinite(explicit) && explicit > 0) return explicit;
-  return null;
+  return parseNumberFromText(
+    answerId(answer, 'travelerCount') ||
+    answerLabel(answer, 'travelerCount') ||
+    answerId(answer, 'travelers') ||
+    answerLabel(answer, 'travelers')
+  );
 }
 
 function travelerCompositionFrom(answer) {
@@ -227,7 +240,76 @@ function travelerCompositionFrom(answer) {
   if (id === 'couple') return 'Casal';
   if (id === 'family') return 'Família';
   if (id === 'friends') return 'Amigos';
+  const label = answerLabel(answer, 'travelers');
+  const text = normText(`${id} ${label}`);
+  if (/famil|crianc|filh/.test(text)) return 'Família';
+  if (/casal/.test(text)) return 'Casal';
+  if (/solo|so eu|sozinh/.test(text)) return 'Solo';
+  if (/amig|grupo/.test(text)) return 'Amigos';
   return answerLabel(answer, 'travelers') || null;
+}
+
+const PT_MONTHS = {
+  janeiro: 1,
+  fevereiro: 2,
+  marco: 3,
+  abril: 4,
+  maio: 5,
+  junho: 6,
+  julho: 7,
+  agosto: 8,
+  setembro: 9,
+  outubro: 10,
+  novembro: 11,
+  dezembro: 12,
+};
+
+function isoDate(year, month, day) {
+  if (!year || !month || !day) return null;
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function parseDateRange(value) {
+  const label = filledString(value);
+  if (!label) return null;
+  const numeric = label.match(/\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\s*(?:a|ate|até|-)\s*(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b/i);
+  if (numeric) {
+    const startYear = Number(numeric[3]?.length === 2 ? `20${numeric[3]}` : numeric[3]);
+    const endYear = Number((numeric[6] || numeric[3])?.length === 2 ? `20${numeric[6] || numeric[3]}` : numeric[6] || numeric[3]);
+    if (Number.isFinite(startYear) && Number.isFinite(endYear)) {
+      return {
+        label,
+        start: isoDate(startYear, Number(numeric[2]), Number(numeric[1])),
+        end: isoDate(endYear, Number(numeric[5]), Number(numeric[4])),
+      };
+    }
+  }
+  const text = normText(label);
+  const monthName = Object.keys(PT_MONTHS).find(month => text.includes(month));
+  const year = Number(text.match(/\b(20\d{2})\b/)?.[1]);
+  const days = [...text.matchAll(/\b(\d{1,2})\b/g)].map(match => Number(match[1])).filter(day => day >= 1 && day <= 31);
+  if (monthName && Number.isFinite(year) && days.length >= 2) {
+    return {
+      label,
+      start: isoDate(year, PT_MONTHS[monthName], days[0]),
+      end: isoDate(year, PT_MONTHS[monthName], days[1]),
+    };
+  }
+  return { label };
+}
+
+function normalizeDates(answers, context) {
+  const incoming = context?.dates && typeof context.dates === 'object' && !Array.isArray(context.dates) ? context.dates : null;
+  const label = filledString(answerLabel(answers, 'period'), incoming?.label, context?.period);
+  const parsed = parseDateRange(label);
+  if (incoming || parsed) {
+    return {
+      ...(incoming || {}),
+      ...(parsed || {}),
+      label: filledString(parsed?.label, incoming?.label, label),
+    };
+  }
+  return null;
 }
 
 function chooseDestinationStep(answers) {
@@ -325,33 +407,66 @@ async function requestAiWizardQuestion({ prompt, answers, lastAnswer, stepCount 
   return response.json();
 }
 
-function buildTripContext(answers, prompt) {
-  const destination = answerLabel(answers, 'destination');
-  const period = answerLabel(answers, 'period');
-  const childrenAges = answerLabel(answers, 'childrenAges') || null;
+function buildWizardQa(answers, history = []) {
+  const seen = new Set();
+  return (history || [])
+    .filter(step => step && answers?.[step.id] && !seen.has(step.id))
+    .map((step) => {
+      seen.add(step.id);
+      return {
+        question: step.q,
+        answer: answers[step.id]?.label || answers[step.id]?.optId || '',
+      };
+    })
+    .filter(item => item.question && item.answer);
+}
+
+function wizardQaText(step, label) {
+  return `P: ${step?.q || 'Pergunta'}\nR: ${label}`;
+}
+
+function buildTripContext(answers, prompt, { context = {}, mode = 'deterministic', qa = [] } = {}) {
+  const destination = filledString(answerLabel(answers, 'destination'), context.destination);
+  const period = filledString(answerLabel(answers, 'period'), context.period, context.dates?.label);
+  const dates = normalizeDates(answers, { ...context, period });
+  const childrenAges = filledString(answerLabel(answers, 'childrenAges'), context.childrenAges) || null;
   const travelerCount = travelerCountFrom(answers);
-  const travelerComposition = travelerCompositionFrom(answers);
+  const contextTravelerCount = parseNumberFromText(context.travelers?.count);
+  const travelerComposition = filledString(travelerCompositionFrom(answers), context.travelerComposition, context.travelers?.composition);
+  const budget = filledString(answerLabel(answers, 'budget'), context.budget?.label, context.budget);
+  const stylePace = filledString(answerLabel(answers, 'stylePace'), context.stylePace);
+  const priorities = [
+    filledString(answerLabel(answers, 'tripPriority'), context.tripPriority),
+    filledString(answerLabel(answers, 'firstTime'), context.firstTime),
+    ...(Array.isArray(context.priorities) ? context.priorities : []),
+  ].filter(Boolean);
   return {
+    ...context,
     prompt,
-    wizard: {
-      completed: true,
-      answers,
-    },
     destination: destination || null,
     period: period || null,
-    dates: period ? { label: period } : null,
-    nights: parseNights(answers),
-    duration: answerLabel(answers, 'duration') || null,
+    dates,
+    nights: parseNights(answers) ?? context.nights ?? null,
+    duration: filledString(answerLabel(answers, 'duration'), context.duration) || null,
     travelers: {
-      count: travelerCount,
-      composition: travelerComposition,
+      ...(context.travelers && typeof context.travelers === 'object' && !Array.isArray(context.travelers) ? context.travelers : {}),
+      count: travelerCount ?? contextTravelerCount ?? null,
+      composition: travelerComposition || null,
     },
-    travelerComposition,
+    travelerComposition: travelerComposition || null,
     childrenAges,
-    budget: answerLabel(answers, 'budget') || null,
-    stylePace: answerLabel(answers, 'stylePace') || null,
-    tripPriority: answerLabel(answers, 'tripPriority') || null,
-    firstTime: answerLabel(answers, 'firstTime') || null,
+    comfortLevel: budget || context.comfortLevel || null,
+    budget: budget || context.budget || null,
+    stylePace: stylePace || null,
+    priorities,
+    tripPriority: filledString(answerLabel(answers, 'tripPriority'), context.tripPriority) || null,
+    firstTime: filledString(answerLabel(answers, 'firstTime'), context.firstTime) || null,
+    wizard: {
+      completed: true,
+      mode,
+      qa,
+      answers,
+    },
   };
 }
 
@@ -486,12 +601,14 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     const step = wizard[wizardStep];
     if (!step) return;
     const nextAnswers = { ...answers, [step.id]: { optId, label } };
+    const currentWizardHistory = syncWizardHistory(wizardHistory, wizardStep, step);
+    const currentQa = buildWizardQa(nextAnswers, currentWizardHistory);
     setAnswers(nextAnswers);
-    setWizardHistory(history => syncWizardHistory(history, wizardStep, step));
+    setWizardHistory(currentWizardHistory);
     // Lock the current wizard message + append user reply
     setChat(c => [
       ...c.map(m => (m.wizardStep === wizardStep ? { ...m, answered: { optId, label } } : m)),
-      { who: 'user', text: label },
+      { who: 'user', text: wizardQaText(step, label) },
     ]);
     setThinking(true);
     setTimeout(async () => {
@@ -514,7 +631,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
           completedByAi = response.isComplete === true;
           nextAiStep = aiQuestionToStep(response);
           if (nextAiStep) {
-            nextWizard = syncWizardHistory(wizardHistory, wizardStep, step, nextAiStep);
+            nextWizard = syncWizardHistory(currentWizardHistory, wizardStep, step, nextAiStep);
             setWizardHistory(nextWizard);
           }
         } catch (_error) {
@@ -538,18 +655,15 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
           ...c,
           { who: 'agent', text: genMsg },
         ]);
-        const fallbackContext = buildTripContext(nextAnswers, initialPrompt);
+        const mode = completedByAi ? 'ai-guided' : 'deterministic';
+        const fallbackContext = buildTripContext(nextAnswers, initialPrompt, {
+          context: nextWizardContext,
+          mode,
+          qa: currentQa,
+        });
         Promise.resolve(kickoffPlan && kickoffPlan({
           prompt: initialPrompt,
-          context: {
-            ...fallbackContext,
-            ...nextWizardContext,
-            wizard: {
-              completed: true,
-              mode: completedByAi ? 'ai-guided' : 'deterministic',
-              answers: nextAnswers,
-            },
-          },
+          context: fallbackContext,
         }))
           .then(() => {
             setRoute && setRoute('plan');
@@ -809,7 +923,7 @@ const ChatMsg = ({ m, wizard, genSteps, onAnswer, onGenDone, onOpenTrip }) => {
   if (m.who === 'user') {
     return (
       <div className="flex justify-end">
-        <div className="bg-ink-900 text-paper rounded-2xl rounded-tr-md px-4 py-2.5 text-[14px] max-w-[80%] leading-relaxed">
+        <div className="bg-ink-900 text-paper rounded-2xl rounded-tr-md px-4 py-2.5 text-[14px] max-w-[80%] leading-relaxed whitespace-pre-line">
           {m.text}
         </div>
       </div>
