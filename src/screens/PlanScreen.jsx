@@ -57,10 +57,15 @@ function storedMessageToBubble(message) {
     source: message.source || message.metadata?.source,
   };
 }
+function normText(value) {
+  return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
 function normalizeSuggestionSlot(value) {
-  const slot = String(value || '').toLowerCase().trim();
+  const slot = normText(value).trim();
   if (slot === 'manha') return 'manhã';
-  return ['manhã', 'tarde', 'noite'].includes(slot) ? slot : 'manhã';
+  if (slot === 'tarde') return 'tarde';
+  if (slot === 'noite') return 'noite';
+  return null;
 }
 function normalizeItinerarySuggestions(value) {
   if (!Array.isArray(value)) return [];
@@ -68,9 +73,9 @@ function normalizeItinerarySuggestions(value) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
     const day = Number(item.day);
     const title = String(item.title || '').trim();
-    if (!Number.isFinite(day) || day < 1 || !title) return null;
+    if (!title) return null;
     return {
-      day: Math.floor(day),
+      day: Number.isFinite(day) && day >= 1 ? Math.floor(day) : null,
       slot: normalizeSuggestionSlot(item.slot),
       title,
       place: String(item.place || TBD).trim() || TBD,
@@ -79,6 +84,40 @@ function normalizeItinerarySuggestions(value) {
       vibe: String(item.vibe || '').trim(),
     };
   }).filter(Boolean);
+}
+function suggestionsHavePlacement(suggestions) {
+  return normalizeItinerarySuggestions(suggestions).every(item => item.day && item.slot);
+}
+function isApplyIntent(value) {
+  const text = normText(value);
+  return /(adicionar ao roteiro|aplicar ao roteiro|pode adicionar|coloca no roteiro|incluir no roteiro|gostei,\s*adiciona|gostei.*adiciona)/.test(text);
+}
+function parsePlacement(value) {
+  const text = normText(value);
+  const dayMatch = text.match(/\bdia\s*(\d+)\b/) ||
+    text.match(/\b(\d+)\s*(?:o|º)?\s*dia\b/) ||
+    (/\bprimeiro\b/.test(text) ? [, '1'] : null) ||
+    (/\bsegundo\b/.test(text) ? [, '2'] : null) ||
+    (/\bterceiro\b/.test(text) ? [, '3'] : null);
+  const day = Number(dayMatch?.[1]);
+  const slot = /\bmanh/.test(text)
+    ? 'manhã'
+    : /\btarde\b/.test(text)
+      ? 'tarde'
+      : /\bnoite\b/.test(text)
+        ? 'noite'
+        : null;
+  if (!Number.isFinite(day) || day < 1 || !slot) return null;
+  return { day: Math.floor(day), slot };
+}
+function latestSuggestionMessageIndex(messages) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.who === 'gaid' && !message.ctaApplied && normalizeItinerarySuggestions(message.itinerarySuggestions).length > 0) {
+      return index;
+    }
+  }
+  return -1;
 }
 function assistantResponseToBubble(response) {
   const itinerarySuggestions = normalizeItinerarySuggestions(response?.itinerarySuggestions);
@@ -106,6 +145,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
   const [exportOpen, setExportOpen] = useState(false);
   const [activeMode, setActiveMode] = useState(null);
   const [prep, setPrep] = useState(() => tripData.prep ? JSON.parse(JSON.stringify(tripData.prep)) : null);
+  const [pendingPlacementMessageIndex, setPendingPlacementMessageIndex] = useState(null);
   const chatEndRef = useRef(null);
   const kickoffKeyRef = useRef(null);
 
@@ -128,6 +168,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     setActiveMode(null);
     setEditing(null);
     setAdding(null);
+    setPendingPlacementMessageIndex(null);
     setPrep(tripData.prep ? JSON.parse(JSON.stringify(tripData.prep)) : null);
     let alive = true;
     if (!tripData.id) {
@@ -202,17 +243,31 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     items: [],
   });
 
-  const applyItinerarySuggestions = (messageIndex) => {
+  const applyItinerarySuggestions = (messageIndex, placement = null, { confirm = false } = {}) => {
     const message = chat[messageIndex];
     const suggestions = normalizeItinerarySuggestions(message?.itinerarySuggestions);
-    if (suggestions.length === 0 || message?.ctaApplied) return;
+    if (suggestions.length === 0 || message?.ctaApplied) return 'none';
+    if (!placement && !suggestionsHavePlacement(suggestions)) {
+      setPendingPlacementMessageIndex(messageIndex);
+      setChat(current => [...current, {
+        who: 'gaid',
+        text: 'Claro. Em qual dia e período você quer encaixar isso? Exemplos: “Dia 2 de manhã”, “Dia 3 à tarde”, “No primeiro dia à noite”.',
+        source: 'local',
+      }]);
+      return 'needs-placement';
+    }
     setDays(currentDays => {
       const nextDays = normalizeDays(currentDays).map(day => ({ ...day, items: [...day.items] }));
-      const maxDay = Math.max(...suggestions.map(item => item.day));
+      const placedSuggestions = suggestions.map(item => ({
+        ...item,
+        day: item.day || placement?.day,
+        slot: item.slot || placement?.slot,
+      })).filter(item => item.day && item.slot);
+      const maxDay = Math.max(...placedSuggestions.map(item => item.day));
       for (let dayNumber = 1; dayNumber <= maxDay; dayNumber += 1) {
         if (!nextDays.some(day => day.d === dayNumber)) nextDays.push(placeholderDay(dayNumber));
       }
-      suggestions.forEach((suggestion) => {
+      placedSuggestions.forEach((suggestion) => {
         const day = nextDays.find(item => item.d === suggestion.day);
         if (!day) return;
         day.items.push({
@@ -227,11 +282,18 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       });
       return nextDays.sort((a, b) => a.d - b.d);
     });
-    setChat(current => current.map((item, index) => index === messageIndex
-      ? { ...item, cta: ['Adicionado ao roteiro'], ctaApplied: true }
-      : item
-    ));
+    setChat(current => {
+      const next = current.map((item, index) => index === messageIndex
+        ? { ...item, cta: ['Adicionado ao roteiro'], ctaApplied: true }
+        : item
+      );
+      return confirm
+        ? [...next, { who: 'gaid', text: 'Pronto — adicionei isso ao roteiro.', source: 'local' }]
+        : next;
+    });
+    setPendingPlacementMessageIndex(null);
     toast({ title: 'Adicionado ao roteiro', desc: `${suggestions.length} sugestão${suggestions.length === 1 ? '' : 'ões'} adicionada${suggestions.length === 1 ? '' : 's'}.`, tone: 'success' });
+    return 'applied';
   };
 
   useEffect(() => {
@@ -279,6 +341,40 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     setDraft('');
     setTyping(true);
     persistPlanMessage('user', t);
+
+    if (pendingPlacementMessageIndex !== null) {
+      const placement = parsePlacement(t);
+      setTyping(false);
+      if (placement) {
+        applyItinerarySuggestions(pendingPlacementMessageIndex, placement, { confirm: true });
+        persistPlanMessage('assistant', 'Pronto — adicionei isso ao roteiro.', { source: 'local' });
+      } else {
+        const placementReply = 'Claro. Em qual dia e período você quer encaixar isso? Exemplos: “Dia 2 de manhã”, “Dia 3 à tarde”, “No primeiro dia à noite”.';
+        setChat(c => [...c, { who: 'gaid', text: placementReply, source: 'local' }]);
+        persistPlanMessage('assistant', placementReply, { source: 'local' });
+      }
+      return;
+    }
+
+    if (isApplyIntent(t)) {
+      const suggestionIndex = latestSuggestionMessageIndex(nextChat);
+      if (suggestionIndex >= 0) {
+        setTyping(false);
+        const message = nextChat[suggestionIndex];
+        const suggestions = normalizeItinerarySuggestions(message.itinerarySuggestions);
+        if (suggestionsHavePlacement(suggestions)) {
+          applyItinerarySuggestions(suggestionIndex, null, { confirm: true });
+          persistPlanMessage('assistant', 'Pronto — adicionei isso ao roteiro.', { source: 'local' });
+        } else {
+          setPendingPlacementMessageIndex(suggestionIndex);
+          const placementReply = 'Claro. Em qual dia e período você quer encaixar isso? Exemplos: “Dia 2 de manhã”, “Dia 3 à tarde”, “No primeiro dia à noite”.';
+          setChat(c => [...c, { who: 'gaid', text: placementReply, source: 'local' }]);
+          persistPlanMessage('assistant', placementReply, { source: 'local' });
+        }
+        return;
+      }
+    }
+
     // First: did the user report resolving a prep item?
     const resolved = resolvePrepFromText(t);
     if (resolved) {
