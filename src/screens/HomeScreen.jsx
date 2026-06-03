@@ -66,11 +66,20 @@ function classifyGaidIntent(message) {
   try {
     const text = normText(message);
     const planRe = /\b(roteiro|viagem|viajar|planej|planejar|monte|montar|criar|crie|itinerario|itinerario|dias?|noites?)\b/;
-    const recommendationRe = /\b(o que fazer|indica|indique|recomenda|recomende|restaurante|cafe|café|hotel|hoteis|hotéis|bar\b|bares|atividade|passeio|onde|lugar|lugares|hoje|agora)\b/;
+    const restaurantRe = /\b(restaurante|jantar|almoco|almoço|comer|onde jantar)\b/;
+    const cafeRe = /\b(cafe|café|cafeteria|brunch)\b/;
+    const attractionRe = /\b(o que fazer|atracao|atração|passeio|atividade|museu|chuva|crianca|criança|levar uma criança|hoje|agora)\b/;
+    const hotelRe = /\b(hotel|hoteis|hotéis|hospedagem|pousada)\b/;
+    const recommendationRe = /\b(o que fazer|indica|indique|recomenda|recomende|restaurante|cafe|café|hotel|hoteis|hotéis|bar\b|bares|atividade|passeio|onde|lugar|lugares|hoje|agora|jantar|chuva|criança|crianca)\b/;
     const barePlaceRe = /^[a-z\s\u00C0-\u017F]{2,32}$/i;
 
     if (recommendationRe.test(text) && !/\b(roteiro|planej|planejar|monte|montar|criar|crie)\b/.test(text)) {
-      return { intent: 'GET_RECOMMENDATION', confidence: 0.84, requiresTrip: false, nextTool: 'Discovery Engine', reason: 'Pedido de indicação rápida de lugar ou atividade.' };
+      const intent = restaurantRe.test(text) ? 'FIND_RESTAURANT'
+        : cafeRe.test(text) ? 'FIND_CAFE'
+          : hotelRe.test(text) ? 'FIND_HOTEL'
+            : attractionRe.test(text) ? 'FIND_ATTRACTION'
+              : 'GET_RECOMMENDATION';
+      return { intent, confidence: 0.84, requiresTrip: false, nextTool: 'Discovery Engine', reason: 'Pedido de indicação rápida de lugar ou atividade.' };
     }
     if (planRe.test(text)) {
       return { intent: 'PLAN_TRIP', confidence: 0.86, requiresTrip: false, nextTool: 'Trip Planner', reason: 'Pedido de roteiro, viagem completa ou planejamento.' };
@@ -84,50 +93,221 @@ function classifyGaidIntent(message) {
   }
 }
 
-function inferRecommendationQuery(message) {
+const DISCOVERY_PLACES = [
+  { city: 'Rio de Janeiro', aliases: ['rio', 'rio de janeiro'], neighborhoods: ['Ipanema', 'Leblon', 'Copacabana', 'Botafogo', 'Santa Teresa', 'Centro', 'Lapa'] },
+  { city: 'São Paulo', aliases: ['sao paulo', 'são paulo', 'sp'], neighborhoods: ['Jardins', 'Pinheiros', 'Vila Madalena', 'Itaim Bibi', 'Liberdade', 'Centro'] },
+  { city: 'Paris', aliases: ['paris'], neighborhoods: ['Marais', 'Saint-Germain', 'Montmartre', 'Latin Quarter'] },
+  { city: 'Orlando', aliases: ['orlando'], neighborhoods: ['Lake Buena Vista', 'Winter Park', 'International Drive'] },
+  { city: 'Lisboa', aliases: ['lisboa'], neighborhoods: ['Chiado', 'Príncipe Real', 'Alfama', 'Baixa'] },
+  { city: 'Porto', aliases: ['porto'], neighborhoods: ['Ribeira', 'Cedofeita', 'Foz'] },
+  { city: 'Bogotá', aliases: ['bogota', 'bogotá'], neighborhoods: ['La Candelaria', 'Chapinero', 'Usaquén', 'Zona T'] },
+  { city: 'Tóquio', aliases: ['tokyo', 'toquio', 'tóquio'], neighborhoods: ['Shibuya', 'Ginza', 'Asakusa', 'Shinjuku'] },
+  { city: 'Bahia', aliases: ['bahia', 'salvador'], neighborhoods: ['Pelourinho', 'Rio Vermelho', 'Barra', 'Itapuã'] },
+];
+
+const DISCOVERY_CATALOG = {
+  'Rio de Janeiro': {
+    restaurant: [
+      { name: 'Zazá Bistrô Tropical', area: 'Ipanema', reason: 'Boa pedida para jantar com clima brasileiro, leve e especial.', rating: 'Curadoria Gaid' },
+      { name: 'Oro', area: 'Leblon', reason: 'Para uma noite mais autoral e gastronômica, sem cara de escolha genérica.', rating: 'Referência local' },
+      { name: 'Aprazível', area: 'Santa Teresa', reason: 'Vista bonita, comida brasileira e um clima ótimo para casal ou família.', rating: 'Curadoria Gaid' },
+    ],
+    cafe: [
+      { name: 'Confeitaria Colombo', area: 'Centro', reason: 'Clássico histórico para café com arquitetura marcante.', rating: 'Clássico local' },
+      { name: 'Empório Jardim', area: 'Ipanema', reason: 'Funciona bem para café da manhã sem pressa ou brunch.', rating: 'Curadoria Gaid' },
+      { name: 'Café 18 do Forte', area: 'Copacabana', reason: 'Café com vista e programa fácil de encaixar no dia.', rating: 'Curadoria Gaid' },
+    ],
+    attraction: [
+      { name: 'Forte de Copacabana', area: 'Copacabana', reason: 'Passeio leve, bonito e fácil mesmo quando o dia está meio incerto.', rating: 'Curadoria Gaid' },
+      { name: 'Jardim Botânico', area: 'Jardim Botânico', reason: 'Ótimo para desacelerar, com crianças ou em casal.', rating: 'Curadoria Gaid' },
+      { name: 'Museu do Amanhã', area: 'Centro', reason: 'Boa alternativa para chuva, com estrutura e conteúdo acessível.', rating: 'Curadoria Gaid' },
+    ],
+    hotel: [
+      { name: 'Janeiro Hotel', area: 'Leblon', reason: 'Base premium, discreta e muito bem localizada.', rating: 'Curadoria Gaid' },
+      { name: 'Santa Teresa Hotel RJ', area: 'Santa Teresa', reason: 'Mais charmoso e romântico, com outra leitura da cidade.', rating: 'Curadoria Gaid' },
+      { name: 'Emiliano Rio', area: 'Copacabana', reason: 'Conforto alto e vista icônica, para viagem mais especial.', rating: 'Curadoria Gaid' },
+    ],
+  },
+  Paris: {
+    restaurant: [
+      { name: 'Frenchie Bar à Vins', area: 'Sentier', reason: 'Gastronomia parisiense atual, boa para casal ou amigos.', rating: 'Curadoria Gaid' },
+      { name: 'Le Comptoir du Relais', area: 'Saint-Germain', reason: 'Clássico confortável para jantar com cara de Paris.', rating: 'Curadoria Gaid' },
+      { name: 'Bouillon République', area: 'République', reason: 'Opção animada e mais acessível para comida francesa.', rating: 'Curadoria Gaid' },
+    ],
+    cafe: [
+      { name: 'Café de Flore', area: 'Saint-Germain', reason: 'Clássico para quem quer o ritual parisiense.', rating: 'Clássico local' },
+      { name: 'Boot Café', area: 'Marais', reason: 'Pequeno, charmoso e ótimo para uma pausa no Marais.', rating: 'Curadoria Gaid' },
+      { name: 'Coutume Café', area: '7º arrondissement', reason: 'Café mais contemporâneo, bom para começar o dia.', rating: 'Curadoria Gaid' },
+    ],
+    attraction: [
+      { name: 'Musée de l’Orangerie', area: 'Tuileries', reason: 'Mais compacto que o Louvre e excelente para arte sem exaustão.', rating: 'Curadoria Gaid' },
+      { name: 'Le Marais', area: 'Marais', reason: 'Bairro ótimo para caminhar, comer e descobrir lojas pequenas.', rating: 'Curadoria Gaid' },
+      { name: 'Sainte-Chapelle', area: 'Île de la Cité', reason: 'Impactante, relativamente curta e perfeita para encaixar no centro.', rating: 'Curadoria Gaid' },
+    ],
+    hotel: [
+      { name: 'Le Pigalle', area: 'Pigalle', reason: 'Boutique, jovem e com personalidade.', rating: 'Curadoria Gaid' },
+      { name: 'Hôtel des Grands Boulevards', area: 'Grands Boulevards', reason: 'Boa base para explorar com conforto e estilo.', rating: 'Curadoria Gaid' },
+      { name: 'Relais Christine', area: 'Saint-Germain', reason: 'Mais romântico e discreto para casal.', rating: 'Curadoria Gaid' },
+    ],
+  },
+  Orlando: {
+    restaurant: [
+      { name: 'The Boathouse', area: 'Disney Springs', reason: 'Funciona bem para família, com ambiente gostoso e fácil acesso.', rating: 'Curadoria Gaid' },
+      { name: 'Wine Bar George', area: 'Disney Springs', reason: 'Mais adulto, bom para um jantar sem cara de parque.', rating: 'Curadoria Gaid' },
+      { name: 'Prato', area: 'Winter Park', reason: 'Alternativa fora do circuito de parques, com clima local.', rating: 'Curadoria Gaid' },
+    ],
+    cafe: [
+      { name: 'Foxtail Coffee', area: 'Winter Park', reason: 'Café local bom para uma pausa fora dos parques.', rating: 'Curadoria Gaid' },
+      { name: 'Lineage Coffee', area: 'Orlando', reason: 'Boa opção para café especial e ritmo mais tranquilo.', rating: 'Curadoria Gaid' },
+      { name: 'Le Cafe de Paris', area: 'Dr. Phillips', reason: 'Café simples e agradável perto de áreas hoteleiras.', rating: 'Curadoria Gaid' },
+    ],
+    attraction: [
+      { name: 'Disney Springs', area: 'Lake Buena Vista', reason: 'Boa opção sem ingresso, com restaurantes e lojas.', rating: 'Curadoria Gaid' },
+      { name: 'Winter Park Scenic Boat Tour', area: 'Winter Park', reason: 'Passeio leve e diferente para descansar dos parques.', rating: 'Curadoria Gaid' },
+      { name: 'Kennedy Space Center', area: 'Costa Leste', reason: 'Bate-volta forte para famílias e crianças curiosas.', rating: 'Curadoria Gaid' },
+    ],
+    hotel: [
+      { name: 'Four Seasons Resort Orlando', area: 'Golden Oak', reason: 'Base premium para família com alto conforto.', rating: 'Curadoria Gaid' },
+      { name: 'Loews Royal Pacific Resort', area: 'Universal Orlando', reason: 'Conveniente para foco em Universal.', rating: 'Curadoria Gaid' },
+      { name: 'Wyndham Grand Orlando Bonnet Creek', area: 'Bonnet Creek', reason: 'Boa estrutura familiar perto da Disney.', rating: 'Curadoria Gaid' },
+    ],
+  },
+  'São Paulo': {
+    restaurant: [
+      { name: 'Maní', area: 'Jardins', reason: 'Boa escolha para uma noite autoral e brasileira, com cara de ocasião especial.', rating: 'Curadoria Gaid' },
+      { name: 'Mocotó', area: 'Vila Medeiros', reason: 'Experiência paulistana forte, afetiva e excelente para comida brasileira.', rating: 'Referência local' },
+      { name: 'A Casa do Porco', area: 'Centro', reason: 'Opção marcante para quem quer gastronomia premiada e urbana.', rating: 'Referência local' },
+    ],
+    cafe: [
+      { name: 'Coffee Lab', area: 'Vila Madalena', reason: 'Café especial com personalidade e bom para uma pausa sem pressa.', rating: 'Curadoria Gaid' },
+      { name: 'Futuro Refeitório', area: 'Pinheiros', reason: 'Funciona bem para café, brunch e um começo de dia mais cool.', rating: 'Curadoria Gaid' },
+      { name: 'King of the Fork', area: 'Pinheiros', reason: 'Boa combinação de café, comida simples e clima de bairro.', rating: 'Curadoria Gaid' },
+    ],
+    attraction: [
+      { name: 'Instituto Moreira Salles', area: 'Paulista', reason: 'Boa opção cultural, compacta e ótima para dia de chuva.', rating: 'Curadoria Gaid' },
+      { name: 'Liberdade', area: 'Liberdade', reason: 'Bairro forte para comida, lojas e caminhada com personalidade.', rating: 'Curadoria Gaid' },
+      { name: 'Pinacoteca', area: 'Luz', reason: 'Museu essencial, bonito e fácil de encaixar em meio período.', rating: 'Curadoria Gaid' },
+    ],
+    hotel: [
+      { name: 'Rosewood São Paulo', area: 'Bela Vista', reason: 'Base premium e arquitetonicamente especial.', rating: 'Curadoria Gaid' },
+      { name: 'Emiliano São Paulo', area: 'Jardins', reason: 'Clássico discreto para conforto alto e localização forte.', rating: 'Curadoria Gaid' },
+      { name: 'Pulso Hotel', area: 'Faria Lima', reason: 'Mais contemporâneo e prático para uma estadia urbana.', rating: 'Curadoria Gaid' },
+    ],
+  },
+  Bogotá: {
+    restaurant: [
+      { name: 'Leo', area: 'Chapinero', reason: 'Experiência gastronômica colombiana sofisticada e muito ligada ao território.', rating: 'Referência local' },
+      { name: 'El Chato', area: 'Chapinero', reason: 'Cozinha atual, ótima para quem quer uma Bogotá contemporânea.', rating: 'Referência local' },
+      { name: 'Andrés Carne de Res', area: 'Chía', reason: 'Mais festivo e icônico, bom quando a ideia é viver algo bem colombiano.', rating: 'Curadoria Gaid' },
+    ],
+    cafe: [
+      { name: 'Azahar Café', area: 'Chapinero', reason: 'Café colombiano bem cuidado, ótimo para uma pausa local.', rating: 'Curadoria Gaid' },
+      { name: 'Café Cultor', area: 'Quinta Camacho', reason: 'Boa opção para café especial com clima tranquilo.', rating: 'Curadoria Gaid' },
+      { name: 'Amor Perfecto', area: 'Chapinero', reason: 'Referência em cafés colombianos, fácil de recomendar.', rating: 'Curadoria Gaid' },
+    ],
+    attraction: [
+      { name: 'Museo del Oro', area: 'La Candelaria', reason: 'Essencial, coberto e excelente para dia de chuva.', rating: 'Curadoria Gaid' },
+      { name: 'Monserrate', area: 'Centro', reason: 'Vista forte da cidade e ótima abertura de roteiro se o clima ajudar.', rating: 'Curadoria Gaid' },
+      { name: 'La Candelaria', area: 'Centro histórico', reason: 'Bairro ideal para caminhar, história, cafés e museus.', rating: 'Curadoria Gaid' },
+    ],
+    hotel: [
+      { name: 'Four Seasons Hotel Casa Medina', area: 'Zona G', reason: 'Charme clássico e localização muito boa para gastronomia.', rating: 'Curadoria Gaid' },
+      { name: 'Sofitel Bogotá Victoria Regia', area: 'Zona T', reason: 'Base confortável e prática para restaurantes e vida urbana.', rating: 'Curadoria Gaid' },
+      { name: 'The Click Clack Hotel', area: 'Parque 93', reason: 'Mais jovem, urbano e conveniente.', rating: 'Curadoria Gaid' },
+    ],
+  },
+  Lisboa: {
+    restaurant: [
+      { name: 'Prado', area: 'Baixa', reason: 'Cozinha portuguesa atual, ótima para uma noite especial sem formalidade pesada.', rating: 'Curadoria Gaid' },
+      { name: 'Taberna da Rua das Flores', area: 'Chiado', reason: 'Pequena, disputada e com cara local.', rating: 'Curadoria Gaid' },
+      { name: 'Cervejaria Ramiro', area: 'Intendente', reason: 'Clássico para frutos do mar, direto e muito lisboeta.', rating: 'Clássico local' },
+    ],
+    cafe: [
+      { name: 'The Mill', area: 'Santos', reason: 'Bom para brunch e café com clima contemporâneo.', rating: 'Curadoria Gaid' },
+      { name: 'Hello, Kristof', area: 'São Bento', reason: 'Pequeno, bonito e ótimo para café sem pressa.', rating: 'Curadoria Gaid' },
+      { name: 'Manteigaria', area: 'Chiado', reason: 'Parada rápida e certeira para pastel de nata.', rating: 'Clássico local' },
+    ],
+    attraction: [
+      { name: 'Museu Nacional do Azulejo', area: 'Xabregas', reason: 'Lindo, coberto e menos óbvio que os clássicos centrais.', rating: 'Curadoria Gaid' },
+      { name: 'Alfama', area: 'Alfama', reason: 'Caminhada com história, miradouros e ritmo lisboeta.', rating: 'Curadoria Gaid' },
+      { name: 'MAAT', area: 'Belém', reason: 'Boa opção de arquitetura, arte e passeio à beira do Tejo.', rating: 'Curadoria Gaid' },
+    ],
+    hotel: [
+      { name: 'Memmo Príncipe Real', area: 'Príncipe Real', reason: 'Boutique, elegante e muito bem localizado.', rating: 'Curadoria Gaid' },
+      { name: 'Bairro Alto Hotel', area: 'Chiado', reason: 'Base premium e clássica para explorar a pé.', rating: 'Curadoria Gaid' },
+      { name: 'The Ivens', area: 'Chiado', reason: 'Mais autoral e sofisticado, com personalidade forte.', rating: 'Curadoria Gaid' },
+    ],
+  },
+};
+
+function extractDiscoveryContext(message) {
   const raw = String(message || '').trim();
   const text = normText(raw);
+  const place = DISCOVERY_PLACES.find(item =>
+    item.aliases.some(alias => text.includes(alias)) ||
+    item.neighborhoods.some(area => text.includes(normText(area)))
+  );
+  const neighborhood = DISCOVERY_PLACES
+    .flatMap(item => item.neighborhoods.map(area => ({ city: item.city, area })))
+    .find(item => text.includes(normText(item.area)));
   const category =
-    /\b(restaurante|jantar|almoco|almoço|comer)\b/.test(text) ? 'Restaurante' :
-    /\b(cafe|café|cafeteria)\b/.test(text) ? 'Café' :
-    /\b(hotel|hoteis|hotéis|hospedagem)\b/.test(text) ? 'Hotel' :
-    /\b(bar|bares|drink)\b/.test(text) ? 'Bar' :
-    'Experiência';
-  const known = [
-    'Rio de Janeiro', 'Ipanema', 'Paris', 'Orlando', 'São Paulo', 'Sao Paulo',
-    'Lisboa', 'Porto', 'Bogotá', 'Bogota', 'Bahia', 'Tokyo', 'Tóquio',
-  ];
-  const area = known.find(place => text.includes(normText(place))) || raw.replace(/^(me indica|indica|indique|recomenda|recomende|onde|o que fazer|quais?)\s+/i, '').slice(0, 42) || 'sua região';
-  return { category, area };
+    /\b(restaurante|jantar|almoco|almoço|comer)\b/.test(text) ? 'Restaurant' :
+    /\b(cafe|café|cafeteria|brunch)\b/.test(text) ? 'Cafe' :
+    /\b(hotel|hoteis|hotéis|hospedagem|pousada)\b/.test(text) ? 'Hotel' :
+    /\b(museu|atracao|atração|passeio|atividade|chuva|crianca|criança|o que fazer)\b/.test(text) ? 'Attraction' :
+    'Activity';
+  return {
+    destination: neighborhood?.city || place?.city || null,
+    neighborhood: neighborhood?.area || null,
+    category,
+    moment: /\bjantar\b|noite/.test(text) ? 'dinner' : /\balmoco|almoço\b/.test(text) ? 'lunch' : /\bhoje|agora\b/.test(text) ? 'today' : null,
+    weatherHint: /\bchuva|chovendo\b/.test(text) ? 'rain' : null,
+    travelStyle: /\bromant|casal\b/.test(text) ? 'couple' : /\bbarato|econom\b/.test(text) ? 'budget' : /\bpremium|especial\b/.test(text) ? 'premium' : null,
+    children: /\bcrianca|criança|filho|filhos\b/.test(text),
+    couple: /\bcasal|romant\b/.test(text),
+    family: /\bfamilia|família|crianca|criança|filho|filhos\b/.test(text),
+    budget: /\bbarato|econom\b/.test(text) ? 'budget' : /\bpremium|luxo|especial\b/.test(text) ? 'premium' : null,
+  };
+}
+
+function hasEnoughDiscoveryContext(context) {
+  return Boolean(context.destination || context.neighborhood);
+}
+
+function sourceDiscoveryCards(context) {
+  const destination = context.destination || 'Rio de Janeiro';
+  const catalog = DISCOVERY_CATALOG[destination] || DISCOVERY_CATALOG['Rio de Janeiro'];
+  const key = context.category === 'Restaurant' ? 'restaurant'
+    : context.category === 'Cafe' ? 'cafe'
+      : context.category === 'Hotel' ? 'hotel'
+        : 'attraction';
+  const rows = catalog[key] || catalog.attraction;
+  return rows.map((item, index) => ({
+    id: `${destination}-${key}-${index + 1}`.toLowerCase().replace(/\s+/g, '-'),
+    category: context.category,
+    name: item.name,
+    area: context.neighborhood || item.area,
+    rating: item.rating,
+    reason: context.weatherHint === 'rain' && key === 'attraction'
+      ? `${item.reason} Também funciona melhor que programa aberto em dia de chuva.`
+      : context.children
+        ? `${item.reason} É uma opção mais fácil de adaptar para crianças.`
+        : item.reason,
+    source: 'gaid-local-discovery',
+  }));
 }
 
 function buildLocalRecommendations(message) {
-  const { category, area } = inferRecommendationQuery(message);
-  const areaLabel = area || 'sua região';
-  const categoryLabel = category || 'Experiência';
-  return [
-    {
-      name: categoryLabel === 'Restaurante' ? `Mesa autoral em ${areaLabel}` : categoryLabel === 'Café' ? `Café charmoso em ${areaLabel}` : categoryLabel === 'Hotel' ? `Hotel bem localizado em ${areaLabel}` : `Passeio leve em ${areaLabel}`,
-      category: categoryLabel,
-      area: areaLabel,
-      reason: 'Boa primeira opção para calibrar gosto, ritmo e localização.',
-      rating: 'Fonte local futura',
-    },
-    {
-      name: categoryLabel === 'Restaurante' ? `Bistrô casual em ${areaLabel}` : categoryLabel === 'Café' ? `Cafeteria de bairro em ${areaLabel}` : categoryLabel === 'Hotel' ? `Hospedagem boutique em ${areaLabel}` : `Experiência cultural em ${areaLabel}`,
-      category: categoryLabel,
-      area: areaLabel,
-      reason: 'Alternativa mais tranquila, com cara de descoberta.',
-      rating: 'Google Places em breve',
-    },
-    {
-      name: categoryLabel === 'Restaurante' ? `Clássico confiável em ${areaLabel}` : categoryLabel === 'Café' ? `Café para ir sem pressa em ${areaLabel}` : categoryLabel === 'Hotel' ? `Base confortável em ${areaLabel}` : `Programa curado em ${areaLabel}`,
-      category: categoryLabel,
-      area: areaLabel,
-      reason: 'Escolha segura para quando você quer acertar sem pesquisar demais.',
-      rating: 'Curadoria Gaid',
-    },
-  ];
+  return sourceDiscoveryCards(extractDiscoveryContext(message));
+}
+
+function discoveryIntro(context) {
+  const label = context.category === 'Restaurant' ? 'restaurantes'
+    : context.category === 'Cafe' ? 'cafés'
+      : context.category === 'Hotel' ? 'hotéis'
+        : 'ideias';
+  const place = context.neighborhood || context.destination;
+  return `Claro. Separei ${label} em ${place} sem abrir um roteiro completo.`;
 }
 
 const CONTEXTUAL_TRIP_STEPS = {
@@ -986,15 +1166,31 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         return;
       }
 
-      if (classification.intent === 'GET_RECOMMENDATION') {
+      if (classification.nextTool === 'Discovery Engine') {
+        const discoveryContext = extractDiscoveryContext(t);
+        if (!hasEnoughDiscoveryContext(discoveryContext)) {
+          setPhase('done');
+          setChat([
+            { id: 'u-0', who: 'user', text: t },
+            {
+              id: `discovery-clarify-${Date.now()}`,
+              who: 'agent',
+              text: 'Em qual cidade você está?',
+              source: 'discovery-engine',
+              discoveryContext,
+            },
+          ]);
+          return;
+        }
         setPhase('done');
         setChat([
           { id: 'u-0', who: 'user', text: t },
           {
             id: `rec-${Date.now()}`,
             who: 'agent',
-            text: 'Claro. Posso te dar algumas ideias rápidas sem abrir um roteiro completo.',
+            text: discoveryIntro(discoveryContext),
             recommendations: buildLocalRecommendations(t),
+            discoveryContext,
           },
         ]);
         return;
@@ -1019,6 +1215,67 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     } else {
       const userMsg = { id: `u-${Date.now()}`, who: 'user', text: t };
       const nextChat = [...chat, userMsg];
+      const pendingDiscovery = [...chat].reverse().find(m => m?.source === 'discovery-engine' && m?.discoveryContext && !hasEnoughDiscoveryContext(m.discoveryContext));
+      if (pendingDiscovery) {
+        const inferredContext = extractDiscoveryContext(t);
+        const mergedContext = {
+          ...pendingDiscovery.discoveryContext,
+          ...inferredContext,
+          category: pendingDiscovery.discoveryContext.category || inferredContext.category,
+        };
+        if (hasEnoughDiscoveryContext(mergedContext)) {
+          setChat([...nextChat, {
+            id: `rec-${Date.now()}`,
+            who: 'agent',
+            text: discoveryIntro(mergedContext),
+            recommendations: sourceDiscoveryCards(mergedContext),
+            discoveryContext: mergedContext,
+          }]);
+          return;
+        }
+      }
+      const classification = classifyGaidIntent(t);
+      if (classification.nextTool === 'Discovery Engine') {
+        const discoveryContext = extractDiscoveryContext(t);
+        if (!hasEnoughDiscoveryContext(discoveryContext)) {
+          const lastDiscovery = [...chat].reverse().find(m => m?.source === 'discovery-engine' && m?.discoveryContext);
+          if (lastDiscovery?.discoveryContext && !hasEnoughDiscoveryContext(lastDiscovery.discoveryContext)) {
+            const mergedText = `${t} ${lastDiscovery.discoveryContext.category || ''}`;
+            const inferredContext = extractDiscoveryContext(mergedText);
+            const mergedContext = {
+              ...lastDiscovery.discoveryContext,
+              ...inferredContext,
+              category: lastDiscovery.discoveryContext.category || inferredContext.category,
+            };
+            if (hasEnoughDiscoveryContext(mergedContext)) {
+              setChat([...nextChat, {
+                id: `rec-${Date.now()}`,
+                who: 'agent',
+                text: discoveryIntro(mergedContext),
+                recommendations: sourceDiscoveryCards(mergedContext),
+                discoveryContext: mergedContext,
+              }]);
+              return;
+            }
+          }
+          setChat([...nextChat, {
+            id: `discovery-clarify-${Date.now()}`,
+            who: 'agent',
+            text: 'Em qual cidade você está?',
+            source: 'discovery-engine',
+            discoveryContext,
+          }]);
+          return;
+        }
+        setChat([...nextChat, {
+          id: `rec-${Date.now()}`,
+          who: 'agent',
+          text: discoveryIntro(discoveryContext),
+          recommendations: buildLocalRecommendations(t),
+          discoveryContext,
+        }]);
+        return;
+      }
       setChat(nextChat);
       sendToGaid(t, nextChat);
     }
