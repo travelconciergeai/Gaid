@@ -634,10 +634,11 @@ function inferPlannerDestination(value) {
     .replace(/\b(?:por|durante)\s+\d+.*$/i, '')
     .replace(/[,.!?;:].*$/, '')
     .trim();
+  if (isGenericInitialPrompt(candidate) || /\b(roteiro|viagem|viajar|planej|planejar|montar|criar|crie|monte)\b/i.test(candidate)) return '';
   return candidate.length >= 2 ? candidate : '';
 }
 
-function extractInitialPlannerContext(value) {
+function extractInitialPlannerContext(value, seedContext = {}) {
   const promptDates = parseDateRange(value);
   const periodLabel = extractPeriodLabel(value);
   const destination = inferPlannerDestination(value);
@@ -647,6 +648,7 @@ function extractInitialPlannerContext(value) {
       ? { label: periodLabel }
       : null;
   return {
+    ...(seedContext && typeof seedContext === 'object' && !Array.isArray(seedContext) ? seedContext : {}),
     ...(destination ? { destination } : {}),
     ...(dates ? { dates, period: dates.label } : {}),
   };
@@ -938,17 +940,27 @@ async function polishWizardStepCopy({ step, prompt, answers, context, lastAnswer
 }
 
 function plannerCompletionStatus(answers, context = {}) {
-  const destinationKnown = fieldKnown('destination', answers, context);
+  const destinationKnown = !!filledString(answerText(answers, 'destination'), context.destination);
   const periodKnown = fieldKnown('period', answers, context);
-  const durationKnown = fieldKnown('duration', answers, context);
+  const dates = normalizeDates(answers, context);
+  const durationKnown = !!(parseNights(answers) ?? context.nights ?? parseNumberFromText(context.duration) ?? dateDiffNights(dates));
   const assumptionsBlocked = context?.assumptionsBlocked === true || context?.blockAssumptions === true;
+  const explicitAssumptionMode = context?.skippedAll === true || context?.wizard?.skippedAll === true;
   return {
-    ready: destinationKnown && (periodKnown || durationKnown) && !assumptionsBlocked,
+    ready: destinationKnown && (durationKnown || explicitAssumptionMode) && !assumptionsBlocked,
     destinationKnown,
     periodKnown,
     durationKnown,
     assumptionsBlocked,
+    explicitAssumptionMode,
   };
+}
+
+function requiredPlannerStep(answers, context = {}) {
+  const completion = plannerCompletionStatus(answers, context);
+  if (!completion.destinationKnown) return BASE_TRIP_WIZARD[0];
+  if (!completion.durationKnown && !completion.explicitAssumptionMode) return BASE_TRIP_WIZARD[2];
+  return null;
 }
 
 function buildWizardQa(answers, history = []) {
@@ -1084,6 +1096,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   const [aiWizardQuestion, setAiWizardQuestion] = useState(null);
   const [wizardContext, setWizardContext] = useState({});
   const [wizardHistory, setWizardHistory] = useState([]);
+  const [pendingPlannerContext, setPendingPlannerContext] = useState(null);
   const toast = useToast();
   const scrollerRef = useRef(null);
 
@@ -1124,10 +1137,11 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   }, [chat, thinking]);
 
   // ---- flow control ----
-  const startFlow = (userText, key) => {
+  const startFlow = (userText, key, seedContext = {}) => {
     setFlowKey(key);
     setPlannerState(PLANNER_COLLECTING);
     setInitialPrompt(userText);
+    setPendingPlannerContext(null);
     setAnswers({});
     setAiWizardQuestion(null);
     setWizardContext({});
@@ -1143,7 +1157,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       let firstAiQuestion = null;
 
       if (key === 'trip') {
-        initialContext = extractInitialPlannerContext(userText);
+        initialContext = extractInitialPlannerContext(userText, seedContext);
 
         initialAnswers = initialAnswersFromContext(initialContext);
         const deterministic = buildAdaptiveTripWizard(initialAnswers);
@@ -1229,6 +1243,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       const classification = classifyGaidIntent(t);
       setMode('chat');
       setChat([{ id: 'u-0', who: 'user', text: t }]);
+      setPendingPlannerContext(null);
 
       if (classification.intent === 'PLAN_TRIP') {
         startFlow(t, 'trip');
@@ -1266,6 +1281,9 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       }
 
       setPhase('done');
+      if (/^[a-z\s\u00C0-\u017F]{2,32}$/i.test(t)) {
+        setPendingPlannerContext({ destination: t });
+      }
       setChat([
         { id: 'u-0', who: 'user', text: t },
         {
@@ -1284,6 +1302,16 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     } else {
       const userMsg = { id: `u-${Date.now()}`, who: 'user', text: t };
       const nextChat = [...chat, userMsg];
+      const classification = classifyGaidIntent(t);
+      if (classification.intent === 'PLAN_TRIP' && pendingPlannerContext?.destination) {
+        startFlow(t, 'trip', pendingPlannerContext);
+        return;
+      }
+      if (plannerState === PLANNER_COLLECTING && (classification.intent === 'PLAN_TRIP' || classification.intent === 'UNCLEAR')) {
+        setPhase('asking');
+        setChat(nextChat);
+        return;
+      }
       const pendingDiscovery = [...chat].reverse().find(m => m?.source === 'discovery-engine' && m?.discoveryContext && !hasEnoughDiscoveryContext(m.discoveryContext));
       if (pendingDiscovery) {
         const inferredContext = extractDiscoveryContext(t);
@@ -1303,7 +1331,6 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
           return;
         }
       }
-      const classification = classifyGaidIntent(t);
       if (classification.nextTool === 'Discovery Engine') {
         const discoveryContext = extractDiscoveryContext(t);
         if (!hasEnoughDiscoveryContext(discoveryContext)) {
@@ -1428,7 +1455,20 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
 
       setThinking(false);
       const completion = plannerCompletionStatus(nextAnswers, nextWizardContext);
-      const next = nextUnknownStepIndex(nextWizard, wizardStep + 1, nextAnswers, nextWizardContext);
+      let next = nextUnknownStepIndex(nextWizard, wizardStep + 1, nextAnswers, nextWizardContext);
+      if (!completion.ready && next < 0) {
+        next = nextUnknownStepIndex(nextWizard, 0, nextAnswers, nextWizardContext);
+      }
+      if (!completion.ready && next < 0) {
+        const forcedStep = requiredPlannerStep(nextAnswers, nextWizardContext);
+        if (forcedStep) {
+          nextWizard = syncWizardHistory(currentWizardHistory, wizardStep, step, forcedStep);
+          setWizardHistory(nextWizard);
+          setPlannerState(PLANNER_COLLECTING);
+          setWizardStep(nextWizard.length - 1);
+          return;
+        }
+      }
       if (!completion.ready && next >= 0) {
         const polishedStep = await polishWizardStepCopy({
           step: nextWizard[next],
