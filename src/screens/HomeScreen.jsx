@@ -6,6 +6,15 @@ import { Async, CardSkeleton, CatalogCarousel, Carousel, Skeleton, ErrorState, C
 import { useAccount, useCatalog } from '../core/store.jsx';
 import { TBD, has, orTBD, fmtDuration, fmtMoney } from '../core/contracts.jsx';
 import { tripApi } from '../core/tripApi.jsx';
+import {
+  classifyGaidIntent,
+  normText,
+  PLANNER_IDLE,
+  PLANNER_COLLECTING,
+  PLANNER_READY,
+  PLANNER_GENERATING,
+  PLANNER_COMPLETE,
+} from '../core/brain/index.js';
 // Home — conversational landing.
 // Two modes:
 //   • 'idle': hero with centered chatbar + starters carousel + cards below
@@ -61,44 +70,6 @@ const BASE_TRIP_WIZARD = [
     ],
   },
 ];
-
-const PLANNER_IDLE = 'PLANNER_IDLE';
-const PLANNER_COLLECTING = 'PLANNER_COLLECTING';
-const PLANNER_READY = 'PLANNER_READY';
-const PLANNER_GENERATING = 'PLANNER_GENERATING';
-const PLANNER_COMPLETE = 'PLANNER_COMPLETE';
-
-function classifyGaidIntent(message) {
-  try {
-    const text = normText(message);
-    const planRe = /\b(roteiro|viagem|viajar|planej|planejar|monte|montar|criar|crie|itinerario|itinerario|dias?|noites?)\b/;
-    const travelIntentRe = /\b(?:quero|vou|vamos|pretendo|queria|gostaria)\s+(?:ir|viajar)\b/;
-    const restaurantRe = /\b(restaurante|jantar|almoco|almoço|comer|onde jantar)\b/;
-    const cafeRe = /\b(cafe|café|cafeteria|brunch)\b/;
-    const attractionRe = /\b(o que fazer|atracao|atração|passeio|atividade|museu|chuva|crianca|criança|levar uma criança|hoje|agora)\b/;
-    const hotelRe = /\b(hotel|hoteis|hotéis|hospedagem|pousada)\b/;
-    const recommendationRe = /\b(o que fazer|indica|indique|recomenda|recomende|restaurante|cafe|café|hotel|hoteis|hotéis|bar\b|bares|atividade|passeio|onde|lugar|lugares|hoje|agora|jantar|chuva|criança|crianca)\b/;
-    const barePlaceRe = /^[a-z\s\u00C0-\u017F]{2,32}$/i;
-
-    if (recommendationRe.test(text) && !/\b(roteiro|planej|planejar|monte|montar|criar|crie)\b/.test(text)) {
-      const intent = restaurantRe.test(text) ? 'FIND_RESTAURANT'
-        : cafeRe.test(text) ? 'FIND_CAFE'
-          : hotelRe.test(text) ? 'FIND_HOTEL'
-            : attractionRe.test(text) ? 'FIND_ATTRACTION'
-              : 'GET_RECOMMENDATION';
-      return { intent, confidence: 0.84, requiresTrip: false, nextTool: 'Discovery Engine', reason: 'Pedido de indicação rápida de lugar ou atividade.' };
-    }
-    if (planRe.test(text) || travelIntentRe.test(text)) {
-      return { intent: 'PLAN_TRIP', confidence: 0.86, requiresTrip: false, nextTool: 'Trip Planner', reason: 'Pedido de roteiro, viagem completa ou planejamento.' };
-    }
-    if (barePlaceRe.test(String(message || '').trim())) {
-      return { intent: 'UNCLEAR', confidence: 0.58, requiresTrip: false, nextTool: 'Intent Router', reason: 'Destino isolado sem intenção clara.' };
-    }
-    return { intent: 'UNCLEAR', confidence: 0.5, requiresTrip: false, nextTool: 'Intent Router', reason: 'Mensagem sem intenção suficiente para criar viagem.' };
-  } catch (_error) {
-    return { intent: 'UNCLEAR', confidence: 0, requiresTrip: false, nextTool: 'Intent Router', reason: 'Falha local ao classificar intenção.' };
-  }
-}
 
 const DISCOVERY_PLACES = [
   { city: 'Rio de Janeiro', aliases: ['rio', 'rio de janeiro'], neighborhoods: ['Ipanema', 'Leblon', 'Copacabana', 'Botafogo', 'Santa Teresa', 'Centro', 'Lapa'] },
@@ -470,10 +441,6 @@ function answerIds(answers, key) {
   const value = answers[key]?.optId;
   if (Array.isArray(value)) return value.filter(Boolean);
   return value ? [value] : [];
-}
-
-function normText(value) {
-  return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
 function filledString(...values) {
@@ -1564,7 +1531,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     return (
       <div className="h-screen flex flex-col bg-canvas">
         {/* slim header */}
-        <header className="px-10 pt-6 pb-4 flex items-center justify-between gap-4">
+        <header className="px-4 sm:px-6 lg:px-10 pt-4 lg:pt-6 pb-4 flex items-center justify-between gap-4">
           <button onClick={exitChat}
             className="h-9 px-3 rounded-lg text-[12.5px] text-ink-700 hover:bg-ink-100 inline-flex items-center gap-1.5">
             <Icon.ChevronLeft size={14}/> Voltar ao início
@@ -1582,7 +1549,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         </header>
 
         {/* chat scroll */}
-        <div ref={scrollerRef} className="flex-1 overflow-y-auto px-10">
+        <div ref={scrollerRef} className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-10">
           <div className="max-w-[780px] mx-auto py-6 space-y-6">
             {chat.map((m, i) => (
               <ChatMsg key={m.id || i} m={m}
@@ -1603,7 +1570,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         </div>
 
         {/* bottom chatbar — always visible */}
-        <div className="px-10 pb-6 pt-3 bg-gradient-to-t from-canvas via-canvas to-canvas/0">
+        <div className="px-4 sm:px-6 lg:px-10 pb-[max(24px,env(safe-area-inset-bottom))] lg:pb-6 pt-3 bg-gradient-to-t from-canvas via-canvas to-canvas/0">
           <div className="max-w-[780px] mx-auto">
             {phase === 'asking' && wizard.length > 0 && (
               <div className="mb-4">
@@ -1653,15 +1620,15 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   return (
     <div className="min-h-screen flex flex-col">
       <div className="min-h-[85vh] flex flex-col">
-        <header className="px-10 pt-6 pb-0 flex items-center justify-end gap-2">
-          <Button variant="ghost" icon={Icon.Bell}>Atualizações</Button>
+        <header className="px-4 sm:px-6 lg:px-10 pt-4 lg:pt-6 pb-0 flex items-center justify-end gap-2">
+          <Button variant="ghost" icon={Icon.Bell} className="hidden sm:inline-flex">Atualizações</Button>
           <Button variant="secondary" icon={Icon.Plus} onClick={() => setRoute('trips')}>Nova viagem</Button>
         </header>
 
-        <section className="px-10 flex-1 flex items-center pb-8">
-          <div className="max-w-[860px] mx-auto text-center">
+        <section className="px-4 sm:px-6 lg:px-10 flex-1 flex items-center pb-8">
+          <div className="max-w-[860px] mx-auto text-center w-full">
             <Tag tone="brand" className="mx-auto"><Icon.Sparkles size={12}/> Concierge premium · IA + experts reais</Tag>
-            <h2 className="mt-4 text-[52px] leading-[1.04] tracking-[-0.025em] font-serif font-medium text-ink-900">
+            <h2 className="mt-4 text-[32px] sm:text-[42px] lg:text-[52px] leading-[1.06] tracking-[-0.025em] font-serif font-medium text-ink-900">
               {greetName ? `Olá, ${greetName}!` : 'Olá!'}
               <br/>
               <span className="serif-i">Qual será a sua próxima viagem?</span>
@@ -1694,7 +1661,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         </section>
       </div>
 
-      <section className="px-10 pb-16 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-6">
+      <section className="px-4 sm:px-6 lg:px-10 pb-20 lg:pb-16 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-6">
         <div>
           {hasTrip ? (
             <Card className="p-6">

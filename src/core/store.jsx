@@ -51,6 +51,25 @@ function emptySession() {
     milesPrograms: [],
   };
 }
+
+/** Sessão local quando VITE_SUPABASE_* não está configurado — permite usar o app sem login. */
+function guestSession() {
+  return {
+    ...emptySession(),
+    authed: true,
+    needsOnboarding: false,
+    profile: { display_name: 'Viajante' },
+    user: {
+      name: 'Viajante',
+      firstName: 'Viajante',
+      handle: 'viajante',
+      tier: 'Convidado',
+      email: 'demo@gaid.travel',
+      avatar: null,
+      miles: 0,
+    },
+  };
+}
 function firstNameFrom(name) { return name ? name.trim().split(/\s+/)[0] : ''; }
 
 // TravelProfile → ordered trait rows the Profile shows (null if nothing set).
@@ -129,6 +148,10 @@ const SessionProvider = ({ children }) => {
   }, []);
 
   React.useEffect(() => {
+    if (!hasSupabaseConfig) {
+      setSess(guestSession());
+      return undefined;
+    }
     let alive = true;
     supabase.auth.getSession().then(({ data }) => {
       if (alive) loadSupabaseSession(data?.session || null);

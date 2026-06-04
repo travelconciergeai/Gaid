@@ -175,7 +175,7 @@ const Sidebar = ({ route, setRoute, openCmd }) => {
     );
   };
   return (
-    <aside className="w-[248px] shrink-0 h-screen sticky top-0 border-r hairline bg-paper flex flex-col">
+    <aside className="hidden lg:flex w-[248px] shrink-0 h-screen sticky top-0 border-r hairline bg-paper flex-col">
       <div className="px-5 pt-6 pb-4 flex items-center gap-2">
         <GaidLogo className="h-8 w-auto max-w-[112px]" />
         <div className="flex-1">
@@ -219,7 +219,7 @@ const Sidebar = ({ route, setRoute, openCmd }) => {
 
 // ---------- Top bar ----------
 const Topbar = ({ title, subtitle, right }) => (
-  <div className="px-10 pt-8 pb-6 flex items-end justify-between gap-6">
+  <div className="px-4 sm:px-6 lg:px-10 pt-6 lg:pt-8 pb-4 lg:pb-6 flex flex-col sm:flex-row sm:items-end justify-between gap-4 sm:gap-6">
     <div className="min-w-0">
       <div className="label mb-1">{subtitle || 'Gaid'}</div>
       <h1 className="text-[28px] tracking-tight font-medium text-ink-900 leading-none">{title}</h1>

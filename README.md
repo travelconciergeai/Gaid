@@ -6,7 +6,19 @@ Concierge de viagens com IA. Frontend de produção, **backend-ready**: visual a
 
 ---
 
-## Como rodar (preview)
+## Como rodar (app responsivo — recomendado)
+
+Versão unificada **mobile + desktop** (Vite + React):
+
+```bash
+npm install
+npm run dev
+# abra http://localhost:5173
+```
+
+Sem `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`, o app abre em **modo convidado** (sem tela de login).
+
+## Como rodar (preview legado)
 
 `Gaid Production.html` é um protótipo React de alta fidelidade que roda **direto no navegador** (React + Babel + Tailwind via CDN). Basta abrir o arquivo num servidor estático:
 
