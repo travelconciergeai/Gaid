@@ -3,5 +3,6 @@
 .vite/
 node_modules/
 dist/
+Gaid-Preview-Export/
 .env
 .env.local
