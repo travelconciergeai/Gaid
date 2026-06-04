@@ -109,6 +109,10 @@ function isAddDayIntent(value) {
   const text = normText(value);
   return /(adicionar um dia|mais um dia|incluir mais um dia|criar mais um dia|adicionar um dia a mais|aumentar para \d+ dias?)/.test(text);
 }
+function isChangeDatesIntent(value) {
+  const text = normText(value);
+  return /(mudar datas|alterar datas|trocar datas|adicionar data|vou viajar de|viajar de|chegada.*volta|check.?in.*check.?out|\bde\s+\d{1,2}\s+a\s+\d{1,2}\s+de\s+[a-z]+|\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\s*(?:a|ate|até|-)\s*\d{1,2}[/-]\d{1,2})/.test(text);
+}
 function isCreateItineraryItemIntent(value) {
   const text = normText(value);
   return /(adiciona|adicione|coloca|inclui|incluir|inclua|quero|bota|poe|põe).*(restaurante|cafe|café|cafe da manha|museu|bate.?volta|almoco|almoço|jantar|atividade|criancas|crianças|rooftop|passeio|parada|atracao|atração|experiencia|experiência|stop|brunch)|(?:restaurante|cafe|café|museu|bate.?volta|almoco|almoço|jantar|atividade|rooftop|passeio gastronomico|passeio gastronômico).*(roteiro|dia)/.test(text);
@@ -123,7 +127,8 @@ function isRemoveActivityIntent(value) {
 }
 function isReplaceActivityIntent(value) {
   const text = normText(value);
-  return /(trocar|substituir|mudar|remover).*(atividade|passeio|restaurante|museu|item)|(?:atividade|passeio|restaurante|museu|item).*(trocar|substituir|mudar)|nao gostei|não gostei|outra opcao|outra opção|me da uma alternativa|me dá uma alternativa|algo mais romantico|algo mais romântico|algo menos turistico|algo menos turístico|algo mais barato|algo melhor para criancas|algo melhor para crianças/.test(text);
+  return /\b(trocar|troca|substituir|substitui|mudar|muda)\b.+\b(por|para|pra)\b.+/.test(text) ||
+    /(trocar|substituir|mudar|remover).*(atividade|passeio|restaurante|museu|item)|(?:atividade|passeio|restaurante|museu|item).*(trocar|substituir|mudar)|nao gostei|não gostei|outra opcao|outra opção|me da uma alternativa|me dá uma alternativa|algo mais romantico|algo mais romântico|algo menos turistico|algo menos turístico|algo mais barato|algo melhor para criancas|algo melhor para crianças/.test(text);
 }
 function isSelectedItemApplyCommand(value) {
   const text = normText(value);
@@ -170,6 +175,24 @@ function classifyPlanChatIntent(message, currentTrip, lastAssistantMessage) {
       reason: 'Usuário quer remover um item do roteiro.',
     };
   }
+  if (isReplaceActivityIntent(message)) {
+    return {
+      intent: 'REPLACE_ACTIVITY',
+      confidence: 0.78,
+      requiresTrip: true,
+      nextTool: 'Itinerary Editor',
+      reason: 'Usuário quer trocar uma atividade do roteiro.',
+    };
+  }
+  if (isChangeDatesIntent(message)) {
+    return {
+      intent: 'CHANGE_DATES',
+      confidence: 0.9,
+      requiresTrip: true,
+      nextTool: 'Trip State Editor',
+      reason: 'Usuário quer alterar as datas da viagem.',
+    };
+  }
   if (isApplyIntent(message) || isCreateItineraryItemIntent(message)) {
     return {
       intent: 'ADD_TO_ITINERARY',
@@ -188,15 +211,6 @@ function classifyPlanChatIntent(message, currentTrip, lastAssistantMessage) {
       reason: /bate.?volta|day trip/.test(text)
         ? 'Usuário pediu um novo dia com bate-volta.'
         : 'Usuário pediu para adicionar mais um dia.',
-    };
-  }
-  if (isReplaceActivityIntent(message)) {
-    return {
-      intent: 'REPLACE_ACTIVITY',
-      confidence: 0.78,
-      requiresTrip: true,
-      nextTool: 'Itinerary Editor',
-      reason: 'Usuário quer trocar uma atividade do roteiro.',
     };
   }
   if (isReplanItineraryIntent(message)) {
@@ -999,6 +1013,108 @@ function knownTripDestination(trip) {
   const destination = String(trip?.destination || trip?.tripContext?.destination || '').trim();
   return destination && destination !== TBD ? destination : '';
 }
+const PT_MONTHS_PLAN = {
+  janeiro: 1, jan: 1,
+  fevereiro: 2, fev: 2,
+  marco: 3, março: 3, mar: 3,
+  abril: 4, abr: 4,
+  maio: 5, mai: 5,
+  junho: 6, jun: 6,
+  julho: 7, jul: 7,
+  agosto: 8, ago: 8,
+  setembro: 9, set: 9,
+  outubro: 10, out: 10,
+  novembro: 11, nov: 11,
+  dezembro: 12, dez: 12,
+};
+function chooseDateYear(month, day, explicitYear = null) {
+  if (explicitYear) return explicitYear;
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const candidate = new Date(currentYear, month - 1, day, 23, 59, 59);
+  return candidate >= now ? currentYear : currentYear + 1;
+}
+function isoPlanDate(year, month, day) {
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+function parsePlanDateRange(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const text = normText(raw);
+  const numeric = text.match(/\b(?:chegada(?:\s+em)?|check.?in|de|vou viajar de|viajar de)?\s*(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\s*(?:a|ate|até|-|e volta(?:\s+em)?|volta(?:\s+em)?|checkout|check.?out)\s*(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b/i);
+  if (numeric) {
+    const startDay = Number(numeric[1]);
+    const startMonth = Number(numeric[2]);
+    const explicitStartYear = numeric[3] ? Number(numeric[3].length === 2 ? `20${numeric[3]}` : numeric[3]) : null;
+    const endDay = Number(numeric[4]);
+    const endMonth = Number(numeric[5]);
+    const explicitEndYear = numeric[6] ? Number(numeric[6].length === 2 ? `20${numeric[6]}` : numeric[6]) : explicitStartYear;
+    const startYear = chooseDateYear(startMonth, startDay, explicitStartYear);
+    let endYear = explicitEndYear || startYear;
+    if (!explicitEndYear && new Date(endYear, endMonth - 1, endDay) < new Date(startYear, startMonth - 1, startDay)) endYear += 1;
+    return buildDateRangePayload(startYear, startMonth, startDay, endYear, endMonth, endDay);
+  }
+  const monthName = Object.keys(PT_MONTHS_PLAN).find(month => text.includes(month));
+  const days = [...text.matchAll(/\b(\d{1,2})\b/g)].map(match => Number(match[1])).filter(day => day >= 1 && day <= 31);
+  const explicitYear = Number(text.match(/\b(20\d{2})\b/)?.[1]) || null;
+  if (monthName && days.length >= 2) {
+    const month = PT_MONTHS_PLAN[monthName];
+    const year = chooseDateYear(month, days[0], explicitYear);
+    return buildDateRangePayload(year, month, days[0], year, month, days[1]);
+  }
+  return null;
+}
+function buildDateRangePayload(startYear, startMonth, startDay, endYear, endMonth, endDay) {
+  const start = new Date(startYear, startMonth - 1, startDay);
+  const end = new Date(endYear, endMonth - 1, endDay);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return null;
+  const nights = Math.round((end - start) / 86400000);
+  if (nights <= 0 || nights > 60) return null;
+  return {
+    dates: {
+      start: isoPlanDate(startYear, startMonth, startDay),
+      end: isoPlanDate(endYear, endMonth, endDay),
+      label: formatDateRangeLabel(start, end),
+    },
+    nights,
+    durationDays: nights + 1,
+  };
+}
+function formatDateRangeLabel(start, end) {
+  const months = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
+    return `${start.getDate()}–${end.getDate()} ${months[start.getMonth()]}`;
+  }
+  return `${start.getDate()} ${months[start.getMonth()]} – ${end.getDate()} ${months[end.getMonth()]}`;
+}
+function dateLabelForDay(startIso, index) {
+  const start = startIso ? new Date(`${startIso}T00:00:00`) : null;
+  if (!start || Number.isNaN(start.getTime())) return TBD;
+  const next = new Date(start);
+  next.setDate(start.getDate() + index);
+  const months = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  return `${next.getDate()} ${months[next.getMonth()]}`;
+}
+function resizeDaysForDateRange(currentDays, payload, city) {
+  const safeDays = normalizeDays(currentDays).map((day, index) => ({
+    ...day,
+    date: index < payload.durationDays ? dateLabelForDay(payload.dates.start, index) : day.date,
+    city: day.city && day.city !== TBD ? day.city : city || TBD,
+    items: [...day.items],
+  }));
+  if (payload.durationDays > safeDays.length) {
+    for (let index = safeDays.length; index < payload.durationDays; index += 1) {
+      safeDays.push({
+        d: index + 1,
+        date: dateLabelForDay(payload.dates.start, index),
+        city: city || TBD,
+        flight: false,
+        items: [],
+      });
+    }
+  }
+  return safeDays;
+}
 function buildAddDayPrompt({ message, trip, targetDay }) {
   return [
     message,
@@ -1616,6 +1732,48 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         }
         return;
       }
+    }
+
+    if (planIntent.intent === 'CHANGE_DATES') {
+      setTyping(false);
+      if (!tripData.id) {
+        const reply = 'Abra ou crie uma viagem antes de alterar as datas.';
+        setChat(c => [...c, { who: 'gaid', text: reply, source: 'state-guard' }]);
+        persistPlanMessage('assistant', reply, { source: 'state-guard', intent: planIntent.intent });
+        return;
+      }
+      const parsed = parsePlanDateRange(t);
+      if (!parsed) {
+        const reply = 'Claro. Qual é o intervalo da viagem? Pode me dizer, por exemplo: “20 a 27 de setembro”.';
+        setChat(c => [...c, { who: 'gaid', text: reply, source: 'date-tool' }]);
+        persistPlanMessage('assistant', reply, { source: 'date-tool', intent: planIntent.intent });
+        return;
+      }
+      const nextDays = resizeDaysForDateRange(days, parsed, tripData.destination || tripData.tripContext?.destination || TBD);
+      const hasExtraDays = nextDays.length > parsed.durationDays;
+      await tripStore.patchItinerary(tripData.id, {
+        context: {
+          dates: parsed.dates,
+          nights: parsed.nights,
+          durationDays: parsed.durationDays,
+        },
+        days: nextDays,
+      });
+      setDays(nextDays);
+      const reply = hasExtraDays
+        ? `Pronto — atualizei a viagem para ${parsed.dates.label}. Seu roteiro ainda tem dias extras; quer que eu revise esses dias antes de remover qualquer coisa?`
+        : `Pronto — atualizei a viagem para ${parsed.dates.label}.`;
+      setChat(c => [...c, { who: 'gaid', text: reply, source: 'date-tool', status: 'applied', ctaApplied: true }]);
+      persistPlanMessage('assistant', reply, {
+        source: 'date-tool',
+        intent: planIntent.intent,
+        status: 'applied',
+        dates: parsed.dates,
+        nights: parsed.nights,
+        durationDays: parsed.durationDays,
+      });
+      toast({ title: 'Datas atualizadas', desc: parsed.dates.label, tone: 'success' });
+      return;
     }
 
     if (planIntent.intent === 'MOVE_ACTIVITY') {
