@@ -1044,6 +1044,323 @@ function buildTripContext(answers, prompt, { context = {}, mode = 'deterministic
   };
 }
 
+const WIZARD_V3_MAX_INTERACTIONS = 7;
+
+const WIZARD_V3_INITIAL = {
+  active: false,
+  status: 'idle',
+  stepIndex: 0,
+  maxInteractions: WIZARD_V3_MAX_INTERACTIONS,
+  context: {
+    destination: '',
+    period: '',
+    dates: null,
+    durationDays: null,
+    nights: null,
+    travelers: null,
+    travelerComposition: '',
+    interests: [],
+    priorityRanking: [],
+    budget: '',
+    stylePace: '',
+    skippedFields: {},
+    assumptions: {},
+  },
+  answers: [],
+};
+
+const WIZARD_V3_QUESTIONS = [
+  {
+    id: 'destination',
+    question: 'Para onde você quer viajar?',
+    componentType: 'free_text',
+    required: true,
+    options: [],
+  },
+  {
+    id: 'duration',
+    question: 'Quantos dias você quer viajar?',
+    componentType: 'single_select',
+    required: true,
+    options: [
+      { id: '4-dias', label: '4 dias' },
+      { id: '7-dias', label: '7 dias' },
+      { id: '8-dias', label: '8 dias' },
+      { id: '14-dias', label: '14 dias' },
+    ],
+    allowFreeText: true,
+  },
+  {
+    id: 'travelers',
+    question: 'Quem vai viajar?',
+    componentType: 'single_select',
+    required: false,
+    options: [
+      { id: 'solo', label: 'Sozinho' },
+      { id: 'casal', label: 'Casal' },
+      { id: 'familia', label: 'Família' },
+      { id: 'amigos', label: 'Amigos' },
+    ],
+    allowFreeText: true,
+  },
+  {
+    id: 'interests',
+    question: 'O que é mais importante nessa viagem?',
+    componentType: 'multi_select',
+    required: false,
+    options: [
+      { id: 'cultura', label: 'Cultura' },
+      { id: 'gastronomia', label: 'Gastronomia' },
+      { id: 'compras', label: 'Compras' },
+      { id: 'parques', label: 'Parques' },
+      { id: 'descanso', label: 'Descanso' },
+      { id: 'praia', label: 'Praia' },
+      { id: 'natureza', label: 'Natureza' },
+      { id: 'museus', label: 'Museus' },
+      { id: 'vida-noturna', label: 'Vida noturna' },
+      { id: 'romantico', label: 'Romântico' },
+    ],
+  },
+  {
+    id: 'priorityRanking',
+    question: 'Ordene as prioridades principais.',
+    componentType: 'ranking',
+    required: false,
+    options: [],
+  },
+  {
+    id: 'budget',
+    question: 'Qual estilo de orçamento combina melhor?',
+    componentType: 'single_select',
+    required: false,
+    options: [
+      { id: 'economico', label: 'Econômico' },
+      { id: 'moderado', label: 'Moderado' },
+      { id: 'confortavel', label: 'Confortável' },
+      { id: 'luxo', label: 'Luxo' },
+      { id: 'nao-sei', label: 'Não sei' },
+    ],
+  },
+  {
+    id: 'period',
+    question: 'Quando você imagina viajar?',
+    componentType: 'free_text',
+    required: false,
+    options: [],
+  },
+];
+
+function cloneWizardV3() {
+  return JSON.parse(JSON.stringify(WIZARD_V3_INITIAL));
+}
+
+function isDestinationOnlyMessage(value) {
+  const raw = filledString(value);
+  return /^[A-Za-zÀ-ÿ\s]{2,32}$/.test(raw) && !isGenericInitialPrompt(raw);
+}
+
+function isTripPlanningIntent(value) {
+  const text = normText(value);
+  return /(montar|criar|planejar|monte|crie|planeje).*(roteiro|viagem)|quero ir para|vou viajar para|viajar para|roteiro para|viagem para/.test(text);
+}
+
+function isDiscoveryIntent(value) {
+  const text = normText(value);
+  return /(o que fazer|onde jantar|me indica|me indique|recomendacao rapida|recomendação rápida|me mostra hoteis|me mostra hotéis|cafe|café|restaurante|hotel)/.test(text);
+}
+
+function titleCaseDestination(value) {
+  return filledString(value).replace(/\s+/g, ' ').trim().replace(/\b\p{L}/gu, char => char.toUpperCase());
+}
+
+function parseWizardDestination(value) {
+  const candidate = inferPlannerDestination(value);
+  return titleCaseDestination(candidate || (isDestinationOnlyMessage(value) ? value : ''));
+}
+
+function parseWizardPeriod(value) {
+  const raw = filledString(value);
+  if (!raw) return {};
+  const label = extractPeriodLabel(raw);
+  const parsed = parseDateRange(raw);
+  if (label) return { period: titleCaseDestination(label), dates: { ...(parsed || {}), label: titleCaseDestination(label) } };
+  if (parsed && !/\b(quero|roteiro|viagem|viajar|criar|montar)\b/.test(normText(parsed.label))) {
+    return { period: parsed.label, dates: parsed };
+  }
+  return {};
+}
+
+function parseWizardDuration(value) {
+  const text = normText(value);
+  if (/fim de semana/.test(text)) return { durationDays: 3, nights: 2 };
+  if (/uma semana|1 semana/.test(text)) return { durationDays: 7, nights: 6 };
+  const days = Number(text.match(/\b(\d+)\s*dias?\b/)?.[1]);
+  if (Number.isFinite(days) && days > 0) return { durationDays: days, nights: Math.max(days - 1, 0) };
+  const nights = Number(text.match(/\b(\d+)\s*noites?\b/)?.[1]);
+  if (Number.isFinite(nights) && nights > 0) return { durationDays: nights + 1, nights };
+  return {};
+}
+
+function parseWizardTravelers(value) {
+  const raw = filledString(value);
+  const text = normText(raw);
+  const parsed = parseTravelerComposition(raw);
+  if (/sozinh|solo|so eu|só eu/.test(text)) return { travelers: { count: 1, composition: 'Solo' }, travelerComposition: 'Solo' };
+  if (/esposa|marido|casal|a dois|eu e minha esposa|eu e meu marido/.test(text)) return { travelers: { count: 2, composition: 'Casal' }, travelerComposition: 'Casal' };
+  if (parsed.count || parsed.composition || parsed.ages.length > 0) {
+    return {
+      travelers: {
+        count: parsed.count || null,
+        composition: parsed.composition || (/famil|crianc|filh/.test(text) ? 'Família' : 'A definir'),
+        adults: parsed.adults || null,
+        children: { count: parsed.children || null, ages: parsed.ages || [] },
+      },
+      travelerComposition: parsed.composition || (/famil|crianc|filh/.test(text) ? 'Família' : 'A definir'),
+    };
+  }
+  if (/famil/.test(text)) return { travelers: { count: null, composition: 'Família' }, travelerComposition: 'Família' };
+  const count = parseNumberFromText(raw);
+  if (count) return { travelers: { count, composition: 'A definir' }, travelerComposition: 'A definir' };
+  return {};
+}
+
+function parseWizardInterests(value) {
+  const values = Array.isArray(value) ? value : [value];
+  const text = normText(values.join(' '));
+  const interests = [
+    ['cultura', /cultura/],
+    ['gastronomia', /gastronom|comida|restaurante/],
+    ['compras', /compras|shopping|outlet/],
+    ['parques', /parque|disney|universal/],
+    ['descanso', /descanso|relax|leve|confort/],
+    ['praia', /praia/],
+    ['natureza', /natureza|trilha|montanha/],
+    ['museus', /museu/],
+    ['vida noturna', /vida noturna|bar|balada/],
+    ['luxo', /luxo|premium/],
+    ['econômico', /econom|barat/],
+    ['crianças', /crianc|filh/],
+    ['romântico', /romant|casal/],
+  ].filter(([, pattern]) => pattern.test(text)).map(([label]) => label);
+  const fallback = values.map(filledString).filter(Boolean);
+  return { interests: interests.length ? interests : fallback, stylePace: interests.includes('descanso') ? 'Ritmo confortável' : 'Equilibrado' };
+}
+
+function parseWizardBudget(value) {
+  const text = normText(value);
+  if (/nao sei|não sei/.test(text)) return { budget: 'A definir' };
+  if (/econom|barat/.test(text)) return { budget: 'Econômico' };
+  if (/moder/.test(text)) return { budget: 'Moderado' };
+  if (/confort/.test(text)) return { budget: 'Confortável' };
+  if (/luxo|premium/.test(text)) return { budget: 'Luxo' };
+  return filledString(value) ? { budget: filledString(value) } : {};
+}
+
+function extractWizardContextFromPrompt(prompt, seed = {}) {
+  return {
+    ...cloneWizardV3().context,
+    ...(seed || {}),
+    ...(parseWizardDestination(prompt) ? { destination: parseWizardDestination(prompt) } : {}),
+    ...parseWizardPeriod(prompt),
+    ...parseWizardDuration(prompt),
+    ...parseWizardTravelers(prompt),
+  };
+}
+
+function wizardAnswerLabel(value) {
+  if (Array.isArray(value)) return value.join(', ');
+  return filledString(value);
+}
+
+function applyWizardAnswer(context, question, answer, skipped = false) {
+  if (skipped) {
+    return {
+      ...context,
+      skippedFields: { ...(context.skippedFields || {}), [question.id]: true },
+    };
+  }
+  if (question.id === 'destination') return { ...context, destination: parseWizardDestination(answer) || filledString(answer) };
+  if (question.id === 'period') return { ...context, ...parseWizardPeriod(answer) };
+  if (question.id === 'duration') return { ...context, ...parseWizardDuration(answer) };
+  if (question.id === 'travelers') return { ...context, ...parseWizardTravelers(answer) };
+  if (question.id === 'interests') return { ...context, ...parseWizardInterests(answer) };
+  if (question.id === 'priorityRanking') return { ...context, priorityRanking: Array.isArray(answer) ? answer : [answer].filter(Boolean) };
+  if (question.id === 'budget') return { ...context, ...parseWizardBudget(answer) };
+  return context;
+}
+
+function nextWizardQuestion(context, answers, maxInteractions = WIZARD_V3_MAX_INTERACTIONS) {
+  if (!context.destination) return WIZARD_V3_QUESTIONS.find(q => q.id === 'destination');
+  if (!context.durationDays && !context.nights) return WIZARD_V3_QUESTIONS.find(q => q.id === 'duration');
+  if (!context.travelers && !context.skippedFields?.travelers && answers.length < maxInteractions) return WIZARD_V3_QUESTIONS.find(q => q.id === 'travelers');
+  if ((!context.interests || context.interests.length === 0) && !context.skippedFields?.interests && answers.length < maxInteractions) return WIZARD_V3_QUESTIONS.find(q => q.id === 'interests');
+  if ((context.interests?.length || 0) > 1 && (!context.priorityRanking || context.priorityRanking.length === 0) && !context.skippedFields?.priorityRanking && answers.length < maxInteractions) {
+    return { ...WIZARD_V3_QUESTIONS.find(q => q.id === 'priorityRanking'), options: context.interests.map(item => ({ id: item, label: item })) };
+  }
+  if (!context.budget && !context.skippedFields?.budget && answers.length < maxInteractions) return WIZARD_V3_QUESTIONS.find(q => q.id === 'budget');
+  if (!context.period && !context.dates?.label && !context.skippedFields?.period && answers.length < maxInteractions) return WIZARD_V3_QUESTIONS.find(q => q.id === 'period');
+  return null;
+}
+
+function wizardContextWithDefaults(context, skippedAll = false) {
+  const assumptions = { ...(context.assumptions || {}) };
+  const out = { ...context };
+  if (skippedAll && !out.durationDays && !out.nights) {
+    out.durationDays = 4;
+    out.nights = 3;
+    assumptions.duration = '4 dias sugeridos pela Gaid';
+  }
+  if (!out.travelers) {
+    out.travelers = { count: null, composition: 'A definir' };
+    out.travelerComposition = 'A definir';
+  }
+  if (!out.stylePace) out.stylePace = 'Equilibrado';
+  if (!out.interests || out.interests.length === 0) out.interests = ['principais atrações', 'gastronomia', 'ritmo confortável'];
+  if (!out.priorityRanking || out.priorityRanking.length === 0) out.priorityRanking = out.interests;
+  if (!out.budget) out.budget = 'A definir';
+  return { ...out, assumptions };
+}
+
+function canCompleteWizardV3(context, skippedAll = false) {
+  return Boolean(context?.destination && (context.durationDays || context.nights || skippedAll));
+}
+
+function wizardSummaryLines(answers) {
+  return answers
+    .filter(item => item.question && item.answer)
+    .map(item => `p: ${item.question}\nr: ${item.answer}`)
+    .join('\n\n');
+}
+
+function buildWizardTripContext(context, originalPrompt, answers, skippedAll = false) {
+  const safe = wizardContextWithDefaults(context, skippedAll);
+  const summary = wizardSummaryLines(answers);
+  return {
+    destination: safe.destination,
+    period: safe.period || safe.dates?.label || null,
+    dates: safe.dates || (safe.period ? { label: safe.period } : null),
+    durationDays: safe.durationDays || (safe.nights ? safe.nights + 1 : null),
+    nights: safe.nights ?? (safe.durationDays ? Math.max(safe.durationDays - 1, 0) : null),
+    travelers: safe.travelers,
+    travelerComposition: safe.travelerComposition || safe.travelers?.composition || 'A definir',
+    interests: safe.interests,
+    priorities: safe.priorityRanking?.length ? safe.priorityRanking : safe.interests,
+    priorityRanking: safe.priorityRanking,
+    budget: safe.budget,
+    stylePace: safe.stylePace,
+    skippedFields: safe.skippedFields || {},
+    assumptions: safe.assumptions || {},
+    wizard: {
+      completed: true,
+      mode: 'wizard-v3',
+      originalPrompt,
+      summary,
+      answers,
+      skippedAll,
+    },
+  };
+}
+
 const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   const acct = useAccount();
   const hasTrip = !!activeTrip;
@@ -1063,6 +1380,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   const [aiWizardQuestion, setAiWizardQuestion] = useState(null);
   const [wizardContext, setWizardContext] = useState({});
   const [wizardHistory, setWizardHistory] = useState([]);
+  const [wizardV3, setWizardV3] = useState(() => cloneWizardV3());
   const [pendingPlannerContext, setPendingPlannerContext] = useState(null);
   const toast = useToast();
   const scrollerRef = useRef(null);
@@ -1079,15 +1397,10 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       intro:'Viajar com cachorro pra Europa tem prazos que começam ~30 dias antes. Vou fazer 3 perguntas e montar tudo — documentos, voo na cabine, hotéis pet-friendly e pontos de atenção.' },
   };
   const cfg = FLOW_CFG[flowKey] || FLOW_CFG.trip;
-  const deterministicWizard = flowKey === 'trip' ? buildAdaptiveTripWizard(answers) : [];
-  const wizard = flowKey === 'trip'
-    ? (wizardHistory.length
-      ? Array.from(
-        { length: Math.max(deterministicWizard.length, wizardHistory.length) },
-        (_, index) => wizardHistory[index] || deterministicWizard[index]
-      ).filter(Boolean)
-      : deterministicWizard)
-    : [];
+  const activeWizardQuestion = wizardV3.active && wizardV3.status === 'collecting'
+    ? nextWizardQuestion(wizardV3.context, wizardV3.answers, wizardV3.maxInteractions)
+    : null;
+  const wizard = activeWizardQuestion ? [activeWizardQuestion] : [];
 
   const detectFlow = (t) => {
     const s = (t || '').toLowerCase();
@@ -1115,66 +1428,20 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     setWizardHistory([]);
     setMode('chat');
     setChat([{ id: 'u-0', who: 'user', text: userText }]);
-    setThinking(true);
-    setTimeout(async () => {
-      let initialAnswers = {};
-      let initialContext = {};
-      let initialHistory = [];
-      let firstWizardStep = 0;
-      let firstAiQuestion = null;
-
-      if (key === 'trip') {
-        initialContext = extractInitialPlannerContext(userText, seedContext);
-
-        initialAnswers = initialAnswersFromContext(initialContext);
-        const deterministic = buildAdaptiveTripWizard(initialAnswers);
-        const firstUnknownIndex = nextUnknownStepIndex(deterministic, 0, initialAnswers, initialContext);
-        const completion = plannerCompletionStatus(initialAnswers, initialContext);
-        if (completion.ready) {
-          firstWizardStep = 0;
-          initialHistory = [];
-        } else if (firstUnknownIndex >= 0) {
-          firstWizardStep = firstUnknownIndex;
-          initialHistory = deterministic.slice(0, firstUnknownIndex + 1);
-        }
-
-        if (!completion.ready && firstUnknownIndex >= 0) {
-          const polishedStep = await polishWizardStepCopy({
-            step: deterministic[firstUnknownIndex],
-            prompt: userText,
-            answers: initialAnswers,
-            context: initialContext,
-            lastAnswer: null,
-            stepCount: firstUnknownIndex,
-          });
-          initialHistory[firstUnknownIndex] = polishedStep;
-          firstAiQuestion = { field: polishedStep.id, question: polishedStep.q };
-        } else if (!completion.ready) {
-          const destinationAnswer = initialAnswers.destination;
-          const nextStep = destinationAnswer ? periodStepForDestination(destinationAnswer.label) : BASE_TRIP_WIZARD[0];
-          initialHistory = [nextStep];
-          firstWizardStep = 0;
-        }
-      }
-
-      setAnswers(initialAnswers);
-      setWizardContext(initialContext);
-      setAiWizardQuestion(firstAiQuestion);
-      setWizardHistory(initialHistory);
-      setThinking(false);
-      setChat(c => [
-        ...c,
-        { id: 'a-intro', who: 'agent', text: FLOW_CFG[key].intro },
-      ]);
-      setWizardStep(firstWizardStep);
-      if (plannerCompletionStatus(initialAnswers, initialContext).ready) {
-        setPlannerState(PLANNER_READY);
-        completeWizard(initialAnswers, initialContext, { mode: 'deterministic', qa: buildWizardQa(initialAnswers, initialHistory) });
-      } else {
-        setPlannerState(PLANNER_COLLECTING);
-        setPhase('asking');
-      }
-    }, 700);
+    const context = extractWizardContextFromPrompt(userText, seedContext);
+    setWizardV3({
+      active: true,
+      status: 'collecting',
+      stepIndex: 0,
+      maxInteractions: WIZARD_V3_MAX_INTERACTIONS,
+      context,
+      answers: [],
+    });
+    setPhase('asking');
+    setChat(c => [
+      ...c,
+      { id: 'a-intro', who: 'agent', text: FLOW_CFG.trip.intro },
+    ]);
   };
 
   const sendToGaid = async (message, baseChat = []) => {
@@ -1207,17 +1474,34 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
 
     // From idle: collect the core trip context before creating the real trip.
     if (mode === 'idle') {
-      const classification = classifyGaidIntent(t);
       setMode('chat');
       setChat([{ id: 'u-0', who: 'user', text: t }]);
       setPendingPlannerContext(null);
 
-      if (classification.intent === 'PLAN_TRIP') {
+      if (isDestinationOnlyMessage(t)) {
+        const destination = titleCaseDestination(t);
+        setPendingPlannerContext({ destination });
+        setPhase('done');
+        setChat([
+          { id: 'u-0', who: 'user', text: t },
+          {
+            id: `clarify-${Date.now()}`,
+            who: 'agent',
+            text: `Você quer montar uma viagem para ${destination} ou quer uma indicação rápida por lá?`,
+            source: 'intent-router',
+          },
+        ]);
+        return;
+      }
+
+      const classification = classifyGaidIntent(t);
+
+      if (isTripPlanningIntent(t) || classification.intent === 'PLAN_TRIP') {
         startFlow(t, 'trip');
         return;
       }
 
-      if (classification.nextTool === 'Discovery Engine') {
+      if (isDiscoveryIntent(t) || classification.nextTool === 'Discovery Engine') {
         const discoveryContext = extractDiscoveryContext(t);
         if (!hasEnoughDiscoveryContext(discoveryContext)) {
           setPhase('done');
@@ -1263,14 +1547,22 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       return;
     }
 
-    // In chat mode: if currently asking a wizard question, free-text counts as answer.
-    if (phase === 'asking' && wizard.length > 0) {
+    if (wizardV3.active && wizardV3.status === 'collecting' && activeWizardQuestion) {
+      const command = normText(t);
+      if (/^pular tudo$|^pula tudo$/.test(command)) {
+        skipAllWizard();
+        return;
+      }
+      if (/^pular etapa$|^pula etapa$|^pular$/.test(command)) {
+        skipWizardStep();
+        return;
+      }
       answerWizard('custom', t);
     } else {
       const userMsg = { id: `u-${Date.now()}`, who: 'user', text: t };
       const nextChat = [...chat, userMsg];
       const classification = classifyGaidIntent(t);
-      if (classification.intent === 'PLAN_TRIP' && pendingPlannerContext?.destination) {
+      if ((classification.intent === 'PLAN_TRIP' || isTripPlanningIntent(t) || /\broteiro\b|viagem/.test(normText(t))) && pendingPlannerContext?.destination) {
         startFlow(t, 'trip', pendingPlannerContext);
         return;
       }
@@ -1345,36 +1637,35 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   };
 
   const completeWizard = (finalAnswers, finalContext, { mode = 'deterministic', qa = [], skippedAll = false } = {}) => {
+    const answersForSummary = wizardV3.answers;
+    const safeContext = wizardContextWithDefaults(finalContext || wizardV3.context, skippedAll);
+    if (!safeContext.destination) {
+      setWizardV3(current => ({ ...current, active: true, status: 'collecting' }));
+      setPhase('asking');
+      setChat(c => [...c, { id: `a-${Date.now()}`, who: 'agent', text: 'Antes de criar a viagem, preciso saber o destino.' }]);
+      return;
+    }
+    if (!canCompleteWizardV3(safeContext, skippedAll)) {
+      setWizardV3(current => ({ ...current, active: true, status: 'collecting' }));
+      setPhase('asking');
+      setChat(c => [...c, { id: `a-${Date.now()}`, who: 'agent', text: 'Antes de gerar, preciso saber a duração da viagem.' }]);
+      return;
+    }
     setPlannerState(PLANNER_GENERATING);
     setPhase('generating');
-    const genMsg = 'Perfeito. Vou abrir a base do seu roteiro agora.';
+    setWizardV3(current => ({ ...current, active: false, status: 'generating' }));
+    const handoffContext = buildWizardTripContext(safeContext, initialPrompt, answersForSummary, skippedAll);
+    const summary = handoffContext.wizard.summary;
     setChat(c => [
       ...c,
-      { who: 'agent', text: genMsg },
+      { id: `u-summary-${Date.now()}`, who: 'user', text: summary },
+      { id: `a-generating-${Date.now()}`, who: 'agent', text: 'Estou montando seu roteiro...' },
     ]);
-    const fallbackContext = buildTripContext(finalAnswers, initialPrompt, {
-      context: finalContext,
-      mode,
-      qa,
-    });
-    const summary = buildWizardSummary({
-      ...fallbackContext,
-      wizard: {
-        ...fallbackContext.wizard,
-        skippedAll,
-      },
-    });
-    const handoffContext = {
-      ...fallbackContext,
-      wizard: {
-        ...fallbackContext.wizard,
-        summary,
-        skippedAll,
-      },
-    };
     Promise.resolve(kickoffPlan && kickoffPlan({
       prompt: summary,
       context: handoffContext,
+      tripContext: handoffContext,
+      destination: handoffContext.destination,
     }))
       .then(() => {
         setPlannerState(PLANNER_COMPLETE);
@@ -1393,104 +1684,45 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   };
 
   const answerWizard = (optId, label, meta = {}) => {
-    const step = wizard[wizardStep];
-    if (!step) return;
-    const nextAnswers = { ...answers, [step.id]: { optId, label, ...meta } };
-    const currentWizardHistory = syncWizardHistory(wizardHistory, wizardStep, step);
-    const currentQa = buildWizardQa(nextAnswers, currentWizardHistory);
-    setAnswers(nextAnswers);
-    setWizardHistory(currentWizardHistory);
-    // Lock the current wizard message. Answers stay inside the guided form.
-    setChat(c => [
-      ...c.map(m => (m.wizardStep === wizardStep ? { ...m, answered: { optId, label } } : m)),
-    ]);
-    setThinking(true);
-    setTimeout(async () => {
-      let nextWizard = flowKey === 'trip' ? buildAdaptiveTripWizard(nextAnswers) : wizard;
-      let nextWizardContext = meta.skipped
-        ? mergeWizardContext(wizardContext, {
-          [step.id]: { skipped: true, strategy: 'gaid_suggest' },
-          skippedFields: { [step.id]: { skipped: true, strategy: 'gaid_suggest' } },
-        })
-        : wizardContext;
-      if (meta.skipped) setWizardContext(nextWizardContext);
-
-      if (flowKey === 'trip') {
-        nextWizard = buildAdaptiveTripWizard(nextAnswers);
-        setAiWizardQuestion(null);
-      }
-
-      setThinking(false);
-      const completion = plannerCompletionStatus(nextAnswers, nextWizardContext);
-      let next = nextUnknownStepIndex(nextWizard, wizardStep + 1, nextAnswers, nextWizardContext);
-      if (!completion.ready && next < 0) {
-        next = nextUnknownStepIndex(nextWizard, 0, nextAnswers, nextWizardContext);
-      }
-      if (!completion.ready && next < 0) {
-        const forcedStep = requiredPlannerStep(nextAnswers, nextWizardContext);
-        if (forcedStep) {
-          nextWizard = syncWizardHistory(currentWizardHistory, wizardStep, step, forcedStep);
-          setWizardHistory(nextWizard);
-          setPlannerState(PLANNER_COLLECTING);
-          setWizardStep(nextWizard.length - 1);
-          return;
-        }
-      }
-      if (!completion.ready && next >= 0) {
-        const polishedStep = await polishWizardStepCopy({
-          step: nextWizard[next],
-          prompt: initialPrompt,
-          answers: nextAnswers,
-          context: nextWizardContext,
-          lastAnswer: { field: step.id, value: optId, label },
-          stepCount: next,
-        });
-        if (polishedStep) {
-          nextWizard = syncWizardHistory(currentWizardHistory, wizardStep, step, polishedStep);
-          setWizardHistory(nextWizard);
-          setAiWizardQuestion({ field: polishedStep.id, question: polishedStep.q });
-        }
-        setPlannerState(PLANNER_COLLECTING);
-        setWizardStep(next);
-      } else {
-        // Finished — create the trip with the collected context and open Plan.
-        setPlannerState(PLANNER_READY);
-        const mode = 'deterministic';
-        completeWizard(nextAnswers, nextWizardContext, { mode, qa: currentQa });
-      }
-    }, 700);
+    const question = activeWizardQuestion;
+    if (!question) return;
+    if (question.id === 'review_generate') {
+      completeWizard(answers, wizardV3.context, { mode: 'wizard-v3', skippedAll: wizardV3.context.assumptions?.skippedAll === true });
+      return;
+    }
+    const answer = wizardAnswerLabel(label);
+    const nextContext = applyWizardAnswer(wizardV3.context, question, label, meta.skipped);
+    const nextAnswers = meta.skipped
+      ? wizardV3.answers
+      : [...wizardV3.answers, { questionId: question.id, question: question.question, answer, componentType: question.componentType }];
+    const nextQuestion = nextWizardQuestion(nextContext, nextAnswers, wizardV3.maxInteractions);
+    setWizardV3({
+      ...wizardV3,
+      status: nextQuestion ? 'collecting' : 'review',
+      context: nextContext,
+      stepIndex: nextQuestion ? WIZARD_V3_QUESTIONS.findIndex(item => item.id === nextQuestion.id) : wizardV3.stepIndex,
+      answers: nextAnswers,
+    });
+    setPhase(nextQuestion ? 'asking' : 'done');
   };
 
   const skipWizardStep = () => {
-    answerWizard('__skipped__', 'Gaid sugere', { skipped: true, strategy: 'gaid_suggest' });
+    answerWizard('__skipped__', 'Pulado', { skipped: true });
   };
 
   const skipAllWizard = () => {
-    const hasDestination = !!filledString(answerText(answers, 'destination'), wizardContext.destination);
+    const hasDestination = !!filledString(wizardV3.context.destination);
     if (!hasDestination) {
-      const destinationStep = BASE_TRIP_WIZARD[0];
-      setWizardHistory([destinationStep]);
-      setWizardStep(0);
       setPhase('asking');
       setChat(c => [...c, { who: 'agent', text: 'Claro — só preciso saber o destino para criar uma primeira versão.' }]);
       return;
     }
-    const skippedContext = mergeWizardContext(wizardContext, {
-      skippedAll: true,
-      skippedFields: {
-        period: { skipped: true, strategy: 'gaid_suggest' },
-        duration: { skipped: true, strategy: 'gaid_suggest' },
-        travelers: { skipped: true, strategy: 'gaid_suggest' },
-        budget: { skipped: true, strategy: 'gaid_suggest' },
-        stylePace: { skipped: true, strategy: 'gaid_suggest' },
-      },
-    });
-    setWizardContext(skippedContext);
-    completeWizard(answers, skippedContext, {
-      mode: 'ai-guided',
-      qa: buildWizardQa(answers, wizardHistory),
-      skippedAll: true,
-    });
+    const skippedContext = wizardContextWithDefaults({
+      ...wizardV3.context,
+      assumptions: { ...(wizardV3.context.assumptions || {}), skippedAll: true },
+    }, true);
+    setWizardV3({ ...wizardV3, status: 'review', context: skippedContext });
+    setPhase('done');
   };
 
   const onGenerationDone = () => {
@@ -1510,6 +1742,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       setAiWizardQuestion(null);
       setWizardContext({});
       setWizardHistory([]);
+      setWizardV3(cloneWizardV3());
       setPhase('asking');
     }, 400);
   };
@@ -1523,6 +1756,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     setAiWizardQuestion(null);
     setWizardContext({});
     setWizardHistory([]);
+    setWizardV3(cloneWizardV3());
     setPhase('asking');
   };
 
@@ -1572,17 +1806,28 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         {/* bottom chatbar — always visible */}
         <div className="px-4 sm:px-6 lg:px-10 pb-[max(24px,env(safe-area-inset-bottom))] lg:pb-6 pt-3 bg-gradient-to-t from-canvas via-canvas to-canvas/0">
           <div className="max-w-[780px] mx-auto">
-            {phase === 'asking' && wizard.length > 0 && (
+            {wizardV3.active && ['collecting', 'review'].includes(wizardV3.status) && (
               <div className="mb-4">
-                <ActionWizardPanel
-                  stepIdx={wizardStep}
-                  wizard={wizard}
-                  step={wizard[wizardStep]}
-                  answered={null}
-                  onPick={answerWizard}
-                  onSkipStep={skipWizardStep}
-                  onSkipAll={skipAllWizard}
-                />
+                {wizardV3.status === 'review' ? (
+                  <WizardV3Review
+                    context={wizardV3.context}
+                    onGenerate={() => completeWizard(wizardV3.answers, wizardV3.context, {
+                      mode: 'wizard-v3',
+                      skippedAll: wizardV3.context.assumptions?.skippedAll === true,
+                    })}
+                    onEdit={() => { setWizardV3(current => ({ ...current, status: 'collecting' })); setPhase('asking'); }}
+                    onCancel={() => { setWizardV3(cloneWizardV3()); setPhase('done'); }}
+                  />
+                ) : (
+                  <ActionWizardPanel
+                    stepIdx={Math.min(wizardV3.answers.length, wizardV3.maxInteractions - 1)}
+                    total={wizardV3.maxInteractions}
+                    step={activeWizardQuestion}
+                    onPick={answerWizard}
+                    onSkipStep={skipWizardStep}
+                    onSkipAll={skipAllWizard}
+                  />
+                )}
               </div>
             )}
             <div className="bg-white border-half rounded-full shadow-card h-[56px] pl-5 pr-[6px] flex items-center gap-2 transition-shadow hover:shadow-lift focus-within:shadow-lift focus-within:border-brand-200 focus-within:ring-4 focus-within:ring-brand-50">
@@ -1604,7 +1849,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
               </button>
             </div>
             <div className="mt-2 text-[11px] text-ink-500 text-center">
-              {phase === 'asking'
+              {wizardV3.active && wizardV3.status === 'collecting'
                 ? 'Você pode clicar numa opção acima ou digitar sua própria resposta aqui.'
                 : phase === 'generating'
                   ? 'A Gaid está finalizando — chat volta em instantes.'
@@ -1832,13 +2077,12 @@ const RecommendationCarousel = ({ items }) => (
 
 // TODO: replace local recommendation cards with Google Maps Places API results.
 
-const ActionWizardPanel = ({ stepIdx, step, wizard, answered, onPick, onSkipStep, onSkipAll }) => (
+const ActionWizardPanel = ({ stepIdx, total, step, onPick, onSkipStep, onSkipAll }) => (
   <div className="bg-white border-half rounded-2xl shadow-lift p-4">
     <InlineWizard
       stepIdx={stepIdx}
-      wizard={wizard}
+      total={total}
       step={step}
-      answered={answered}
       onPick={onPick}
       onSkipStep={onSkipStep}
       onSkipAll={onSkipAll}
@@ -1847,23 +2091,85 @@ const ActionWizardPanel = ({ stepIdx, step, wizard, answered, onPick, onSkipStep
   </div>
 );
 
+const WizardV3Review = ({ context, onGenerate, onEdit, onCancel }) => {
+  const safe = wizardContextWithDefaults(context, context?.assumptions?.skippedAll === true);
+  const rows = [
+    ['Destino', safe.destination],
+    ['Período', safe.period || safe.dates?.label],
+    ['Duração', safe.durationDays ? `${safe.durationDays} dias` : safe.nights ? `${safe.nights} noites` : 'A definir'],
+    ['Viajantes', safe.travelers?.count ? `${safe.travelers.count} viajantes` : safe.travelerComposition || safe.travelers?.composition],
+    ['Interesses', sentenceList(safe.interests)],
+    ['Orçamento', safe.budget],
+  ].filter(([, value]) => filledString(value));
+
+  return (
+    <div className="bg-white border-half rounded-2xl shadow-lift p-4 space-y-4">
+      <div>
+        <div className="text-[10.5px] mono uppercase tracking-wider text-ink-400">revisão</div>
+        <div className="text-[15.5px] text-ink-900 font-medium leading-snug mt-1">Pronto para gerar?</div>
+        <div className="text-[12.5px] text-ink-500 mt-1">Confira a base do roteiro antes de eu abrir o plano.</div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {rows.map(([label, value]) => (
+          <div key={label} className="rounded-xl border-half bg-paper px-3 py-2">
+            <div className="text-[10.5px] uppercase tracking-wider text-ink-400">{label}</div>
+            <div className="text-[13px] text-ink-900 mt-0.5">{value}</div>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center justify-between gap-2 pt-1">
+        <div className="flex items-center gap-2">
+          <button onClick={onEdit}
+            className="h-9 px-3 rounded-lg border-half bg-white text-[12.5px] font-medium text-ink-700 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 transition-colors">
+            Editar respostas
+          </button>
+          <button onClick={onCancel}
+            className="h-9 px-2 rounded-lg text-[12.5px] text-ink-500 hover:text-ink-900 transition-colors">
+            Cancelar
+          </button>
+        </div>
+        <button onClick={onGenerate}
+          className="h-9 px-4 rounded-lg bg-ink-900 text-paper text-[12.5px] font-medium hover:bg-brand-700 transition-colors inline-flex items-center gap-1.5">
+          Gerar roteiro <Icon.ArrowRight size={12}/>
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // ============ Inline wizard question ============
-// Rendered as an agent message inside the chat. Vertical list of options +
-// an "Outra opção" free-text input. Collapses once answered.
-const InlineWizard = ({ stepIdx, step, wizard, answered, onPick, onSkipStep, onSkipAll, compact = false }) => {
+// Wizard v3 keeps answers inside local state and only emits one summary at the end.
+const InlineWizard = ({ stepIdx, step, wizard, total, answered, onPick, onSkipStep, onSkipAll, compact = false }) => {
   const [custom, setCustom] = useState('');
   const [selected, setSelected] = useState([]);
+  const [ranking, setRanking] = useState([]);
   if (!step) return null;
-  const total = (wizard || []).length;
-  const multi = isMultiStep(step);
+  const totalSteps = total || (wizard || []).length || WIZARD_V3_MAX_INTERACTIONS;
+  const type = step.componentType || step.type || (isMultiStep(step) ? 'multi_select' : 'single_select');
+  const multi = type === 'multi_select';
+  const rankingStep = type === 'ranking';
+  const freeText = type === 'free_text';
   const options = Array.isArray(step.options) ? step.options : [];
+  const question = step.question || step.q;
+  const sub = step.sub || (freeText ? 'Digite uma resposta curta.' : 'Escolha uma opção ou descreva com suas palavras.');
   const answeredText = Array.isArray(answered?.label) ? sentenceList(answered.label) : answered?.label;
+  const rankingItems = ranking.length ? ranking : options.map(option => ({ id: option.id, label: option.label }));
 
   const toggle = (option) => {
     setSelected(prev => prev.some(item => item.id === option.id)
       ? prev.filter(item => item.id !== option.id)
       : [...prev, { id: option.id, label: option.label }]
     );
+  };
+
+  const moveRank = (index, direction) => {
+    const source = rankingItems;
+    const target = index + direction;
+    if (target < 0 || target >= source.length) return;
+    const next = [...source];
+    const [item] = next.splice(index, 1);
+    next.splice(target, 0, item);
+    setRanking(next);
   };
 
   const confirmMulti = () => {
@@ -1875,11 +2181,24 @@ const InlineWizard = ({ stepIdx, step, wizard, answered, onPick, onSkipStep, onS
     setCustom('');
   };
 
+  const confirmFreeText = () => {
+    const value = custom.trim();
+    if (!value) return;
+    onPick('custom', value);
+    setCustom('');
+  };
+
+  const confirmRanking = () => {
+    const values = rankingItems.length ? rankingItems : options;
+    if (values.length === 0) return;
+    onPick(values.map(item => item.id), values.map(item => item.label));
+  };
+
   if (answered) {
     return (
       <div className="text-[12.5px] text-ink-500 flex items-center gap-2 pl-1">
         <Icon.Check size={12} className="text-ink-900"/>
-        <span>{step.q.replace('?','')} → <span className="text-ink-900 font-medium">{answeredText}</span></span>
+        <span>{question.replace('?','')} → <span className="text-ink-900 font-medium">{answeredText}</span></span>
       </div>
     );
   }
@@ -1888,15 +2207,42 @@ const InlineWizard = ({ stepIdx, step, wizard, answered, onPick, onSkipStep, onS
     <div className={`space-y-4 ${compact ? 'max-w-none' : 'max-w-[600px]'}`}>
       {compact && (
         <div className="text-[10.5px] mono uppercase tracking-wider text-ink-400">
-          etapa {String(stepIdx+1).padStart(2,'0')} de {String(total).padStart(2,'0')}
+          etapa {String(stepIdx+1).padStart(2,'0')} de {String(totalSteps).padStart(2,'0')}
         </div>
       )}
       <div>
-        <div className="text-[15.5px] text-ink-900 font-medium leading-snug">{step.q}</div>
-        <div className="text-[12.5px] text-ink-500 mt-1">{step.sub}</div>
+        <div className="text-[15.5px] text-ink-900 font-medium leading-snug">{question}</div>
+        <div className="text-[12.5px] text-ink-500 mt-1">{sub}</div>
       </div>
 
-      <ul className="space-y-1.5">
+      {rankingStep ? (
+        <div className="space-y-1.5">
+          {rankingItems.map((o, index) => (
+            <div key={o.id}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-white border-half">
+              <div className="h-6 w-6 rounded-full bg-ink-100 text-ink-500 flex items-center justify-center text-[11px] mono shrink-0">
+                {index + 1}
+              </div>
+              <div className="flex-1 min-w-0 text-[13.5px] font-medium text-ink-900 leading-tight">{o.label}</div>
+              <div className="flex items-center gap-1">
+                <button onClick={() => moveRank(index, -1)} disabled={index === 0}
+                  className="h-7 w-7 rounded-lg border-half text-ink-500 hover:text-ink-900 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center">
+                  ↑
+                </button>
+                <button onClick={() => moveRank(index, 1)} disabled={index === rankingItems.length - 1}
+                  className="h-7 w-7 rounded-lg border-half text-ink-500 hover:text-ink-900 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center">
+                  ↓
+                </button>
+              </div>
+            </div>
+          ))}
+          <button onClick={confirmRanking} disabled={rankingItems.length === 0}
+            className="h-9 px-4 rounded-lg bg-ink-900 text-paper text-[12.5px] font-medium hover:bg-brand-700 disabled:opacity-35 disabled:cursor-not-allowed inline-flex items-center gap-1.5">
+            Continuar <Icon.ArrowRight size={12}/>
+          </button>
+        </div>
+      ) : options.length > 0 && !freeText ? (
+        <ul className="space-y-1.5">
         {options.map(o => {
           const on = selected.some(item => item.id === o.id);
           return (
@@ -1919,7 +2265,8 @@ const InlineWizard = ({ stepIdx, step, wizard, answered, onPick, onSkipStep, onS
           </li>
           );
         })}
-      </ul>
+        </ul>
+      ) : null}
 
       {/* Outra opção — free text */}
       <div className="bg-paper border-half border-dashed rounded-xl px-4 py-2.5 flex items-center gap-3">
@@ -1927,11 +2274,11 @@ const InlineWizard = ({ stepIdx, step, wizard, answered, onPick, onSkipStep, onS
         <input
           value={custom}
           onChange={e => setCustom(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && custom.trim()) { multi ? confirmMulti() : onPick('custom', custom.trim()); setCustom(''); } }}
-          placeholder="Outra opção · descreva com suas palavras…"
+          onKeyDown={e => { if (e.key === 'Enter' && custom.trim()) { multi ? confirmMulti() : confirmFreeText(); } }}
+          placeholder={freeText ? 'Digite aqui…' : 'Outra opção · descreva com suas palavras…'}
           className="flex-1 outline-none text-[13px] bg-transparent placeholder:text-ink-500"/>
         {custom.trim() && (
-          <button onClick={() => { multi ? confirmMulti() : onPick('custom', custom.trim()); setCustom(''); }}
+          <button onClick={() => { multi ? confirmMulti() : confirmFreeText(); }}
             className="h-7 px-2.5 rounded-md bg-ink-900 text-paper text-[11.5px] font-medium hover:bg-brand-700 transition-colors inline-flex items-center gap-1">
             Enviar <Icon.ArrowRight size={11}/>
           </button>
@@ -1959,7 +2306,7 @@ const InlineWizard = ({ stepIdx, step, wizard, answered, onPick, onSkipStep, onS
       )}
 
       {!compact && <div className="text-[10.5px] mono uppercase tracking-wider text-ink-400">
-        pergunta {String(stepIdx+1).padStart(2,'0')} de {String(total).padStart(2,'0')}
+        pergunta {String(stepIdx+1).padStart(2,'0')} de {String(totalSteps).padStart(2,'0')}
       </div>}
     </div>
   );
