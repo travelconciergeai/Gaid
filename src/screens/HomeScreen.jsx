@@ -62,10 +62,17 @@ const BASE_TRIP_WIZARD = [
   },
 ];
 
+const PLANNER_IDLE = 'PLANNER_IDLE';
+const PLANNER_COLLECTING = 'PLANNER_COLLECTING';
+const PLANNER_READY = 'PLANNER_READY';
+const PLANNER_GENERATING = 'PLANNER_GENERATING';
+const PLANNER_COMPLETE = 'PLANNER_COMPLETE';
+
 function classifyGaidIntent(message) {
   try {
     const text = normText(message);
     const planRe = /\b(roteiro|viagem|viajar|planej|planejar|monte|montar|criar|crie|itinerario|itinerario|dias?|noites?)\b/;
+    const travelIntentRe = /\b(?:quero|vou|vamos|pretendo|queria|gostaria)\s+(?:ir|viajar)\b/;
     const restaurantRe = /\b(restaurante|jantar|almoco|almoço|comer|onde jantar)\b/;
     const cafeRe = /\b(cafe|café|cafeteria|brunch)\b/;
     const attractionRe = /\b(o que fazer|atracao|atração|passeio|atividade|museu|chuva|crianca|criança|levar uma criança|hoje|agora)\b/;
@@ -81,7 +88,7 @@ function classifyGaidIntent(message) {
               : 'GET_RECOMMENDATION';
       return { intent, confidence: 0.84, requiresTrip: false, nextTool: 'Discovery Engine', reason: 'Pedido de indicação rápida de lugar ou atividade.' };
     }
-    if (planRe.test(text)) {
+    if (planRe.test(text) || travelIntentRe.test(text)) {
       return { intent: 'PLAN_TRIP', confidence: 0.86, requiresTrip: false, nextTool: 'Trip Planner', reason: 'Pedido de roteiro, viagem completa ou planejamento.' };
     }
     if (barePlaceRe.test(String(message || '').trim())) {
@@ -610,6 +617,41 @@ function parseDateRange(value) {
   return { label };
 }
 
+function extractPeriodLabel(value) {
+  const text = normText(value);
+  const monthName = Object.keys(PT_MONTHS).find(month => text.includes(month));
+  if (monthName) return monthName;
+  const season = text.match(/\b(verao|verão|inverno|primavera|outono|ferias|férias|fim de ano|carnaval|reveillon|réveillon)\b/)?.[1];
+  return season || '';
+}
+
+function inferPlannerDestination(value) {
+  const raw = String(value || '').trim();
+  if (!raw || isGenericInitialPrompt(raw)) return '';
+  const match = raw.match(/\b(?:para|pra|em|no|na)\s+(?:a|o|os|as)?\s*([\wÀ-ÿ' -]{2,80})/i);
+  const candidate = (match?.[1] || raw)
+    .replace(/\b(?:em|no|na|de|do|da)?\s*(?:janeiro|jan|fevereiro|fev|mar[cç]o|mar|abril|abr|maio|mai|junho|jun|julho|jul|agosto|ago|setembro|set|outubro|out|novembro|nov|dezembro|dez)\b.*$/i, '')
+    .replace(/\b(?:por|durante)\s+\d+.*$/i, '')
+    .replace(/[,.!?;:].*$/, '')
+    .trim();
+  return candidate.length >= 2 ? candidate : '';
+}
+
+function extractInitialPlannerContext(value) {
+  const promptDates = parseDateRange(value);
+  const periodLabel = extractPeriodLabel(value);
+  const destination = inferPlannerDestination(value);
+  const dates = promptDates
+    ? { ...promptDates, label: periodLabel || promptDates.label }
+    : periodLabel
+      ? { label: periodLabel }
+      : null;
+  return {
+    ...(destination ? { destination } : {}),
+    ...(dates ? { dates, period: dates.label } : {}),
+  };
+}
+
 function cleanDateLabel(value) {
   const label = filledString(value);
   if (!label) return '';
@@ -661,6 +703,11 @@ function isGenericInitialPrompt(value) {
     /^oi\b/,
     /^quero viajar$/,
     /^quero uma viagem$/,
+    /^quero ir$/,
+    /^quero montar (um )?roteiro$/,
+    /^quero criar (um )?roteiro$/,
+    /^quero montar uma viagem$/,
+    /^quero criar uma viagem$/,
     /^planejar viagem$/,
     /^criar roteiro$/,
     /^montar roteiro$/,
@@ -858,25 +905,50 @@ async function requestAiWizardQuestion({ prompt, answers, context, lastAnswer, s
   return response.json();
 }
 
-async function requestNextUnknownAiStep({ prompt, answers, context, lastAnswer, stepCount }) {
-  let nextContext = context || {};
-  let lastResponse = null;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+async function polishWizardStepCopy({ step, prompt, answers, context, lastAnswer, stepCount }) {
+  if (!step?.id) return step;
+  try {
     const response = await requestAiWizardQuestion({
       prompt,
       answers,
-      context: nextContext,
+      context,
       lastAnswer,
-      stepCount: stepCount + attempt,
+      stepCount,
     });
-    nextContext = mergeWizardContext(nextContext, response.normalizedPatch);
-    lastResponse = response;
-    const step = aiQuestionToStep(response);
-    if (response.isComplete || !shouldSkipWizardStep(step, answers, nextContext)) {
-      return { response, context: nextContext, step };
-    }
+    if (response?.field !== step.id) return step;
+    const aiStep = aiQuestionToStep(response);
+    if (!aiStep || aiStep.id !== step.id) return step;
+    return {
+      ...step,
+      q: aiStep.q || step.q,
+      sub: aiStep.sub || step.sub,
+      options: Array.isArray(aiStep.options) && aiStep.options.length > 0
+        ? step.options.map((option, index) => ({
+          ...option,
+          label: aiStep.options[index]?.label || option.label,
+          hint: aiStep.options[index]?.hint || option.hint,
+        }))
+        : step.options,
+      allowFreeText: step.allowFreeText,
+      type: step.type,
+    };
+  } catch (_error) {
+    return step;
   }
-  return { response: lastResponse, context: nextContext, step: null };
+}
+
+function plannerCompletionStatus(answers, context = {}) {
+  const destinationKnown = fieldKnown('destination', answers, context);
+  const periodKnown = fieldKnown('period', answers, context);
+  const durationKnown = fieldKnown('duration', answers, context);
+  const assumptionsBlocked = context?.assumptionsBlocked === true || context?.blockAssumptions === true;
+  return {
+    ready: destinationKnown && (periodKnown || durationKnown) && !assumptionsBlocked,
+    destinationKnown,
+    periodKnown,
+    durationKnown,
+    assumptionsBlocked,
+  };
 }
 
 function buildWizardQa(answers, history = []) {
@@ -1006,6 +1078,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   const [wizardStep, setWizardStep] = useState(0);
   const [answers, setAnswers] = useState({});
   const [phase, setPhase] = useState('asking');                // asking | generating | done
+  const [plannerState, setPlannerState] = useState(PLANNER_IDLE);
   const [flowKey, setFlowKey] = useState('trip');              // trip | disney | kids | dog
   const [initialPrompt, setInitialPrompt] = useState('');
   const [aiWizardQuestion, setAiWizardQuestion] = useState(null);
@@ -1053,6 +1126,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   // ---- flow control ----
   const startFlow = (userText, key) => {
     setFlowKey(key);
+    setPlannerState(PLANNER_COLLECTING);
     setInitialPrompt(userText);
     setAnswers({});
     setAiWizardQuestion(null);
@@ -1069,43 +1143,32 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       let firstAiQuestion = null;
 
       if (key === 'trip') {
-        try {
-          const result = await requestNextUnknownAiStep({
-            prompt: userText,
-            answers: {},
-            context: {},
-            lastAnswer: null,
-            stepCount: 0,
-          });
-          initialContext = result.context;
-          firstAiQuestion = result.response;
-        } catch (_error) {
-          initialContext = {};
-        }
-        const promptDates = parseDateRange(userText);
-        if (!initialContext.dates && (promptDates?.start || isClearDateLabel(promptDates?.label))) {
-          initialContext = {
-            ...initialContext,
-            dates: promptDates,
-            period: promptDates.label,
-          };
-        }
-        if (!initialContext.destination && !promptDates?.start && !isClearDateLabel(promptDates?.label) && !isGenericInitialPrompt(userText)) {
-          initialContext = { ...initialContext, destination: userText };
-        }
+        initialContext = extractInitialPlannerContext(userText);
 
         initialAnswers = initialAnswersFromContext(initialContext);
-        const firstAiStep = aiQuestionToStep(firstAiQuestion);
         const deterministic = buildAdaptiveTripWizard(initialAnswers);
         const firstUnknownIndex = nextUnknownStepIndex(deterministic, 0, initialAnswers, initialContext);
-        if (firstUnknownIndex >= 0) {
+        const completion = plannerCompletionStatus(initialAnswers, initialContext);
+        if (completion.ready) {
+          firstWizardStep = 0;
+          initialHistory = [];
+        } else if (firstUnknownIndex >= 0) {
           firstWizardStep = firstUnknownIndex;
           initialHistory = deterministic.slice(0, firstUnknownIndex + 1);
         }
 
-        if (firstAiStep && !shouldSkipWizardStep(firstAiStep, initialAnswers, initialContext)) {
-          initialHistory = syncWizardHistory(initialHistory, firstWizardStep - 1, initialHistory[firstWizardStep - 1], firstAiStep);
-        } else if (firstUnknownIndex < 0) {
+        if (!completion.ready && firstUnknownIndex >= 0) {
+          const polishedStep = await polishWizardStepCopy({
+            step: deterministic[firstUnknownIndex],
+            prompt: userText,
+            answers: initialAnswers,
+            context: initialContext,
+            lastAnswer: null,
+            stepCount: firstUnknownIndex,
+          });
+          initialHistory[firstUnknownIndex] = polishedStep;
+          firstAiQuestion = { field: polishedStep.id, question: polishedStep.q };
+        } else if (!completion.ready) {
           const destinationAnswer = initialAnswers.destination;
           const nextStep = destinationAnswer ? periodStepForDestination(destinationAnswer.label) : BASE_TRIP_WIZARD[0];
           initialHistory = [nextStep];
@@ -1123,7 +1186,13 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         { id: 'a-intro', who: 'agent', text: FLOW_CFG[key].intro },
       ]);
       setWizardStep(firstWizardStep);
-      setPhase('asking');
+      if (plannerCompletionStatus(initialAnswers, initialContext).ready) {
+        setPlannerState(PLANNER_READY);
+        completeWizard(initialAnswers, initialContext, { mode: 'deterministic', qa: buildWizardQa(initialAnswers, initialHistory) });
+      } else {
+        setPlannerState(PLANNER_COLLECTING);
+        setPhase('asking');
+      }
     }, 700);
   };
 
@@ -1282,6 +1351,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   };
 
   const completeWizard = (finalAnswers, finalContext, { mode = 'deterministic', qa = [], skippedAll = false } = {}) => {
+    setPlannerState(PLANNER_GENERATING);
     setPhase('generating');
     const genMsg = 'Perfeito. Vou abrir a base do seu roteiro agora.';
     setChat(c => [
@@ -1313,9 +1383,11 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       context: handoffContext,
     }))
       .then(() => {
+        setPlannerState(PLANNER_COMPLETE);
         setRoute && setRoute('plan');
       })
       .catch(() => {
+        setPlannerState(PLANNER_COLLECTING);
         setPhase('done');
         setChat(c => [...c, {
           id: `a-${Date.now()}`,
@@ -1341,8 +1413,6 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     setThinking(true);
     setTimeout(async () => {
       let nextWizard = flowKey === 'trip' ? buildAdaptiveTripWizard(nextAnswers) : wizard;
-      let completedByAi = false;
-      let nextAiStep = null;
       let nextWizardContext = meta.skipped
         ? mergeWizardContext(wizardContext, {
           [step.id]: { skipped: true, strategy: 'gaid_suggest' },
@@ -1352,38 +1422,33 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       if (meta.skipped) setWizardContext(nextWizardContext);
 
       if (flowKey === 'trip') {
-        try {
-          const result = await requestNextUnknownAiStep({
-            prompt: initialPrompt,
-            answers: nextAnswers,
-            context: nextWizardContext,
-            lastAnswer: { field: step.id, value: optId, label },
-            stepCount: wizardStep + 1,
-          });
-          const response = result.response;
-          nextWizardContext = result.context;
-          setWizardContext(nextWizardContext);
-          setAiWizardQuestion(response);
-          completedByAi = response.isComplete === true;
-          nextAiStep = result.step;
-          if (nextAiStep) {
-            nextWizard = syncWizardHistory(currentWizardHistory, wizardStep, step, nextAiStep);
-            setWizardHistory(nextWizard);
-          }
-        } catch (_error) {
-          completedByAi = false;
-          nextWizard = buildAdaptiveTripWizard(nextAnswers);
-          setAiWizardQuestion(null);
-        }
+        nextWizard = buildAdaptiveTripWizard(nextAnswers);
+        setAiWizardQuestion(null);
       }
 
       setThinking(false);
+      const completion = plannerCompletionStatus(nextAnswers, nextWizardContext);
       const next = nextUnknownStepIndex(nextWizard, wizardStep + 1, nextAnswers, nextWizardContext);
-      if (!completedByAi && next >= 0) {
+      if (!completion.ready && next >= 0) {
+        const polishedStep = await polishWizardStepCopy({
+          step: nextWizard[next],
+          prompt: initialPrompt,
+          answers: nextAnswers,
+          context: nextWizardContext,
+          lastAnswer: { field: step.id, value: optId, label },
+          stepCount: next,
+        });
+        if (polishedStep) {
+          nextWizard = syncWizardHistory(currentWizardHistory, wizardStep, step, polishedStep);
+          setWizardHistory(nextWizard);
+          setAiWizardQuestion({ field: polishedStep.id, question: polishedStep.q });
+        }
+        setPlannerState(PLANNER_COLLECTING);
         setWizardStep(next);
       } else {
         // Finished — create the trip with the collected context and open Plan.
-        const mode = completedByAi ? 'ai-guided' : 'deterministic';
+        setPlannerState(PLANNER_READY);
+        const mode = 'deterministic';
         completeWizard(nextAnswers, nextWizardContext, { mode, qa: currentQa });
       }
     }, 700);
@@ -1430,6 +1495,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     setActiveTripId && setActiveTripId(tripId);
     setRoute('plan');
     setTimeout(() => {
+      setPlannerState(PLANNER_IDLE);
       setMode('idle');
       setChat([]);
       setWizardStep(0);
@@ -1442,6 +1508,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   };
 
   const exitChat = () => {
+    setPlannerState(PLANNER_IDLE);
     setMode('idle');
     setChat([]);
     setWizardStep(0);
