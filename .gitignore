@@ -6,3 +6,4 @@ dist/
 Gaid-Preview-Export/
 .env
 .env.local
+.vercel

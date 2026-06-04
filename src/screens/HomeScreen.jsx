@@ -1025,6 +1025,298 @@ function buildTripContext(answers, prompt, { context = {}, mode = 'deterministic
   };
 }
 
+const WIZARD_V2_INITIAL = {
+  active: false,
+  step: 'destination',
+  context: {
+    destination: '',
+    period: '',
+    dates: null,
+    durationDays: null,
+    nights: null,
+    travelers: null,
+    travelerComposition: '',
+    stylePace: '',
+    priorities: [],
+    budget: '',
+    skippedFields: {},
+    assumptions: {},
+  },
+  completedSteps: [],
+  skippedAll: false,
+};
+
+const WIZARD_V2_STEPS = [
+  {
+    id: 'destination',
+    q: 'Para onde você quer viajar?',
+    sub: 'Pode ser cidade, país, região ou uma ideia de destino.',
+    options: [
+      { id: 'paris', label: 'Paris', hint: 'cultura, gastronomia e clássicos' },
+      { id: 'turquia', label: 'Turquia', hint: 'Istambul, Capadócia e história' },
+      { id: 'orlando', label: 'Orlando', hint: 'parques, família e compras' },
+      { id: 'japao', label: 'Japão', hint: 'Tóquio, Kyoto e experiências locais' },
+    ],
+  },
+  {
+    id: 'period_or_dates',
+    q: 'Quando você imagina viajar?',
+    sub: 'Pode ser uma data exata, mês, feriado ou período aproximado.',
+    options: [
+      { id: 'agosto', label: 'Agosto', hint: 'mês definido' },
+      { id: 'fim-ano', label: 'Fim do ano', hint: 'dezembro ou réveillon' },
+      { id: 'janeiro-2027', label: 'Janeiro de 2027', hint: 'período com ano' },
+      { id: 'nao-sei', label: 'Ainda não sei', hint: 'podemos deixar em aberto' },
+    ],
+  },
+  {
+    id: 'duration',
+    q: 'Quantos dias você quer viajar?',
+    sub: 'Esse é o principal dado para montar a estrutura do roteiro.',
+    options: [
+      { id: '4-dias', label: '4 dias', hint: 'viagem curta' },
+      { id: '7-dias', label: '7 dias', hint: 'uma semana' },
+      { id: '8-dias', label: '8 dias', hint: 'ritmo confortável', recommended: true },
+      { id: '14-dias', label: '14 dias', hint: 'viagem mais completa' },
+    ],
+  },
+  {
+    id: 'travelers',
+    q: 'Quem vai viajar?',
+    sub: 'Isso ajuda a calibrar ritmo, deslocamentos e experiências.',
+    options: [
+      { id: 'solo', label: 'Sozinho', hint: '1 pessoa' },
+      { id: 'casal', label: 'Casal', hint: '2 pessoas' },
+      { id: 'familia', label: 'Família', hint: 'adultos e crianças' },
+      { id: 'amigos', label: 'Amigos', hint: 'grupo' },
+    ],
+  },
+  {
+    id: 'style_or_priorities',
+    type: 'multiselect',
+    q: 'O que mais importa nessa viagem?',
+    sub: 'Escolha um ou mais focos para eu calibrar a primeira versão.',
+    options: [
+      { id: 'cultura', label: 'Cultura', hint: 'museus, história e bairros' },
+      { id: 'gastronomia', label: 'Gastronomia', hint: 'restaurantes e sabores locais' },
+      { id: 'descanso', label: 'Descanso', hint: 'ritmo confortável' },
+      { id: 'compras', label: 'Compras', hint: 'lojas, mercados e outlets' },
+      { id: 'parques', label: 'Parques', hint: 'atrações e diversão' },
+      { id: 'romantico', label: 'Romântico', hint: 'experiências a dois' },
+    ],
+  },
+  {
+    id: 'budget_optional',
+    q: 'Qual estilo de orçamento combina melhor?',
+    sub: 'Opcional. Se preferir, eu deixo em aberto.',
+    options: [
+      { id: 'economico', label: 'Econômico', hint: 'controle de custos' },
+      { id: 'moderado', label: 'Moderado', hint: 'equilíbrio' },
+      { id: 'confortavel', label: 'Confortável', hint: 'boas escolhas sem exagero', recommended: true },
+      { id: 'luxo', label: 'Luxo', hint: 'experiências premium' },
+      { id: 'nao-sei', label: 'Não sei', hint: 'deixar em aberto' },
+    ],
+  },
+  {
+    id: 'review_generate',
+    q: 'Pronto para gerar a primeira versão?',
+    sub: 'Vou criar a viagem com os dados coletados e abrir o roteiro.',
+    options: [
+      { id: 'generate', label: 'Gerar roteiro', hint: 'criar viagem agora', recommended: true },
+    ],
+  },
+];
+
+function cloneWizardV2() {
+  return JSON.parse(JSON.stringify(WIZARD_V2_INITIAL));
+}
+
+function wizardV2StepIndex(stepId) {
+  return Math.max(0, WIZARD_V2_STEPS.findIndex(step => step.id === stepId));
+}
+
+function wizardV2Step(stepId) {
+  return WIZARD_V2_STEPS[wizardV2StepIndex(stepId)] || WIZARD_V2_STEPS[0];
+}
+
+function detectDestinationFromText(value) {
+  const raw = filledString(value);
+  if (!raw) return '';
+  const text = normText(raw);
+  const match = raw.match(/\b(?:para|ir para|viajar para|em)\s+([A-Za-zÀ-ÿ\s]{2,40}?)(?=\s+(?:em|por|com)\b|,|\.|$)/i);
+  const candidate = match?.[1]?.trim() || (/^[A-Za-zÀ-ÿ\s]{2,32}$/.test(raw) && !isGenericPlannerPrompt(raw) ? raw : '');
+  if (!candidate) return '';
+  const cleaned = candidate
+    .replace(/\b(agosto|setembro|outubro|novembro|dezembro|janeiro|fevereiro|março|marco|abril|maio|junho|julho)\b.*$/i, '')
+    .trim();
+  return sanitizeDestination(cleaned);
+}
+
+function parseWizardV2Period(value) {
+  const raw = filledString(value);
+  if (!raw) return { period: '', dates: null };
+  const parsedDates = parseDateRange(raw);
+  const label = filledString(parsedDates?.label, extractPeriodLabel(raw), raw);
+  return { period: label, dates: parsedDates || (label ? { label } : null) };
+}
+
+function parseWizardV2Duration(value) {
+  const text = normText(value);
+  if (/fim de semana/.test(text)) return { durationDays: 3, nights: 2 };
+  if (/uma semana|1 semana/.test(text)) return { durationDays: 7, nights: 6 };
+  const days = Number(text.match(/\b(\d+)\s*dias?\b/)?.[1]);
+  if (Number.isFinite(days) && days > 0) return { durationDays: days, nights: Math.max(days - 1, 0) };
+  const nights = Number(text.match(/\b(\d+)\s*noites?\b/)?.[1]);
+  if (Number.isFinite(nights) && nights > 0) return { durationDays: nights + 1, nights };
+  const number = parseNumberFromText(value);
+  return number ? { durationDays: number, nights: Math.max(number - 1, 0) } : {};
+}
+
+function parseWizardV2Travelers(value) {
+  const raw = filledString(value);
+  const text = normText(raw);
+  const parsed = parseTravelerComposition(raw);
+  if (/sozinh|solo|so eu|só eu/.test(text)) return { travelers: { count: 1, composition: 'Solo' }, travelerComposition: 'Solo' };
+  if (/esposa|marido|casal|a dois|namorad/.test(text)) return { travelers: { count: 2, composition: 'Casal' }, travelerComposition: 'Casal' };
+  if (parsed.count || parsed.composition || parsed.ages.length > 0) {
+    return {
+      travelers: {
+        count: parsed.count || null,
+        composition: parsed.composition || (/famil|crianc|filh/.test(text) ? 'Família' : 'A definir'),
+        adults: parsed.adults || null,
+        children: { count: parsed.children || null, ages: parsed.ages || [] },
+      },
+      travelerComposition: parsed.composition || (/famil|crianc|filh/.test(text) ? 'Família' : 'A definir'),
+      childrenAges: parsed.ages || [],
+    };
+  }
+  const count = parseNumberFromText(raw);
+  if (count) return { travelers: { count, composition: 'A definir' }, travelerComposition: 'A definir' };
+  if (/famil/.test(text)) return { travelers: { count: null, composition: 'Família' }, travelerComposition: 'Família' };
+  if (/amig|grupo/.test(text)) return { travelers: { count: null, composition: 'Amigos' }, travelerComposition: 'Amigos' };
+  return {};
+}
+
+function parseWizardV2Style(value) {
+  const values = Array.isArray(value) ? value : [value];
+  const text = normText(values.join(' '));
+  const priorities = [
+    ['cultura', /cultura|museu|hist/],
+    ['gastronomia', /gastronom|comida|restaurante/],
+    ['descanso', /descanso|relax|leve/],
+    ['compras', /compras|shopping|outlet/],
+    ['parques', /parque|disney|universal/],
+    ['romântico', /romant|casal/],
+    ['família', /famil|crianc/],
+    ['luxo', /luxo|premium/],
+    ['econômico', /econom|barat/],
+  ].filter(([, pattern]) => pattern.test(text)).map(([label]) => label);
+  return {
+    stylePace: priorities.includes('descanso') ? 'Ritmo confortável' : 'Equilibrado',
+    priorities: priorities.length ? priorities : values.map(filledString).filter(Boolean),
+  };
+}
+
+function parseWizardV2Budget(value) {
+  const text = normText(value);
+  if (/nao sei|não sei|pular|aberto|definir/.test(text)) return { budget: 'A definir' };
+  if (/econom|barat/.test(text)) return { budget: 'Econômico' };
+  if (/moder/.test(text)) return { budget: 'Moderado' };
+  if (/confort/.test(text)) return { budget: 'Confortável' };
+  if (/luxo|premium/.test(text)) return { budget: 'Luxo' };
+  return filledString(value) ? { budget: filledString(value) } : {};
+}
+
+function applyWizardV2Answer(context, stepId, label, meta = {}) {
+  const value = Array.isArray(label) ? label : filledString(label);
+  if (meta.skipped) {
+    return {
+      ...context,
+      skippedFields: {
+        ...(context.skippedFields || {}),
+        [stepId]: { skipped: true, strategy: 'user_skip' },
+      },
+    };
+  }
+  if (stepId === 'destination') return { ...context, destination: detectDestinationFromText(value) || filledString(value) };
+  if (stepId === 'period_or_dates') return { ...context, ...parseWizardV2Period(value) };
+  if (stepId === 'duration') return { ...context, ...parseWizardV2Duration(value) };
+  if (stepId === 'travelers') return { ...context, ...parseWizardV2Travelers(value) };
+  if (stepId === 'style_or_priorities') return { ...context, ...parseWizardV2Style(value) };
+  if (stepId === 'budget_optional') return { ...context, ...parseWizardV2Budget(value) };
+  return context;
+}
+
+function nextWizardV2Step(context, completedSteps = [], skippedAll = false) {
+  if (!context.destination) return 'destination';
+  if (!context.period && !context.dates?.label && !context.skippedFields?.period_or_dates && !skippedAll) return 'period_or_dates';
+  if (!context.durationDays && !context.nights && !context.skippedFields?.duration && !skippedAll) return 'duration';
+  if (!context.travelers && !context.skippedFields?.travelers && !skippedAll) return 'travelers';
+  if ((!context.priorities || context.priorities.length === 0) && !context.stylePace && !context.skippedFields?.style_or_priorities && !skippedAll) return 'style_or_priorities';
+  if (!context.budget && !context.skippedFields?.budget_optional && !skippedAll) return 'budget_optional';
+  return 'review_generate';
+}
+
+function canCompleteWizardV2(context, skippedAll = false) {
+  return Boolean(context.destination && (context.durationDays || context.nights || skippedAll));
+}
+
+function withWizardV2Defaults(context) {
+  return {
+    ...context,
+    travelers: context.travelers || { count: null, composition: 'A definir' },
+    travelerComposition: context.travelerComposition || context.travelers?.composition || 'A definir',
+    stylePace: context.stylePace || 'Equilibrado',
+    priorities: Array.isArray(context.priorities) && context.priorities.length
+      ? context.priorities
+      : ['principais atrações', 'gastronomia', 'ritmo confortável'],
+    budget: context.budget || 'A definir',
+  };
+}
+
+function buildWizardV2Summary(context) {
+  const safe = withWizardV2Defaults(context);
+  const parts = [`Viagem para ${safe.destination}`];
+  if (safe.period || safe.dates?.label) parts.push(safe.period || safe.dates.label);
+  if (safe.durationDays) parts.push(`${safe.durationDays} dias`);
+  else if (safe.nights) parts.push(`${safe.nights} noites`);
+  if (safe.travelers?.count) parts.push(`${safe.travelers.count} ${safe.travelers.count === 1 ? 'pessoa' : 'pessoas'}`);
+  else if (safe.travelerComposition && safe.travelerComposition !== 'A definir') parts.push(safe.travelerComposition);
+  if (safe.stylePace) parts.push(`ritmo ${String(safe.stylePace).toLowerCase()}`);
+  return `${parts.join(', ')}.`;
+}
+
+function buildWizardV2TripContext(context, originalPrompt, completedSteps = [], skippedAll = false) {
+  const inferredDuration = skippedAll && !context.durationDays && !context.nights
+    ? { durationDays: 4, nights: 3, assumptions: { ...(context.assumptions || {}), duration: '4 dias sugeridos pela Gaid' } }
+    : {};
+  const safe = withWizardV2Defaults({ ...context, ...inferredDuration });
+  const summary = buildWizardV2Summary(safe);
+  return {
+    destination: safe.destination,
+    period: safe.period || safe.dates?.label || null,
+    dates: safe.dates || (safe.period ? { label: safe.period } : null),
+    durationDays: safe.durationDays || (safe.nights ? safe.nights + 1 : null),
+    nights: safe.nights ?? (safe.durationDays ? Math.max(safe.durationDays - 1, 0) : null),
+    travelers: safe.travelers,
+    travelerComposition: safe.travelerComposition,
+    stylePace: safe.stylePace,
+    priorities: safe.priorities,
+    budget: safe.budget,
+    skippedFields: safe.skippedFields || {},
+    assumptions: safe.assumptions || {},
+    wizard: {
+      completed: true,
+      mode: 'wizard-v2',
+      originalPrompt,
+      summary,
+      answers: safe,
+      completedSteps,
+      skippedAll,
+    },
+  };
+}
+
 const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   const acct = useAccount();
   const hasTrip = !!activeTrip;
@@ -1044,6 +1336,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   const [aiWizardQuestion, setAiWizardQuestion] = useState(null);
   const [wizardContext, setWizardContext] = useState({});
   const [wizardHistory, setWizardHistory] = useState([]);
+  const [wizardV2, setWizardV2] = useState(() => cloneWizardV2());
   const [pendingPlannerContext, setPendingPlannerContext] = useState(null);
   const toast = useToast();
   const scrollerRef = useRef(null);
@@ -1060,15 +1353,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       intro:'Viajar com cachorro pra Europa tem prazos que começam ~30 dias antes. Vou fazer 3 perguntas e montar tudo — documentos, voo na cabine, hotéis pet-friendly e pontos de atenção.' },
   };
   const cfg = FLOW_CFG[flowKey] || FLOW_CFG.trip;
-  const deterministicWizard = flowKey === 'trip' ? buildAdaptiveTripWizard(answers) : [];
-  const wizard = flowKey === 'trip'
-    ? (wizardHistory.length
-      ? Array.from(
-        { length: Math.max(deterministicWizard.length, wizardHistory.length) },
-        (_, index) => wizardHistory[index] || deterministicWizard[index]
-      ).filter(Boolean)
-      : deterministicWizard)
-    : [];
+  const wizard = wizardV2.active ? WIZARD_V2_STEPS : [];
 
   const detectFlow = (t) => {
     const s = (t || '').toLowerCase();
@@ -1100,64 +1385,44 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     setMode('chat');
     setChat([{ id: 'u-0', who: 'user', text: userText }]);
     setThinking(true);
-    setTimeout(async () => {
-      let initialAnswers = {};
-      let initialContext = {};
-      let initialHistory = [];
-      let firstWizardStep = 0;
-      let firstAiQuestion = null;
-
-      if (key === 'trip') {
-        initialContext = extractInitialPlannerContext(userText, seedContext);
-
-        initialAnswers = initialAnswersFromContext(initialContext);
-        const deterministic = buildAdaptiveTripWizard(initialAnswers);
-        const firstUnknownIndex = nextUnknownStepIndex(deterministic, 0, initialAnswers, initialContext);
-        const completion = plannerCompletionStatus(initialAnswers, initialContext);
-        if (completion.ready) {
-          firstWizardStep = 0;
-          initialHistory = [];
-        } else if (firstUnknownIndex >= 0) {
-          firstWizardStep = firstUnknownIndex;
-          initialHistory = deterministic.slice(0, firstUnknownIndex + 1);
-        }
-
-        if (!completion.ready && firstUnknownIndex >= 0) {
-          const polishedStep = await polishWizardStepCopy({
-            step: deterministic[firstUnknownIndex],
-            prompt: userText,
-            answers: initialAnswers,
-            context: initialContext,
-            lastAnswer: null,
-            stepCount: firstUnknownIndex,
-          });
-          initialHistory[firstUnknownIndex] = polishedStep;
-          firstAiQuestion = { field: polishedStep.id, question: polishedStep.q };
-        } else if (!completion.ready) {
-          const destinationAnswer = initialAnswers.destination;
-          const nextStep = destinationAnswer ? periodStepForDestination(destinationAnswer.label) : BASE_TRIP_WIZARD[0];
-          initialHistory = [nextStep];
-          firstWizardStep = 0;
-        }
-      }
-
-      setAnswers(initialAnswers);
-      setWizardContext(initialContext);
-      setAiWizardQuestion(firstAiQuestion);
-      setWizardHistory(initialHistory);
+    setTimeout(() => {
+      const seedDestination = filledString(seedContext.destination);
+      const initialContext = {
+        ...cloneWizardV2().context,
+        ...(seedDestination ? { destination: sanitizeDestination(seedDestination) } : {}),
+      };
+      const extractedDestination = detectDestinationFromText(userText);
+      const period = parseWizardV2Period(userText);
+      const extractedDuration = parseWizardV2Duration(userText);
+      const nextContext = {
+        ...initialContext,
+        ...(extractedDestination ? { destination: extractedDestination } : {}),
+        ...(period.period ? period : {}),
+        ...extractedDuration,
+      };
+      const firstStep = nextWizardV2Step(nextContext, [], false);
+      const firstIndex = wizardV2StepIndex(firstStep);
+      setWizardV2({
+        active: true,
+        step: firstStep,
+        context: nextContext,
+        completedSteps: Object.entries({
+          destination: !!nextContext.destination,
+          period_or_dates: !!(nextContext.period || nextContext.dates?.label),
+          duration: !!(nextContext.durationDays || nextContext.nights),
+        }).filter(([, done]) => done).map(([id]) => id),
+        skippedAll: false,
+      });
+      setWizardStep(firstIndex);
+      setAnswers({});
+      setWizardContext(nextContext);
       setThinking(false);
       setChat(c => [
         ...c,
-        { id: 'a-intro', who: 'agent', text: FLOW_CFG[key].intro },
+        { id: 'a-intro', who: 'agent', text: FLOW_CFG.trip.intro },
       ]);
-      setWizardStep(firstWizardStep);
-      if (plannerCompletionStatus(initialAnswers, initialContext).ready) {
-        setPlannerState(PLANNER_READY);
-        completeWizard(initialAnswers, initialContext, { mode: 'deterministic', qa: buildWizardQa(initialAnswers, initialHistory) });
-      } else {
-        setPlannerState(PLANNER_COLLECTING);
-        setPhase('asking');
-      }
+      setPlannerState(PLANNER_COLLECTING);
+      setPhase('asking');
     }, 700);
   };
 
@@ -1191,10 +1456,27 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
 
     // From idle: collect the core trip context before creating the real trip.
     if (mode === 'idle') {
-      const classification = classifyGaidIntent(t);
       setMode('chat');
       setChat([{ id: 'u-0', who: 'user', text: t }]);
       setPendingPlannerContext(null);
+      const simpleDestinationOnly = /^[a-z\s\u00C0-\u017F]{2,32}$/i.test(t) && !isGenericPlannerPrompt(t);
+      if (simpleDestinationOnly) {
+        const pendingDestination = sanitizeDestination(t);
+        setPendingPlannerContext({ destination: pendingDestination });
+        setPhase('done');
+        setChat([
+          { id: 'u-0', who: 'user', text: t },
+          {
+            id: `clarify-${Date.now()}`,
+            who: 'agent',
+            text: `Você quer montar uma viagem para ${pendingDestination} ou quer uma indicação rápida por lá?`,
+            source: 'intent-router',
+          },
+        ]);
+        return;
+      }
+
+      const classification = classifyGaidIntent(t);
 
       if (classification.intent === 'PLAN_TRIP') {
         startFlow(t, 'trip');
@@ -1232,15 +1514,18 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       }
 
       setPhase('done');
+      const pendingDestination = /^[a-z\s\u00C0-\u017F]{2,32}$/i.test(t) ? sanitizeDestination(t) : '';
       if (/^[a-z\s\u00C0-\u017F]{2,32}$/i.test(t)) {
-        setPendingPlannerContext({ destination: t });
+        setPendingPlannerContext({ destination: pendingDestination });
       }
       setChat([
         { id: 'u-0', who: 'user', text: t },
         {
           id: `clarify-${Date.now()}`,
           who: 'agent',
-          text: 'Você quer que eu monte uma viagem completa ou prefere uma indicação rápida para agora?',
+          text: pendingDestination
+            ? `Você quer montar uma viagem para ${pendingDestination} ou quer uma indicação rápida por lá?`
+            : 'Você quer que eu monte uma viagem completa ou prefere uma indicação rápida para agora?',
           source: 'intent-router',
         },
       ]);
@@ -1343,9 +1628,8 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   };
 
   const completeWizard = (finalAnswers, finalContext, { mode = 'deterministic', qa = [], skippedAll = false } = {}) => {
-    const safeDestination = sanitizeDestination(
-      filledString(answerText(finalAnswers, 'destination'), finalContext.destination)
-    );
+    const finalV2Context = withWizardV2Defaults(finalContext || wizardV2.context);
+    const safeDestination = sanitizeDestination(finalV2Context.destination);
     if (!safeDestination) {
       setPlannerState(PLANNER_COLLECTING);
       setPhase('asking');
@@ -1355,39 +1639,34 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         text: 'Antes de criar a viagem, preciso saber o destino. Para onde você quer viajar?',
         source: 'planner-state',
       }]);
-      const destinationStep = BASE_TRIP_WIZARD[0];
-      setWizardHistory([destinationStep]);
+      setWizardV2(current => ({ ...current, active: true, step: 'destination' }));
       setWizardStep(0);
+      return;
+    }
+    if (!canCompleteWizardV2(finalV2Context, skippedAll)) {
+      setPlannerState(PLANNER_COLLECTING);
+      setPhase('asking');
+      setWizardV2(current => ({ ...current, active: true, step: 'duration' }));
+      setWizardStep(wizardV2StepIndex('duration'));
+      setChat(c => [...c, {
+        id: `a-${Date.now()}`,
+        who: 'agent',
+        text: 'Antes de gerar, preciso saber a duração da viagem. Quantos dias você quer viajar?',
+        source: 'planner-state',
+      }]);
       return;
     }
     setPlannerState(PLANNER_GENERATING);
     logGaidEvent('planner_state_changed', { state: PLANNER_GENERATING, destination: safeDestination });
     setPhase('generating');
-    const genMsg = 'Perfeito. Vou abrir a base do seu roteiro agora.';
+    setWizardV2(current => ({ ...current, active: false }));
+    const genMsg = 'Estou montando seu roteiro...';
     setChat(c => [
       ...c,
       { who: 'agent', text: genMsg },
     ]);
-    const fallbackContext = buildTripContext(finalAnswers, initialPrompt, {
-      context: finalContext,
-      mode,
-      qa,
-    });
-    const summary = buildWizardSummary({
-      ...fallbackContext,
-      wizard: {
-        ...fallbackContext.wizard,
-        skippedAll,
-      },
-    });
-    const handoffContext = {
-      ...fallbackContext,
-      wizard: {
-        ...fallbackContext.wizard,
-        summary,
-        skippedAll,
-      },
-    };
+    const handoffContext = buildWizardV2TripContext(finalV2Context, initialPrompt, wizardV2.completedSteps, skippedAll);
+    const summary = handoffContext.wizard.summary;
     logGaidEvent('trip_create_requested', { destination: safeDestination, durationDays: handoffContext.durationDays, nights: handoffContext.nights });
     Promise.resolve(kickoffPlan && kickoffPlan({
       prompt: summary,
@@ -1413,104 +1692,65 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   };
 
   const answerWizard = (optId, label, meta = {}) => {
-    const step = wizard[wizardStep];
+    const step = wizardV2Step(wizardV2.step);
     if (!step) return;
-    const nextAnswers = { ...answers, [step.id]: { optId, label, ...meta } };
-    const currentWizardHistory = syncWizardHistory(wizardHistory, wizardStep, step);
-    const currentQa = buildWizardQa(nextAnswers, currentWizardHistory);
-    setAnswers(nextAnswers);
-    setWizardHistory(currentWizardHistory);
-    // Lock the current wizard message. Answers stay inside the guided form.
-    setChat(c => [
-      ...c.map(m => (m.wizardStep === wizardStep ? { ...m, answered: { optId, label } } : m)),
-    ]);
-    setThinking(true);
-    setTimeout(async () => {
-      let nextWizard = flowKey === 'trip' ? buildAdaptiveTripWizard(nextAnswers) : wizard;
-      let nextWizardContext = meta.skipped
-        ? mergeWizardContext(wizardContext, {
-          [step.id]: { skipped: true, strategy: 'gaid_suggest' },
-          skippedFields: { [step.id]: { skipped: true, strategy: 'gaid_suggest' } },
-        })
-        : wizardContext;
-      if (meta.skipped) setWizardContext(nextWizardContext);
-
-      if (flowKey === 'trip') {
-        nextWizard = buildAdaptiveTripWizard(nextAnswers);
-        setAiWizardQuestion(null);
-      }
-
-      setThinking(false);
-      const completion = plannerCompletionStatus(nextAnswers, nextWizardContext);
-      let next = nextUnknownStepIndex(nextWizard, wizardStep + 1, nextAnswers, nextWizardContext);
-      if (!completion.ready && next < 0) {
-        next = nextUnknownStepIndex(nextWizard, 0, nextAnswers, nextWizardContext);
-      }
-      if (!completion.ready && next < 0) {
-        const forcedStep = requiredPlannerStep(nextAnswers, nextWizardContext);
-        if (forcedStep) {
-          nextWizard = syncWizardHistory(currentWizardHistory, wizardStep, step, forcedStep);
-          setWizardHistory(nextWizard);
-          setPlannerState(PLANNER_COLLECTING);
-          setWizardStep(nextWizard.length - 1);
-          return;
-        }
-      }
-      if (!completion.ready && next >= 0) {
-        const polishedStep = await polishWizardStepCopy({
-          step: nextWizard[next],
-          prompt: initialPrompt,
-          answers: nextAnswers,
-          context: nextWizardContext,
-          lastAnswer: { field: step.id, value: optId, label },
-          stepCount: next,
-        });
-        if (polishedStep) {
-          nextWizard = syncWizardHistory(currentWizardHistory, wizardStep, step, polishedStep);
-          setWizardHistory(nextWizard);
-          setAiWizardQuestion({ field: polishedStep.id, question: polishedStep.q });
-        }
-        setPlannerState(PLANNER_COLLECTING);
-        setWizardStep(next);
-      } else {
-        // Finished — create the trip with the collected context and open Plan.
-        setPlannerState(PLANNER_READY);
-        const mode = 'deterministic';
-        completeWizard(nextAnswers, nextWizardContext, { mode, qa: currentQa });
-      }
-    }, 700);
+    if (step.id === 'review_generate') {
+      completeWizard(answers, wizardV2.context, { mode: 'wizard-v2', skippedAll: wizardV2.skippedAll });
+      return;
+    }
+    const nextContext = applyWizardV2Answer(wizardV2.context, step.id, label, meta);
+    const completedSteps = meta.skipped
+      ? wizardV2.completedSteps
+      : Array.from(new Set([...wizardV2.completedSteps, step.id]));
+    const nextStep = nextWizardV2Step(nextContext, completedSteps, wizardV2.skippedAll);
+    setAnswers(current => ({ ...current, [step.id]: { optId, label, ...meta } }));
+    setWizardContext(nextContext);
+    setWizardV2({
+      active: true,
+      step: nextStep,
+      context: nextContext,
+      completedSteps,
+      skippedAll: wizardV2.skippedAll,
+    });
+    setWizardStep(wizardV2StepIndex(nextStep));
+    setPlannerState(PLANNER_COLLECTING);
+    setPhase('asking');
   };
 
   const skipWizardStep = () => {
-    answerWizard('__skipped__', 'Gaid sugere', { skipped: true, strategy: 'gaid_suggest' });
+    answerWizard('__skipped__', 'Pulado', { skipped: true, strategy: 'user_skip' });
   };
 
   const skipAllWizard = () => {
-    const hasDestination = !!filledString(answerText(answers, 'destination'), wizardContext.destination);
+    const hasDestination = !!filledString(wizardV2.context.destination);
     if (!hasDestination) {
-      const destinationStep = BASE_TRIP_WIZARD[0];
-      setWizardHistory([destinationStep]);
+      setWizardV2(current => ({ ...current, active: true, step: 'destination' }));
       setWizardStep(0);
       setPhase('asking');
       setChat(c => [...c, { who: 'agent', text: 'Claro — só preciso saber o destino para criar uma primeira versão.' }]);
       return;
     }
-    const skippedContext = mergeWizardContext(wizardContext, {
+    const skippedContext = {
+      ...wizardV2.context,
       skippedAll: true,
       skippedFields: {
+        ...(wizardV2.context.skippedFields || {}),
         period: { skipped: true, strategy: 'gaid_suggest' },
         duration: { skipped: true, strategy: 'gaid_suggest' },
         travelers: { skipped: true, strategy: 'gaid_suggest' },
         budget: { skipped: true, strategy: 'gaid_suggest' },
         stylePace: { skipped: true, strategy: 'gaid_suggest' },
       },
-    });
+    };
     setWizardContext(skippedContext);
-    completeWizard(answers, skippedContext, {
-      mode: 'ai-guided',
-      qa: buildWizardQa(answers, wizardHistory),
+    setWizardV2({
+      active: true,
+      step: 'review_generate',
+      context: skippedContext,
+      completedSteps: wizardV2.completedSteps,
       skippedAll: true,
     });
+    setWizardStep(wizardV2StepIndex('review_generate'));
   };
 
   const onGenerationDone = () => {
@@ -1530,6 +1770,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       setAiWizardQuestion(null);
       setWizardContext({});
       setWizardHistory([]);
+      setWizardV2(cloneWizardV2());
       setPhase('asking');
     }, 400);
   };
@@ -1543,6 +1784,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     setAiWizardQuestion(null);
     setWizardContext({});
     setWizardHistory([]);
+    setWizardV2(cloneWizardV2());
     setPhase('asking');
   };
 
