@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useBreakpoint } from '../hooks/useBreakpoint.js';
 import { Icon } from '../components/icons.jsx';
 import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer, GaidLogo } from '../components/ui.jsx';
 import { EmptyState, EmptyInline } from './EmptyStates.jsx';
@@ -1242,6 +1243,8 @@ function completeInitialSuggestions(suggestions, duration) {
   }));
 }
 const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
+  const { isMobile } = useBreakpoint();
+  const [mobilePane, setMobilePane] = useState('timeline');
   const toast = useToast();
   const tripStore = useTripStore();
   const tripData = useMemo(() => normalizeTripForPlan(trip), [trip]);
@@ -1658,7 +1661,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
           ? withDurationAssumptionText('Montei uma primeira versão do roteiro para você. Podemos ajustar tudo a partir daqui.', duration)
           : 'Criei a estrutura dos dias do roteiro. Me peça para montar uma primeira versão quando quiser.';
         if (initialSuggestions.length > 0) {
-          const { nextDays, count } = buildTimelineWithSuggestions([], initialSuggestions);
+          const { nextDays, count } = buildTimelineWithSuggestions(days, initialSuggestions);
           if (count > 0) await commitTimelineDays(nextDays);
         }
         setChat(c => [...c, {
@@ -2275,10 +2278,30 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
   );
 
   return (
-    <div className="grid grid-cols-[400px_1fr] xl:grid-cols-[440px_1fr] h-screen sticky top-0">
+    <div className="flex flex-col lg:grid lg:grid-cols-[minmax(0,400px)_1fr] xl:grid-cols-[minmax(0,440px)_1fr] h-full lg:h-screen lg:sticky lg:top-0 min-h-0">
+      {isMobile && (
+        <div className="shrink-0 px-4 py-2 border-b hairline bg-paper flex gap-1">
+          <button
+            type="button"
+            onClick={() => setMobilePane('chat')}
+            className={`flex-1 h-9 rounded-xl text-[13px] font-medium transition-colors
+              ${mobilePane === 'chat' ? 'bg-ink-900 text-paper' : 'bg-ink-100 text-ink-700'}`}>
+            Concierge
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobilePane('timeline')}
+            className={`flex-1 h-9 rounded-xl text-[13px] font-medium transition-colors
+              ${mobilePane === 'timeline' ? 'bg-ink-900 text-paper' : 'bg-ink-100 text-ink-700'}`}>
+            Roteiro
+          </button>
+        </div>
+      )}
       {/* ---- LEFT: chat ---- */}
-      <section className="border-r hairline flex flex-col bg-paper min-h-0">
-        <header className="px-7 h-[60px] shrink-0 border-b hairline bg-paper flex items-center justify-between">
+      <section className={`border-r hairline flex flex-col bg-paper min-h-0 min-w-0
+        ${isMobile && mobilePane !== 'chat' ? 'hidden' : 'flex'}
+        ${isMobile ? 'flex-1' : ''}`}>
+        <header className="px-4 lg:px-7 h-[56px] lg:h-[60px] shrink-0 border-b hairline bg-paper flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="h-7 w-7 rounded-full bg-white border-half flex items-center justify-center">
               <GaidLogo className="h-3 w-auto max-w-[18px]"/>
@@ -2288,7 +2311,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
           <button className="p-1.5 rounded-lg hover:bg-ink-100 text-ink-500"><Icon.MoreH size={16}/></button>
         </header>
 
-        <div ref={chatEndRef} className="flex-1 overflow-y-auto px-7 py-5 space-y-4">
+        <div ref={chatEndRef} className="flex-1 overflow-y-auto px-4 lg:px-7 py-4 lg:py-5 space-y-4">
           {chat.map((m, i) => <Bubble key={i} m={m} onCta={(t) => {
             if (t === 'Adicionar ao roteiro' || t === 'Aplicar ao roteiro') void applyItinerarySuggestions(i);
             else send(t);
@@ -2303,7 +2326,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         </div>
 
         {/* Quick actions */}
-        <div className="px-7 pb-2 flex items-center gap-2 flex-wrap">
+        <div className="px-4 lg:px-7 pb-2 flex items-center gap-2 flex-wrap">
           {QUICK_ACTIONS.map(qa => {
             const Ic = Icon[qa.icon] || Icon.Sparkles;
             return (
@@ -2317,7 +2340,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         </div>
 
         {/* Composer — pill chatbar, mesmo formato da Home */}
-        <div className="p-5 pt-2">
+        <div className="p-4 lg:p-5 pt-2 pb-[max(12px,env(safe-area-inset-bottom))] lg:pb-5">
           <div className={`bg-white border-half shadow-card transition-shadow hover:shadow-lift focus-within:shadow-lift focus-within:border-brand-200 focus-within:ring-4 focus-within:ring-brand-50 ${
             selectedEntry
               ? 'rounded-[28px] min-h-[92px] px-3 py-3 flex flex-col items-stretch gap-2'
@@ -2359,7 +2382,9 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       </section>
 
       {/* ---- RIGHT: timeline ---- */}
-      <section className="overflow-y-auto bg-canvas">
+      <section className={`overflow-y-auto bg-canvas min-h-0 min-w-0
+        ${isMobile && mobilePane !== 'timeline' ? 'hidden' : 'block'}
+        ${isMobile ? 'flex-1' : ''}`}>
         <PlanHeader trip={tripData} days={days}
                     activeMode={activeMode}
                     onApplyMode={applyMode}
@@ -2448,22 +2473,22 @@ const PlanHeader = ({ trip, days, activeMode, onApplyMode, onShare, onCalendar, 
   const progressPct = total ? Math.round((confirmed / total) * 100) : 0;
   const subtitle = trip.destination || trip.tripContext?.destination || trip.blurb || TBD;
   return (
-    <div className="px-8 pt-7 pb-5 border-b hairline bg-paper">
-      <div className="flex items-center gap-4">
-        <SmartImg src={trip.coverImage?.url} seed={trip.coverSeed} tone={trip.cover} w={240} h={180} className="h-[72px] w-[100px] rounded-xl shrink-0"/>
+    <div className="px-4 sm:px-6 lg:px-8 pt-5 lg:pt-7 pb-4 lg:pb-5 border-b hairline bg-paper">
+      <div className="flex items-center gap-3 lg:gap-4">
+        <SmartImg src={trip.coverImage?.url} seed={trip.coverSeed} tone={trip.cover} w={240} h={180} className="h-16 w-[88px] lg:h-[72px] lg:w-[100px] rounded-xl shrink-0"/>
         <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start justify-between gap-2 lg:gap-4">
             <div className="min-w-0 flex-1">
               <div className="label mb-1">{trip.status || 'Em planejamento'}</div>
-              <h1 className="text-[22px] tracking-tight font-serif font-medium text-ink-900 leading-tight truncate">{trip.title}</h1>
-              <p className="text-[13px] text-ink-600 mt-0.5 truncate">{subtitle}</p>
+              <h1 className="text-[18px] lg:text-[22px] tracking-tight font-serif font-medium text-ink-900 leading-tight truncate">{trip.title}</h1>
+              <p className="text-[12px] lg:text-[13px] text-ink-600 mt-0.5 truncate">{subtitle}</p>
             </div>
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-1 shrink-0">
               <OptimizeMenu onApply={onApplyMode}/>
-              <div className="w-px h-5 bg-ink-200 mx-1"/>
+              <div className="hidden sm:block w-px h-5 bg-ink-200 mx-1"/>
               <button onClick={onCalendar} title="Agenda" className="h-8 w-8 rounded-lg hover:bg-ink-100 text-ink-700 flex items-center justify-center"><Icon.Calendar size={15}/></button>
-              <button onClick={onExport}   title="Exportar PDF" className="h-8 w-8 rounded-lg hover:bg-ink-100 text-ink-700 flex items-center justify-center"><Icon.Download size={15}/></button>
-              <Button variant="secondary" size="sm" icon={Icon.Share} onClick={onShare}>Compartilhar</Button>
+              <button onClick={onExport} title="Exportar PDF" className="hidden sm:flex h-8 w-8 rounded-lg hover:bg-ink-100 text-ink-700 items-center justify-center"><Icon.Download size={15}/></button>
+              <Button variant="secondary" size="sm" icon={Icon.Share} onClick={onShare} className="hidden md:inline-flex">Compartilhar</Button>
             </div>
           </div>
           <div className="mt-2 flex items-center gap-x-3 gap-y-1 text-[12.5px] text-ink-600 flex-wrap">
@@ -2619,7 +2644,7 @@ const PlanPrep = ({ trip, prep, onToggle }) => {
 };
 
 // ---------- Timeline ----------
-const MONTHS_SHORT_PT = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+const MONTHS_SHORT_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const COUNTRY_ONLY_NAMES = new Set([
   'portugal', 'franca', 'frança', 'espanha', 'italia', 'itália', 'japao', 'japão',
   'colombia', 'colômbia', 'peru', 'brasil', 'argentina', 'chile', 'estados unidos',

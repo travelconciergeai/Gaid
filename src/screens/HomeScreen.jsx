@@ -6,6 +6,15 @@ import { Async, CardSkeleton, CatalogCarousel, Carousel, Skeleton, ErrorState, C
 import { useAccount, useCatalog } from '../core/store.jsx';
 import { TBD, has, orTBD, fmtDuration, fmtMoney } from '../core/contracts.jsx';
 import { tripApi } from '../core/tripApi.jsx';
+import {
+  classifyGaidIntent,
+  normText,
+  PLANNER_IDLE,
+  PLANNER_COLLECTING,
+  PLANNER_READY,
+  PLANNER_GENERATING,
+  PLANNER_COMPLETE,
+} from '../core/brain/index.js';
 // Home — conversational landing.
 // Two modes:
 //   • 'idle': hero with centered chatbar + starters carousel + cards below
@@ -61,44 +70,6 @@ const BASE_TRIP_WIZARD = [
     ],
   },
 ];
-
-const PLANNER_IDLE = 'PLANNER_IDLE';
-const PLANNER_COLLECTING = 'PLANNER_COLLECTING';
-const PLANNER_READY = 'PLANNER_READY';
-const PLANNER_GENERATING = 'PLANNER_GENERATING';
-const PLANNER_COMPLETE = 'PLANNER_COMPLETE';
-
-function classifyGaidIntent(message) {
-  try {
-    const text = normText(message);
-    const planRe = /\b(roteiro|viagem|viajar|planej|planejar|monte|montar|criar|crie|itinerario|itinerario|dias?|noites?)\b/;
-    const travelIntentRe = /\b(?:quero|vou|vamos|pretendo|queria|gostaria)\s+(?:ir|viajar)\b/;
-    const restaurantRe = /\b(restaurante|jantar|almoco|almoço|comer|onde jantar)\b/;
-    const cafeRe = /\b(cafe|café|cafeteria|brunch)\b/;
-    const attractionRe = /\b(o que fazer|atracao|atração|passeio|atividade|museu|chuva|crianca|criança|levar uma criança|hoje|agora)\b/;
-    const hotelRe = /\b(hotel|hoteis|hotéis|hospedagem|pousada)\b/;
-    const recommendationRe = /\b(o que fazer|indica|indique|recomenda|recomende|restaurante|cafe|café|hotel|hoteis|hotéis|bar\b|bares|atividade|passeio|onde|lugar|lugares|hoje|agora|jantar|chuva|criança|crianca)\b/;
-    const barePlaceRe = /^[a-z\s\u00C0-\u017F]{2,32}$/i;
-
-    if (recommendationRe.test(text) && !/\b(roteiro|planej|planejar|monte|montar|criar|crie)\b/.test(text)) {
-      const intent = restaurantRe.test(text) ? 'FIND_RESTAURANT'
-        : cafeRe.test(text) ? 'FIND_CAFE'
-          : hotelRe.test(text) ? 'FIND_HOTEL'
-            : attractionRe.test(text) ? 'FIND_ATTRACTION'
-              : 'GET_RECOMMENDATION';
-      return { intent, confidence: 0.84, requiresTrip: false, nextTool: 'Discovery Engine', reason: 'Pedido de indicação rápida de lugar ou atividade.' };
-    }
-    if (planRe.test(text) || travelIntentRe.test(text)) {
-      return { intent: 'PLAN_TRIP', confidence: 0.86, requiresTrip: false, nextTool: 'Trip Planner', reason: 'Pedido de roteiro, viagem completa ou planejamento.' };
-    }
-    if (barePlaceRe.test(String(message || '').trim())) {
-      return { intent: 'UNCLEAR', confidence: 0.58, requiresTrip: false, nextTool: 'Intent Router', reason: 'Destino isolado sem intenção clara.' };
-    }
-    return { intent: 'UNCLEAR', confidence: 0.5, requiresTrip: false, nextTool: 'Intent Router', reason: 'Mensagem sem intenção suficiente para criar viagem.' };
-  } catch (_error) {
-    return { intent: 'UNCLEAR', confidence: 0, requiresTrip: false, nextTool: 'Intent Router', reason: 'Falha local ao classificar intenção.' };
-  }
-}
 
 const DISCOVERY_PLACES = [
   { city: 'Rio de Janeiro', aliases: ['rio', 'rio de janeiro'], neighborhoods: ['Ipanema', 'Leblon', 'Copacabana', 'Botafogo', 'Santa Teresa', 'Centro', 'Lapa'] },
@@ -472,10 +443,6 @@ function answerIds(answers, key) {
   return value ? [value] : [];
 }
 
-function normText(value) {
-  return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-}
-
 function filledString(...values) {
   return values.find(value => typeof value === 'string' && value.trim())?.trim() || '';
 }
@@ -534,7 +501,7 @@ function travelerCompositionFrom(answer) {
   const label = answerText(answer, 'travelers');
   const text = normText(`${id} ${label}`);
   if (/famil|crianc|filh/.test(text)) return 'Família';
-  if (/casal|esposa|marido|a dois|namorad|companheir/.test(text)) return 'Casal';
+  if (/casal/.test(text)) return 'Casal';
   if (/solo|so eu|sozinh/.test(text)) return 'Solo';
   if (/amig|grupo/.test(text)) return 'Amigos';
   return answerLabel(answer, 'travelers') || null;
@@ -542,24 +509,6 @@ function travelerCompositionFrom(answer) {
 
 function parseTravelerComposition(value) {
   const text = normText(value);
-  if (/\b(casal|esposa|marido|a dois|namorad[ao]|companheir[ao])\b/.test(text)) {
-    return {
-      count: 2,
-      adults: 2,
-      children: null,
-      ages: [],
-      composition: 'Casal',
-    };
-  }
-  if (/\b(so eu|só eu|sozinh[ao]|solo)\b/.test(text)) {
-    return {
-      count: 1,
-      adults: 1,
-      children: null,
-      ages: [],
-      composition: 'Solo',
-    };
-  }
   const adults = Number(text.match(/(\d+)\s*adult/)?.[1]) || null;
   const childrenCount = Number(text.match(/(\d+)\s*(crianc|filh)/)?.[1]) || null;
   const ageSection = text.match(/(?:criancas?|filhos?).*?(?:de|com)?\s*((?:\d+\s*(?:,|e|\+)?\s*)+)/)?.[1] || '';
@@ -962,25 +911,13 @@ function plannerCompletionStatus(answers, context = {}) {
   const periodKnown = fieldKnown('period', answers, context);
   const dates = normalizeDates(answers, context);
   const durationKnown = !!(parseNights(answers) ?? context.nights ?? parseNumberFromText(context.duration) ?? dateDiffNights(dates));
-  const parsedTravelers = parseTravelerComposition(`${answerText(answers, 'travelers')} ${answerText(answers, 'travelerCount')} ${answerText(answers, 'childrenAges')}`);
-  const travelerCount = travelerCountFrom(answers) ?? parsedTravelers.count ?? parseNumberFromText(context.travelers?.count);
-  const travelerComposition = filledString(travelerCompositionFrom(answers), parsedTravelers.composition, context.travelerComposition, context.travelers?.composition);
-  const travelersKnown = !!(travelerCount && travelerComposition);
-  const styleKnown = answerLabels(answers, 'stylePace').length > 0 ||
-    answerLabels(answers, 'tripPriority').length > 0 ||
-    answerLabels(answers, 'priorities').length > 0 ||
-    answerLabels(answers, 'interests').length > 0 ||
-    !!filledString(context.stylePace, context.tripPriority) ||
-    (Array.isArray(context.priorities) && context.priorities.length > 0);
   const assumptionsBlocked = context?.assumptionsBlocked === true || context?.blockAssumptions === true;
   const explicitAssumptionMode = context?.skippedAll === true || context?.wizard?.skippedAll === true;
   return {
-    ready: destinationKnown && ((durationKnown && travelersKnown && styleKnown) || explicitAssumptionMode) && !assumptionsBlocked,
+    ready: destinationKnown && (durationKnown || explicitAssumptionMode) && !assumptionsBlocked,
     destinationKnown,
     periodKnown,
     durationKnown,
-    travelersKnown,
-    styleKnown,
     assumptionsBlocked,
     explicitAssumptionMode,
   };
@@ -990,8 +927,6 @@ function requiredPlannerStep(answers, context = {}) {
   const completion = plannerCompletionStatus(answers, context);
   if (!completion.destinationKnown) return BASE_TRIP_WIZARD[0];
   if (!completion.durationKnown && !completion.explicitAssumptionMode) return BASE_TRIP_WIZARD[2];
-  if (!completion.travelersKnown && !completion.explicitAssumptionMode) return BASE_TRIP_WIZARD[3];
-  if (!completion.styleKnown && !completion.explicitAssumptionMode) return chooseTravelerStep(answers);
   return null;
 }
 
@@ -1494,11 +1429,10 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       if (!completion.ready && next < 0) {
         const forcedStep = requiredPlannerStep(nextAnswers, nextWizardContext);
         if (forcedStep) {
-          const forcedIndex = wizardStep + 1;
           nextWizard = syncWizardHistory(currentWizardHistory, wizardStep, step, forcedStep);
           setWizardHistory(nextWizard);
           setPlannerState(PLANNER_COLLECTING);
-          setWizardStep(forcedIndex);
+          setWizardStep(nextWizard.length - 1);
           return;
         }
       }
@@ -1597,7 +1531,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     return (
       <div className="h-screen flex flex-col bg-canvas">
         {/* slim header */}
-        <header className="px-10 pt-6 pb-4 flex items-center justify-between gap-4">
+        <header className="px-4 sm:px-6 lg:px-10 pt-4 lg:pt-6 pb-4 flex items-center justify-between gap-4">
           <button onClick={exitChat}
             className="h-9 px-3 rounded-lg text-[12.5px] text-ink-700 hover:bg-ink-100 inline-flex items-center gap-1.5">
             <Icon.ChevronLeft size={14}/> Voltar ao início
@@ -1615,7 +1549,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         </header>
 
         {/* chat scroll */}
-        <div ref={scrollerRef} className="flex-1 overflow-y-auto px-10">
+        <div ref={scrollerRef} className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-10">
           <div className="max-w-[780px] mx-auto py-6 space-y-6">
             {chat.map((m, i) => (
               <ChatMsg key={m.id || i} m={m}
@@ -1636,7 +1570,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         </div>
 
         {/* bottom chatbar — always visible */}
-        <div className="px-10 pb-6 pt-3 bg-gradient-to-t from-canvas via-canvas to-canvas/0">
+        <div className="px-4 sm:px-6 lg:px-10 pb-[max(24px,env(safe-area-inset-bottom))] lg:pb-6 pt-3 bg-gradient-to-t from-canvas via-canvas to-canvas/0">
           <div className="max-w-[780px] mx-auto">
             {phase === 'asking' && wizard.length > 0 && (
               <div className="mb-4">
@@ -1686,15 +1620,15 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   return (
     <div className="min-h-screen flex flex-col">
       <div className="min-h-[85vh] flex flex-col">
-        <header className="px-10 pt-6 pb-0 flex items-center justify-end gap-2">
-          <Button variant="ghost" icon={Icon.Bell}>Atualizações</Button>
+        <header className="px-4 sm:px-6 lg:px-10 pt-4 lg:pt-6 pb-0 flex items-center justify-end gap-2">
+          <Button variant="ghost" icon={Icon.Bell} className="hidden sm:inline-flex">Atualizações</Button>
           <Button variant="secondary" icon={Icon.Plus} onClick={() => setRoute('trips')}>Nova viagem</Button>
         </header>
 
-        <section className="px-10 flex-1 flex items-center pb-8">
-          <div className="max-w-[860px] mx-auto text-center">
+        <section className="px-4 sm:px-6 lg:px-10 flex-1 flex items-center pb-8">
+          <div className="max-w-[860px] mx-auto text-center w-full">
             <Tag tone="brand" className="mx-auto"><Icon.Sparkles size={12}/> Concierge premium · IA + experts reais</Tag>
-            <h2 className="mt-4 text-[52px] leading-[1.04] tracking-[-0.025em] font-serif font-medium text-ink-900">
+            <h2 className="mt-4 text-[32px] sm:text-[42px] lg:text-[52px] leading-[1.06] tracking-[-0.025em] font-serif font-medium text-ink-900">
               {greetName ? `Olá, ${greetName}!` : 'Olá!'}
               <br/>
               <span className="serif-i">Qual será a sua próxima viagem?</span>
@@ -1727,7 +1661,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         </section>
       </div>
 
-      <section className="px-10 pb-16 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-6">
+      <section className="px-4 sm:px-6 lg:px-10 pb-20 lg:pb-16 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-6">
         <div>
           {hasTrip ? (
             <Card className="p-6">

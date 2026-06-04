@@ -175,7 +175,7 @@ const Sidebar = ({ route, setRoute, openCmd }) => {
     );
   };
   return (
-    <aside className="w-[248px] shrink-0 h-screen sticky top-0 border-r hairline bg-paper flex flex-col">
+    <aside className="hidden lg:flex w-[248px] shrink-0 h-screen sticky top-0 border-r hairline bg-paper flex-col">
       <div className="px-5 pt-6 pb-4 flex items-center gap-2">
         <GaidLogo className="h-8 w-auto max-w-[112px]" />
         <div className="flex-1">
@@ -219,7 +219,7 @@ const Sidebar = ({ route, setRoute, openCmd }) => {
 
 // ---------- Top bar ----------
 const Topbar = ({ title, subtitle, right }) => (
-  <div className="px-10 pt-8 pb-6 flex items-end justify-between gap-6">
+  <div className="px-4 sm:px-6 lg:px-10 pt-6 lg:pt-8 pb-4 lg:pb-6 flex flex-col sm:flex-row sm:items-end justify-between gap-4 sm:gap-6">
     <div className="min-w-0">
       <div className="label mb-1">{subtitle || 'Gaid'}</div>
       <h1 className="text-[28px] tracking-tight font-medium text-ink-900 leading-none">{title}</h1>
@@ -432,33 +432,23 @@ const OptimizeMenu = ({ onApply, anchor = 'right' }) => {
 };
 
 // ---------- SmartImg: destination photography with placeholder fallback ----------
-// Accepts explicit cover URLs and falls back to a stable generated image.
-// Loading/error states keep the layout intact.
+// Accepts explicit cover URLs (Unsplash Source for trips) and falls back to a
+// stable public photo URL. Loading/error states keep the layout intact.
 const SmartImg = ({ seed, src, w = 800, h = 500, tone = 'warm', label, className = '', children, eager = false }) => {
   const [failed, setFailed] = useState(false);
-  const [fallbackFailed, setFallbackFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     setFailed(false);
-    setFallbackFailed(false);
     setLoaded(false);
   }, [src, seed, w, h]);
-  if (fallbackFailed || (!src && !seed)) {
+  if (failed || (!src && !seed)) {
     return <Placeholder tone={tone} label={label} className={className}>{children}</Placeholder>;
   }
-  const fallbackUrl = seed ? `https://picsum.photos/seed/${encodeURIComponent(seed)}/${w}/${h}?grayscale` : '';
-  const url = failed && fallbackUrl ? fallbackUrl : src || fallbackUrl;
+  const url = src || `https://picsum.photos/seed/${encodeURIComponent(seed)}/${w}/${h}?grayscale`;
   return (
     <div className={`relative overflow-hidden bg-ink-200 ${className}`}>
       {!loaded && <Placeholder tone={tone} label={label} className="absolute inset-0"/>}
-      <img src={url} onLoad={() => setLoaded(true)} onError={() => {
-             if (src && !failed && fallbackUrl) {
-               setFailed(true);
-               setLoaded(false);
-             } else {
-               setFallbackFailed(true);
-             }
-           }}
+      <img src={url} onLoad={() => setLoaded(true)} onError={() => setFailed(true)}
            className={`absolute inset-0 w-full h-full object-cover transition-opacity transition-transform duration-700 hover:scale-[1.04] ${src ? '' : 'img-grayscale'} ${loaded ? 'opacity-100' : 'opacity-0'}`}
            loading={eager ? 'eager' : 'lazy'} alt={label || ''}/>
       <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-black/0 to-black/0 pointer-events-none"/>

@@ -129,18 +129,18 @@ const BrandGlyphD = ({ glyph, size = 19 }) => {
 
 // Split shell: brand imagery left, content right.
 const AuthShell = ({ children }) => (
-  <div className="min-h-screen grid grid-cols-[1.1fr_1fr] bg-paper">
-    <div className="relative overflow-hidden">
+  <div className="min-h-screen grid grid-cols-1 lg:grid-cols-[1.1fr_1fr] bg-paper">
+    <div className="relative overflow-hidden min-h-[200px] lg:min-h-0 h-[28vh] lg:h-auto">
       <SmartImg seed="gaid-auth-hero" tone="warm" w={1000} h={1200} className="absolute inset-0 w-full h-full" eager/>
       <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-black/30"/>
-      <div className="absolute left-10 bottom-10 right-10">
-        <div className="serif-i text-paper text-[26px] leading-snug max-w-[420px]">
+      <div className="absolute left-6 lg:left-10 bottom-6 lg:bottom-10 right-6 lg:right-10">
+        <div className="serif-i text-paper text-[20px] lg:text-[26px] leading-snug max-w-[420px]">
           "Viagem boa é a que te transforma um pouco, sem te exaurir."
         </div>
         <div className="text-paper/70 text-[12.5px] mt-3">Inês Marçal · expert Gaid em Portugal</div>
       </div>
     </div>
-    <div className="flex items-center justify-center px-12 py-10">{children}</div>
+    <div className="flex items-center justify-center px-6 sm:px-12 py-8 lg:py-10">{children}</div>
   </div>
 );
 
