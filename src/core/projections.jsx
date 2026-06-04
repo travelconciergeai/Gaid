@@ -128,8 +128,8 @@ function inferPlaceholderDayCount(trip, dates) {
 }
 
 function dateDiffNights(dates) {
-  const start = dates?.start ? new Date(dates.start) : null;
-  const end = dates?.end ? new Date(dates.end) : null;
+  const start = dates?.start ? localDateFromIso(dates.start) : null;
+  const end = dates?.end ? localDateFromIso(dates.end) : null;
   if (start && end && !isNaN(start) && !isNaN(end) && end >= start) {
     const diffDays = Math.round((end - start) / 86400000);
     if (diffDays > 0) return Math.min(diffDays, 30);
@@ -143,7 +143,7 @@ function dateDiffInclusiveDays(dates) {
 }
 
 function buildPlaceholderDays({ count, dates, city }) {
-  const start = dates?.start ? new Date(dates.start) : null;
+  const start = dates?.start ? localDateFromIso(dates.start) : null;
   const hasStart = start && !isNaN(start);
   return Array.from({ length: count }, (_, idx) => ({
     d: idx + 1,
@@ -195,12 +195,18 @@ function hasCleanDateLabel(label) {
 function fmtDateLong(dates) {            // "12–22 outubro"
   if (!has(dates) || !has(dates.start)) return TBD;
   const MONTHS_LONG = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
-  const a = new Date(dates.start), b = dates.end ? new Date(dates.end) : null;
+  const a = localDateFromIso(dates.start), b = dates.end ? localDateFromIso(dates.end) : null;
   if (isNaN(a)) return TBD;
   const mon = MONTHS_LONG[a.getMonth()];
   if (b && !isNaN(b) && b.getMonth() === a.getMonth()) return `${a.getDate()}–${b.getDate()} ${mon}`;
   if (b && !isNaN(b)) return `${a.getDate()} ${MONTHS_LONG[a.getMonth()]} – ${b.getDate()} ${MONTHS_LONG[b.getMonth()]}`;
   return `${a.getDate()} ${mon}`;
+}
+
+function localDateFromIso(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return new Date(value);
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
 }
 
 

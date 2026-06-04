@@ -111,7 +111,7 @@ function isAddDayIntent(value) {
 }
 function isChangeDatesIntent(value) {
   const text = normText(value);
-  return /(mudar datas|alterar datas|trocar datas|adicionar data|vou viajar de|viajar de|chegada.*volta|check.?in.*check.?out|\bde\s+\d{1,2}\s+a\s+\d{1,2}\s+de\s+[a-z]+|\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\s*(?:a|ate|até|-)\s*\d{1,2}[/-]\d{1,2})/.test(text);
+  return /(mudar datas|alterar datas|trocar datas|adicionar data|vou viajar de|vamos de|viajar de|cheg(?:o|ada).*volt|check.?in.*check.?out|\bde\s+\d{1,2}\s+a\s+\d{1,2}\s+de\s+[a-z]+|\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\s*(?:a|ate|até|-)\s*\d{1,2}[/-]\d{1,2})/.test(text);
 }
 function isCreateItineraryItemIntent(value) {
   const text = normText(value);
@@ -1037,7 +1037,7 @@ function chooseDateYear(month, day, explicitYear = null) {
 function isoPlanDate(year, month, day) {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
-function parsePlanDateRange(value) {
+function parsePlanDateRange(value, fallbackDates = null) {
   const raw = String(value || '').trim();
   if (!raw) return null;
   const text = normText(raw);
@@ -1060,6 +1060,12 @@ function parsePlanDateRange(value) {
   if (monthName && days.length >= 2) {
     const month = PT_MONTHS_PLAN[monthName];
     const year = chooseDateYear(month, days[0], explicitYear);
+    return buildDateRangePayload(year, month, days[0], year, month, days[1]);
+  }
+  const fallbackStart = localDateFromIso(fallbackDates?.start);
+  if (fallbackStart && /(cheg(?:o|ada)|volt|de)\s+dia/.test(text) && days.length >= 2) {
+    const month = fallbackStart.getMonth() + 1;
+    const year = chooseDateYear(month, days[0], explicitYear || fallbackStart.getFullYear());
     return buildDateRangePayload(year, month, days[0], year, month, days[1]);
   }
   return null;
@@ -1742,7 +1748,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         persistPlanMessage('assistant', reply, { source: 'state-guard', intent: planIntent.intent });
         return;
       }
-      const parsed = parsePlanDateRange(t);
+      const parsed = parsePlanDateRange(t, tripData.tripContext?.dates);
       if (!parsed) {
         const reply = 'Claro. Qual é o intervalo da viagem? Pode me dizer, por exemplo: “20 a 27 de setembro”.';
         setChat(c => [...c, { who: 'gaid', text: reply, source: 'date-tool' }]);
@@ -2364,6 +2370,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         {prep && <PlanPrep trip={tripData} prep={prep} onToggle={togglePrep}/>}
         <Timeline
           days={days}
+          trip={tripData}
           selectedItem={selectedItem}
           onSelect={selectItem}
           onAdd={(dayIdx, slot) => setAdding({ dayIdx, slot })}
@@ -2612,7 +2619,43 @@ const PlanPrep = ({ trip, prep, onToggle }) => {
 };
 
 // ---------- Timeline ----------
-const Timeline = ({ days, selectedItem, onSelect, onAdd, onEdit, onTogglePin, onRemove }) => {
+const MONTHS_SHORT_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const COUNTRY_ONLY_NAMES = new Set([
+  'portugal', 'franca', 'frança', 'espanha', 'italia', 'itália', 'japao', 'japão',
+  'colombia', 'colômbia', 'peru', 'brasil', 'argentina', 'chile', 'estados unidos',
+  'eua', 'usa', 'reino unido', 'inglaterra',
+]);
+function localDateFromIso(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+function addCalendarDays(date, count) {
+  const next = new Date(date);
+  next.setDate(date.getDate() + count);
+  return next;
+}
+function timelineDateMarker(day, trip) {
+  const start = localDateFromIso(trip?.tripContext?.dates?.start);
+  if (!start) return { number: String(day?.d || 1).padStart(2, '0'), label: TBD };
+  const date = addCalendarDays(start, Math.max(Number(day?.d || 1) - 1, 0));
+  return { number: String(date.getDate()).padStart(2, '0'), label: MONTHS_SHORT_PT[date.getMonth()] || TBD };
+}
+function dayLocationLabel(day, trip) {
+  const raw = String(
+    (day?.city && day.city !== TBD ? day.city : '') ||
+    trip?.tripContext?.city ||
+    trip?.tripContext?.destinationCity ||
+    trip?.destination ||
+    trip?.tripContext?.destination ||
+    ''
+  ).trim();
+  if (!raw) return TBD;
+  const first = raw.split(',')[0].trim();
+  return COUNTRY_ONLY_NAMES.has(normText(first)) ? TBD : first || TBD;
+}
+const Timeline = ({ days, trip, selectedItem, onSelect, onAdd, onEdit, onTogglePin, onRemove }) => {
   const safeDays = normalizeDays(days);
   const selectedEntry = resolveStoredActivityRef(safeDays, selectedItem);
   if (safeDays.length === 0) {
@@ -2632,10 +2675,17 @@ const Timeline = ({ days, selectedItem, onSelect, onAdd, onEdit, onTogglePin, on
         <div key={day.d} className="grid grid-cols-[88px_1fr] gap-6">
           {/* day rail */}
           <div className="pt-3">
-            <div className="text-[42px] tracking-tight font-serif font-medium text-ink-900 leading-none">{String(day.d).padStart(2,'0')}</div>
-            <div className="text-[12px] text-ink-500 mt-1">{day.date}</div>
+            {(() => {
+              const marker = timelineDateMarker(day, trip);
+              return (
+                <>
+                  <div className="text-[42px] tracking-tight font-serif font-medium text-ink-900 leading-none">{marker.number}</div>
+                  <div className="text-[12px] text-ink-500 mt-1">{marker.label}</div>
+                </>
+              );
+            })()}
             <div className="text-[12.5px] font-medium text-ink-800 mt-2 flex items-center gap-1.5">
-              <Icon.MapPin size={12}/> {day.city}
+              <Icon.MapPin size={12}/> {dayLocationLabel(day, trip)}
             </div>
             {day.flight && <Tag tone="coral" className="mt-2"><Icon.Plane size={11}/> Voo</Tag>}
           </div>

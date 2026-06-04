@@ -52,12 +52,17 @@ function fmtMoney(m) {
 }
 function fmtDateRangeShort(dates) {       // "12–22 out · 2026"
   if (!has(dates) || !has(dates.start)) return TBD;
-  const a = new Date(dates.start), b = dates.end ? new Date(dates.end) : null;
+  const a = localDateFromIso(dates.start), b = dates.end ? localDateFromIso(dates.end) : null;
   if (isNaN(a)) return TBD;
   const mon = MONTHS_PT[a.getMonth()];
   const yr = a.getFullYear();
   if (b && !isNaN(b)) return `${a.getDate()}–${b.getDate()} ${mon} · ${yr}`;
   return `${a.getDate()} ${mon} · ${yr}`;
+}
+function localDateFromIso(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return new Date(value);
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
 }
 function fmtDuration(min) {
   if (!has(min)) return TBD;
