@@ -534,7 +534,7 @@ function travelerCompositionFrom(answer) {
   const label = answerText(answer, 'travelers');
   const text = normText(`${id} ${label}`);
   if (/famil|crianc|filh/.test(text)) return 'Família';
-  if (/casal|esposa|marido|a dois|namorad|companheir/.test(text)) return 'Casal';
+  if (/casal/.test(text)) return 'Casal';
   if (/solo|so eu|sozinh/.test(text)) return 'Solo';
   if (/amig|grupo/.test(text)) return 'Amigos';
   return answerLabel(answer, 'travelers') || null;
@@ -542,24 +542,6 @@ function travelerCompositionFrom(answer) {
 
 function parseTravelerComposition(value) {
   const text = normText(value);
-  if (/\b(casal|esposa|marido|a dois|namorad[ao]|companheir[ao])\b/.test(text)) {
-    return {
-      count: 2,
-      adults: 2,
-      children: null,
-      ages: [],
-      composition: 'Casal',
-    };
-  }
-  if (/\b(so eu|só eu|sozinh[ao]|solo)\b/.test(text)) {
-    return {
-      count: 1,
-      adults: 1,
-      children: null,
-      ages: [],
-      composition: 'Solo',
-    };
-  }
   const adults = Number(text.match(/(\d+)\s*adult/)?.[1]) || null;
   const childrenCount = Number(text.match(/(\d+)\s*(crianc|filh)/)?.[1]) || null;
   const ageSection = text.match(/(?:criancas?|filhos?).*?(?:de|com)?\s*((?:\d+\s*(?:,|e|\+)?\s*)+)/)?.[1] || '';
@@ -962,25 +944,13 @@ function plannerCompletionStatus(answers, context = {}) {
   const periodKnown = fieldKnown('period', answers, context);
   const dates = normalizeDates(answers, context);
   const durationKnown = !!(parseNights(answers) ?? context.nights ?? parseNumberFromText(context.duration) ?? dateDiffNights(dates));
-  const parsedTravelers = parseTravelerComposition(`${answerText(answers, 'travelers')} ${answerText(answers, 'travelerCount')} ${answerText(answers, 'childrenAges')}`);
-  const travelerCount = travelerCountFrom(answers) ?? parsedTravelers.count ?? parseNumberFromText(context.travelers?.count);
-  const travelerComposition = filledString(travelerCompositionFrom(answers), parsedTravelers.composition, context.travelerComposition, context.travelers?.composition);
-  const travelersKnown = !!(travelerCount && travelerComposition);
-  const styleKnown = answerLabels(answers, 'stylePace').length > 0 ||
-    answerLabels(answers, 'tripPriority').length > 0 ||
-    answerLabels(answers, 'priorities').length > 0 ||
-    answerLabels(answers, 'interests').length > 0 ||
-    !!filledString(context.stylePace, context.tripPriority) ||
-    (Array.isArray(context.priorities) && context.priorities.length > 0);
   const assumptionsBlocked = context?.assumptionsBlocked === true || context?.blockAssumptions === true;
   const explicitAssumptionMode = context?.skippedAll === true || context?.wizard?.skippedAll === true;
   return {
-    ready: destinationKnown && ((durationKnown && travelersKnown && styleKnown) || explicitAssumptionMode) && !assumptionsBlocked,
+    ready: destinationKnown && (durationKnown || explicitAssumptionMode) && !assumptionsBlocked,
     destinationKnown,
     periodKnown,
     durationKnown,
-    travelersKnown,
-    styleKnown,
     assumptionsBlocked,
     explicitAssumptionMode,
   };
@@ -990,8 +960,6 @@ function requiredPlannerStep(answers, context = {}) {
   const completion = plannerCompletionStatus(answers, context);
   if (!completion.destinationKnown) return BASE_TRIP_WIZARD[0];
   if (!completion.durationKnown && !completion.explicitAssumptionMode) return BASE_TRIP_WIZARD[2];
-  if (!completion.travelersKnown && !completion.explicitAssumptionMode) return BASE_TRIP_WIZARD[3];
-  if (!completion.styleKnown && !completion.explicitAssumptionMode) return chooseTravelerStep(answers);
   return null;
 }
 
@@ -1494,11 +1462,10 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       if (!completion.ready && next < 0) {
         const forcedStep = requiredPlannerStep(nextAnswers, nextWizardContext);
         if (forcedStep) {
-          const forcedIndex = wizardStep + 1;
           nextWizard = syncWizardHistory(currentWizardHistory, wizardStep, step, forcedStep);
           setWizardHistory(nextWizard);
           setPlannerState(PLANNER_COLLECTING);
-          setWizardStep(forcedIndex);
+          setWizardStep(nextWizard.length - 1);
           return;
         }
       }
