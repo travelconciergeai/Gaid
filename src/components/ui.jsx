@@ -432,23 +432,33 @@ const OptimizeMenu = ({ onApply, anchor = 'right' }) => {
 };
 
 // ---------- SmartImg: destination photography with placeholder fallback ----------
-// Accepts explicit cover URLs (Unsplash Source for trips) and falls back to a
-// stable public photo URL. Loading/error states keep the layout intact.
+// Accepts explicit cover URLs and falls back to a stable generated image.
+// Loading/error states keep the layout intact.
 const SmartImg = ({ seed, src, w = 800, h = 500, tone = 'warm', label, className = '', children, eager = false }) => {
   const [failed, setFailed] = useState(false);
+  const [fallbackFailed, setFallbackFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     setFailed(false);
+    setFallbackFailed(false);
     setLoaded(false);
   }, [src, seed, w, h]);
-  if (failed || (!src && !seed)) {
+  if (fallbackFailed || (!src && !seed)) {
     return <Placeholder tone={tone} label={label} className={className}>{children}</Placeholder>;
   }
-  const url = src || `https://picsum.photos/seed/${encodeURIComponent(seed)}/${w}/${h}?grayscale`;
+  const fallbackUrl = seed ? `https://picsum.photos/seed/${encodeURIComponent(seed)}/${w}/${h}?grayscale` : '';
+  const url = failed && fallbackUrl ? fallbackUrl : src || fallbackUrl;
   return (
     <div className={`relative overflow-hidden bg-ink-200 ${className}`}>
       {!loaded && <Placeholder tone={tone} label={label} className="absolute inset-0"/>}
-      <img src={url} onLoad={() => setLoaded(true)} onError={() => setFailed(true)}
+      <img src={url} onLoad={() => setLoaded(true)} onError={() => {
+             if (src && !failed && fallbackUrl) {
+               setFailed(true);
+               setLoaded(false);
+             } else {
+               setFallbackFailed(true);
+             }
+           }}
            className={`absolute inset-0 w-full h-full object-cover transition-opacity transition-transform duration-700 hover:scale-[1.04] ${src ? '' : 'img-grayscale'} ${loaded ? 'opacity-100' : 'opacity-0'}`}
            loading={eager ? 'eager' : 'lazy'} alt={label || ''}/>
       <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-black/0 to-black/0 pointer-events-none"/>

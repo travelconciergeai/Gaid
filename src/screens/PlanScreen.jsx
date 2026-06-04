@@ -1658,7 +1658,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
           ? withDurationAssumptionText('Montei uma primeira versão do roteiro para você. Podemos ajustar tudo a partir daqui.', duration)
           : 'Criei a estrutura dos dias do roteiro. Me peça para montar uma primeira versão quando quiser.';
         if (initialSuggestions.length > 0) {
-          const { nextDays, count } = buildTimelineWithSuggestions(days, initialSuggestions);
+          const { nextDays, count } = buildTimelineWithSuggestions([], initialSuggestions);
           if (count > 0) await commitTimelineDays(nextDays);
         }
         setChat(c => [...c, {
@@ -2619,7 +2619,7 @@ const PlanPrep = ({ trip, prep, onToggle }) => {
 };
 
 // ---------- Timeline ----------
-const MONTHS_SHORT_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const MONTHS_SHORT_PT = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 const COUNTRY_ONLY_NAMES = new Set([
   'portugal', 'franca', 'frança', 'espanha', 'italia', 'itália', 'japao', 'japão',
   'colombia', 'colômbia', 'peru', 'brasil', 'argentina', 'chile', 'estados unidos',
