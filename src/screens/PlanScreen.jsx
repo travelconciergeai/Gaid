@@ -1196,8 +1196,10 @@ function inclusiveDateDayCount(dates) {
 function inferInitialItineraryDuration(trip, kickoff) {
   const dateDays = inclusiveDateDayCount(trip.tripContext?.dates);
   if (dateDays) return { days: dateDays, assumed: false };
-  const explicit = boundedDayCount(trip.nights ?? trip.tripContext?.nights);
-  if (explicit) return { days: explicit, assumed: false };
+  const durationDays = boundedDayCount(trip.tripContext?.durationDays);
+  if (durationDays) return { days: durationDays, assumed: false };
+  const nights = boundedDayCount(trip.nights ?? trip.tripContext?.nights);
+  if (nights) return { days: nights + 1, assumed: false };
   const text = normText(`${trip.destination || ''} ${trip.title || ''} ${kickoff || ''} ${JSON.stringify(trip.tripContext || {})}`);
   if (/orlando|disney|parque/.test(text)) return { days: 6, assumed: true };
   if (/japao|japan|toquio|tokyo|kyoto|quioto|europa|multi.?city|multicidade|lisboa.*porto|paris.*roma|londres.*paris/.test(text)) {
@@ -1236,11 +1238,24 @@ function withDurationAssumptionText(text, duration) {
 function completeInitialSuggestions(suggestions, duration) {
   const normalized = normalizeItinerarySuggestions(suggestions);
   const slots = ['manhã', 'tarde', 'noite'];
-  return normalized.map((item, index) => ({
+  const withSlots = normalized.map((item, index) => ({
     ...item,
-    day: item.day || (Math.floor(index / slots.length) % duration.days) + 1,
+    day: item.day || Math.min(Math.floor(index / slots.length) + 1, duration.days),
     slot: item.slot || slots[index % slots.length],
   }));
+  const byDaySlot = new Map();
+  withSlots.forEach((item) => {
+    const key = `${item.day}:${item.slot}`;
+    if (!byDaySlot.has(key)) byDaySlot.set(key, item);
+  });
+  const ordered = [];
+  for (let day = 1; day <= duration.days; day += 1) {
+    slots.forEach((slot) => {
+      const hit = byDaySlot.get(`${day}:${slot}`);
+      if (hit) ordered.push(hit);
+    });
+  }
+  return ordered.length > 0 ? ordered : withSlots;
 }
 const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
   const { isMobile } = useBreakpoint();

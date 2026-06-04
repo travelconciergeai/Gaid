@@ -9,8 +9,9 @@ export function normText(value) {
 export function classifyGaidIntent(message) {
   try {
     const text = normText(message);
-    const planRe = /\b(roteiro|viagem|viajar|planej|planejar|monte|montar|criar|crie|itinerario|itinerario|dias?|noites?)\b/;
+    const planRe = /\b(roteiro|viagem|viajar|planej|planejar|monte|montar|criar|crie|itinerario|itinerario)\b/;
     const travelIntentRe = /\b(?:quero|vou|vamos|pretendo|queria|gostaria)\s+(?:ir|viajar)\b/;
+    const travelWithDestinationRe = /\b(?:para|pra|em|no|na)\s+[\wÀ-ÿ]{2,}/i;
     const restaurantRe = /\b(restaurante|jantar|almoco|almoço|comer|onde jantar)\b/;
     const cafeRe = /\b(cafe|café|cafeteria|brunch)\b/;
     const attractionRe = /\b(o que fazer|atracao|atração|passeio|atividade|museu|chuva|crianca|criança|levar uma criança|hoje|agora)\b/;

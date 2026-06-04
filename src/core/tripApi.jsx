@@ -17,6 +17,7 @@
 // ============================================================================
 
 import { supabase } from './supabaseClient.js';
+import { sanitizeDestination, isGenericPlannerPrompt } from './brain/plannerContext.js';
 
 const _net = (ms = 420) => new Promise(r => setTimeout(r, ms));   // simulate latency for skeletons
 
@@ -37,8 +38,9 @@ function firstFilled(...values) {
 
 function inferDestination(prompt = '') {
   const text = String(prompt || '').trim();
-  const match = text.match(/\b(?:para|pra|em|no|na)\s+([A-ZÁÀÂÃÉÊÍÓÔÕÚÇ][\wÀ-ÿ' -]{2,60})/);
-  return match?.[1]?.replace(/[,.!?;:].*$/, '').trim() || '';
+  if (isGenericPlannerPrompt(text)) return '';
+  const fromPrep = text.match(/\b(?:para|pra|em|no|na|ir para|viajar para)\s+(?:a|o|os|as)?\s*([\wÀ-ÿ' -]{2,60})/i)?.[1];
+  return sanitizeDestination(fromPrep || text);
 }
 
 function hasFamilyContext(prompt = '') {
@@ -46,9 +48,11 @@ function hasFamilyContext(prompt = '') {
 }
 
 function buildTripTitle({ title, destination, prompt }) {
-  if (firstFilled(title)) return firstFilled(title);
-  if (destination && hasFamilyContext(prompt)) return `${destination} em família`;
-  if (destination) return `Roteiro para ${destination}`;
+  const safeTitle = firstFilled(title);
+  if (safeTitle && !isGenericPlannerPrompt(safeTitle)) return safeTitle;
+  const safeDestination = sanitizeDestination(destination);
+  if (safeDestination && hasFamilyContext(prompt)) return `${safeDestination} em família`;
+  if (safeDestination) return `Roteiro para ${safeDestination}`;
   return 'Nova viagem';
 }
 
@@ -370,7 +374,9 @@ const _emptyAdapter = {
     const rawInput = typeof input === 'object' && input !== null ? input : { prompt: String(input || '') };
     const prompt = firstFilled(rawInput.prompt, rawInput.message, rawInput.initialPrompt);
     const incomingContext = normalizeTripContext(rawInput.trip_context || rawInput.tripContext || rawInput.context);
-    const destination = firstFilled(rawInput.destination, incomingContext.destination, inferDestination(prompt));
+    const destination = sanitizeDestination(
+      firstFilled(rawInput.destination, incomingContext.destination, inferDestination(prompt))
+    );
     const title = buildTripTitle({ title: rawInput.title, destination, prompt });
     const baseMetadata = normalizeTripContext(rawInput.metadata);
     const coverImage = normalizeCoverImage(incomingContext.coverImage || baseMetadata.coverImage, {

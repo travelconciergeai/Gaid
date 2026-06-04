@@ -122,8 +122,10 @@ function tripNights(trip, dates) {
 function inferPlaceholderDayCount(trip, dates) {
   const dateDays = dateDiffInclusiveDays(dates);
   if (dateDays) return dateDays;
+  const durationDays = Number(trip?.tripContext?.durationDays);
+  if (Number.isFinite(durationDays) && durationDays > 0) return Math.min(Math.floor(durationDays), 30);
   const nights = Number(trip?.nights ?? trip?.tripContext?.nights);
-  if (Number.isFinite(nights) && nights > 0) return Math.min(Math.floor(nights), 30);
+  if (Number.isFinite(nights) && nights > 0) return Math.min(Math.floor(nights) + 1, 30);
   return 3;
 }
 

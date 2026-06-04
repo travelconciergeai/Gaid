@@ -14,6 +14,14 @@ import {
   PLANNER_READY,
   PLANNER_GENERATING,
   PLANNER_COMPLETE,
+  extractPlannerContextFromMessage,
+  plannerCompletionStatus as brainPlannerCompletion,
+  requiredPlannerField,
+  parseTravelerComposition,
+  sanitizeDestination,
+  inclusiveDurationFromDates,
+  isGenericPlannerPrompt,
+  logGaidEvent,
 } from '../core/brain/index.js';
 // Home — conversational landing.
 // Two modes:
@@ -493,6 +501,10 @@ function travelerCountFrom(answer) {
 }
 
 function travelerCompositionFrom(answer) {
+  const parsed = parseTravelerComposition(
+    `${answerText(answer, 'travelers')} ${answerText(answer, 'travelerCount')} ${answerText(answer, 'childrenAges')}`
+  );
+  if (parsed.composition) return parsed.composition;
   const id = answerId(answer, 'travelers');
   if (id === 'solo') return 'Solo';
   if (id === 'couple') return 'Casal';
@@ -505,22 +517,6 @@ function travelerCompositionFrom(answer) {
   if (/solo|so eu|sozinh/.test(text)) return 'Solo';
   if (/amig|grupo/.test(text)) return 'Amigos';
   return answerLabel(answer, 'travelers') || null;
-}
-
-function parseTravelerComposition(value) {
-  const text = normText(value);
-  const adults = Number(text.match(/(\d+)\s*adult/)?.[1]) || null;
-  const childrenCount = Number(text.match(/(\d+)\s*(crianc|filh)/)?.[1]) || null;
-  const ageSection = text.match(/(?:criancas?|filhos?).*?(?:de|com)?\s*((?:\d+\s*(?:,|e|\+)?\s*)+)/)?.[1] || '';
-  const ages = [...ageSection.matchAll(/\d+/g)].map(match => Number(match[0])).filter(age => age >= 0 && age <= 17);
-  const total = adults || childrenCount ? (adults || 0) + (childrenCount || ages.length || 0) : null;
-  return {
-    count: total,
-    adults,
-    children: childrenCount || (ages.length || null),
-    ages,
-    composition: total || /crianc|filh|famil/.test(text) ? 'Família' : null,
-  };
 }
 
 const PT_MONTHS = {
@@ -592,33 +588,8 @@ function extractPeriodLabel(value) {
   return season || '';
 }
 
-function inferPlannerDestination(value) {
-  const raw = String(value || '').trim();
-  if (!raw || isGenericInitialPrompt(raw)) return '';
-  const match = raw.match(/\b(?:para|pra|em|no|na)\s+(?:a|o|os|as)?\s*([\wÀ-ÿ' -]{2,80})/i);
-  const candidate = (match?.[1] || raw)
-    .replace(/\b(?:em|no|na|de|do|da)?\s*(?:janeiro|jan|fevereiro|fev|mar[cç]o|mar|abril|abr|maio|mai|junho|jun|julho|jul|agosto|ago|setembro|set|outubro|out|novembro|nov|dezembro|dez)\b.*$/i, '')
-    .replace(/\b(?:por|durante)\s+\d+.*$/i, '')
-    .replace(/[,.!?;:].*$/, '')
-    .trim();
-  if (isGenericInitialPrompt(candidate) || /\b(roteiro|viagem|viajar|planej|planejar|montar|criar|crie|monte)\b/i.test(candidate)) return '';
-  return candidate.length >= 2 ? candidate : '';
-}
-
 function extractInitialPlannerContext(value, seedContext = {}) {
-  const promptDates = parseDateRange(value);
-  const periodLabel = extractPeriodLabel(value);
-  const destination = inferPlannerDestination(value);
-  const dates = promptDates
-    ? { ...promptDates, label: periodLabel || promptDates.label }
-    : periodLabel
-      ? { label: periodLabel }
-      : null;
-  return {
-    ...(seedContext && typeof seedContext === 'object' && !Array.isArray(seedContext) ? seedContext : {}),
-    ...(destination ? { destination } : {}),
-    ...(dates ? { dates, period: dates.label } : {}),
-  };
+  return extractPlannerContextFromMessage(value, seedContext);
 }
 
 function cleanDateLabel(value) {
@@ -665,25 +636,7 @@ function isClearDateLabel(value) {
 }
 
 function isGenericInitialPrompt(value) {
-  const text = normText(value).trim();
-  if (!text) return true;
-  return [
-    /^ola\b/,
-    /^oi\b/,
-    /^quero viajar$/,
-    /^quero uma viagem$/,
-    /^quero ir$/,
-    /^quero montar (um )?roteiro$/,
-    /^quero criar (um )?roteiro$/,
-    /^quero montar uma viagem$/,
-    /^quero criar uma viagem$/,
-    /^planejar viagem$/,
-    /^criar roteiro$/,
-    /^montar roteiro$/,
-    /^me ajuda/,
-    /^nao sei/,
-    /^ainda nao sei/,
-  ].some(pattern => pattern.test(text));
+  return isGenericPlannerPrompt(value);
 }
 
 function initialDestinationAnswer(destination) {
@@ -906,27 +859,51 @@ async function polishWizardStepCopy({ step, prompt, answers, context, lastAnswer
   }
 }
 
-function plannerCompletionStatus(answers, context = {}) {
-  const destinationKnown = !!filledString(answerText(answers, 'destination'), context.destination);
-  const periodKnown = fieldKnown('period', answers, context);
+function plannerContextForBrain(answers, context = {}) {
   const dates = normalizeDates(answers, context);
-  const durationKnown = !!(parseNights(answers) ?? context.nights ?? parseNumberFromText(context.duration) ?? dateDiffNights(dates));
-  const assumptionsBlocked = context?.assumptionsBlocked === true || context?.blockAssumptions === true;
-  const explicitAssumptionMode = context?.skippedAll === true || context?.wizard?.skippedAll === true;
+  const dateDuration = inclusiveDurationFromDates(dates);
+  const nights = parseNights(answers) ?? context.nights ?? dateDiffNights(dates) ?? dateDuration?.nights ?? null;
   return {
-    ready: destinationKnown && (durationKnown || explicitAssumptionMode) && !assumptionsBlocked,
-    destinationKnown,
-    periodKnown,
-    durationKnown,
-    assumptionsBlocked,
-    explicitAssumptionMode,
+    ...context,
+    destination: sanitizeDestination(filledString(answerText(answers, 'destination'), context.destination)),
+    dates,
+    nights: nights ?? context.nights ?? null,
+    durationDays: context.durationDays ?? dateDuration?.durationDays ?? (nights != null ? nights + 1 : null),
+    duration: filledString(answerText(answers, 'duration'), context.duration) || null,
+    travelerComposition: filledString(travelerCompositionFrom(answers), context.travelerComposition, context.travelers?.composition),
+    travelers: {
+      ...(context.travelers && typeof context.travelers === 'object' && !Array.isArray(context.travelers) ? context.travelers : {}),
+      count: travelerCountFrom(answers) ?? context.travelers?.count ?? null,
+      composition: filledString(travelerCompositionFrom(answers), context.travelerComposition, context.travelers?.composition),
+    },
+    stylePace: answerLabels(answers, 'stylePace').length > 0 ? answerLabels(answers, 'stylePace') : context.stylePace,
+    priorities: [
+      ...answerLabels(answers, 'tripPriority'),
+      ...answerLabels(answers, 'priorities'),
+      ...(Array.isArray(context.priorities) ? context.priorities : []),
+    ],
+    skippedAll: context?.skippedAll === true || context?.wizard?.skippedAll === true,
+    wizard: context?.wizard,
+    assumptionsBlocked: context?.assumptionsBlocked === true || context?.blockAssumptions === true,
+  };
+}
+
+function plannerCompletionStatus(answers, context = {}) {
+  const brain = brainPlannerCompletion(answers, plannerContextForBrain(answers, context));
+  return {
+    ...brain,
+    periodKnown: fieldKnown('period', answers, context),
+    assumptionsBlocked: context?.assumptionsBlocked === true || context?.blockAssumptions === true,
+    explicitAssumptionMode: brain.explicitAssumptionMode,
   };
 }
 
 function requiredPlannerStep(answers, context = {}) {
-  const completion = plannerCompletionStatus(answers, context);
-  if (!completion.destinationKnown) return BASE_TRIP_WIZARD[0];
-  if (!completion.durationKnown && !completion.explicitAssumptionMode) return BASE_TRIP_WIZARD[2];
+  const field = requiredPlannerField(answers, plannerContextForBrain(answers, context));
+  if (field === 'destination') return BASE_TRIP_WIZARD[0];
+  if (field === 'duration') return BASE_TRIP_WIZARD[2];
+  if (field === 'travelers') return BASE_TRIP_WIZARD[3];
+  if (field === 'stylePace') return chooseTravelerStep(answers) || CONTEXTUAL_TRIP_STEPS.defaultStyle;
   return null;
 }
 
@@ -987,9 +964,12 @@ function buildWizardSummary(context) {
 }
 
 function buildTripContext(answers, prompt, { context = {}, mode = 'deterministic', qa = [] } = {}) {
-  const destination = filledString(answerText(answers, 'destination'), context.destination);
+  const destination = sanitizeDestination(filledString(answerText(answers, 'destination'), context.destination));
   const period = cleanDateLabel(answerText(answers, 'period')) || cleanDateLabel(context.period) || cleanDateLabel(context.dates?.label);
   const dates = normalizeDates(answers, { ...context, period });
+  const dateDuration = inclusiveDurationFromDates(dates);
+  const nights = parseNights(answers) ?? context.nights ?? dateDiffNights(dates) ?? dateDuration?.nights ?? null;
+  const durationDays = context.durationDays ?? dateDuration?.durationDays ?? (nights != null ? nights + 1 : null);
   const parsedComposition = parseTravelerComposition(`${answerText(answers, 'travelers')} ${answerText(answers, 'travelerCount')} ${answerText(answers, 'childrenAges')}`);
   const childrenAges = parsedComposition.ages.length > 0
     ? parsedComposition.ages
@@ -1014,8 +994,9 @@ function buildTripContext(answers, prompt, { context = {}, mode = 'deterministic
     destination: destination || null,
     period: period || null,
     dates,
-    nights: parseNights(answers) ?? context.nights ?? null,
-    duration: filledString(answerText(answers, 'duration'), context.duration) || null,
+    nights,
+    durationDays,
+    duration: filledString(answerText(answers, 'duration'), context.duration) || (nights != null ? `${nights} noites` : null),
     travelers: {
       ...(context.travelers && typeof context.travelers === 'object' && !Array.isArray(context.travelers) ? context.travelers : {}),
       count: travelerCount ?? parsedComposition.count ?? contextTravelerCount ?? null,
@@ -1105,8 +1086,11 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
 
   // ---- flow control ----
   const startFlow = (userText, key, seedContext = {}) => {
+    const intent = classifyGaidIntent(userText);
+    logGaidEvent('intent_detected', { intent: intent.intent, tool: intent.nextTool, message: userText });
     setFlowKey(key);
     setPlannerState(PLANNER_COLLECTING);
+    logGaidEvent('planner_state_changed', { state: PLANNER_COLLECTING, flow: key });
     setInitialPrompt(userText);
     setPendingPlannerContext(null);
     setAnswers({});
@@ -1263,7 +1247,12 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       return;
     }
 
-    // In chat mode: if currently asking a wizard question, free-text counts as answer.
+    // In chat mode: wizard free-text or planner collection always routes through the state machine.
+    if (plannerState === PLANNER_COLLECTING && wizard.length > 0) {
+      setChat(c => [...c, { id: `u-${Date.now()}`, who: 'user', text: t }]);
+      answerWizard('custom', t);
+      return;
+    }
     if (phase === 'asking' && wizard.length > 0) {
       answerWizard('custom', t);
     } else {
@@ -1274,9 +1263,18 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         startFlow(t, 'trip', pendingPlannerContext);
         return;
       }
-      if (plannerState === PLANNER_COLLECTING && (classification.intent === 'PLAN_TRIP' || classification.intent === 'UNCLEAR')) {
+      if (plannerState === PLANNER_COLLECTING) {
+        const mergedContext = extractPlannerContextFromMessage(t, wizardContext);
+        setWizardContext(mergedContext);
+        setAnswers(initialAnswersFromContext(mergedContext));
         setPhase('asking');
         setChat(nextChat);
+        const deterministic = buildAdaptiveTripWizard(initialAnswersFromContext(mergedContext));
+        const nextIndex = nextUnknownStepIndex(deterministic, 0, initialAnswersFromContext(mergedContext), mergedContext);
+        if (nextIndex >= 0) {
+          setWizardHistory(deterministic.slice(0, nextIndex + 1));
+          setWizardStep(nextIndex);
+        }
         return;
       }
       const pendingDiscovery = [...chat].reverse().find(m => m?.source === 'discovery-engine' && m?.discoveryContext && !hasEnoughDiscoveryContext(m.discoveryContext));
@@ -1345,7 +1343,25 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
   };
 
   const completeWizard = (finalAnswers, finalContext, { mode = 'deterministic', qa = [], skippedAll = false } = {}) => {
+    const safeDestination = sanitizeDestination(
+      filledString(answerText(finalAnswers, 'destination'), finalContext.destination)
+    );
+    if (!safeDestination) {
+      setPlannerState(PLANNER_COLLECTING);
+      setPhase('asking');
+      setChat(c => [...c, {
+        id: `a-${Date.now()}`,
+        who: 'agent',
+        text: 'Antes de criar a viagem, preciso saber o destino. Para onde você quer viajar?',
+        source: 'planner-state',
+      }]);
+      const destinationStep = BASE_TRIP_WIZARD[0];
+      setWizardHistory([destinationStep]);
+      setWizardStep(0);
+      return;
+    }
     setPlannerState(PLANNER_GENERATING);
+    logGaidEvent('planner_state_changed', { state: PLANNER_GENERATING, destination: safeDestination });
     setPhase('generating');
     const genMsg = 'Perfeito. Vou abrir a base do seu roteiro agora.';
     setChat(c => [
@@ -1372,11 +1388,15 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         skippedAll,
       },
     };
+    logGaidEvent('trip_create_requested', { destination: safeDestination, durationDays: handoffContext.durationDays, nights: handoffContext.nights });
     Promise.resolve(kickoffPlan && kickoffPlan({
       prompt: summary,
       context: handoffContext,
+      tripContext: handoffContext,
+      destination: safeDestination,
     }))
-      .then(() => {
+      .then((trip) => {
+        logGaidEvent('trip_created', { tripId: trip?.id, destination: safeDestination });
         setPlannerState(PLANNER_COMPLETE);
         setRoute && setRoute('plan');
       })
@@ -1572,7 +1592,15 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         {/* bottom chatbar — always visible */}
         <div className="px-4 sm:px-6 lg:px-10 pb-[max(24px,env(safe-area-inset-bottom))] lg:pb-6 pt-3 bg-gradient-to-t from-canvas via-canvas to-canvas/0">
           <div className="max-w-[780px] mx-auto">
-            {phase === 'asking' && wizard.length > 0 && (
+            {phase === 'generating' && (
+              <div className="mb-4 rounded-2xl border-half bg-white p-5 animate-pulse">
+                <div className="h-3 w-40 rounded bg-ink-100 mb-3"/>
+                <div className="h-3 w-full rounded bg-ink-100 mb-2"/>
+                <div className="h-3 w-5/6 rounded bg-ink-100"/>
+                <p className="mt-4 text-[12.5px] text-ink-600">Montando a base do seu roteiro…</p>
+              </div>
+            )}
+            {phase === 'asking' && plannerState !== PLANNER_GENERATING && wizard.length > 0 && (
               <div className="mb-4">
                 <ActionWizardPanel
                   stepIdx={wizardStep}
