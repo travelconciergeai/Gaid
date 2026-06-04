@@ -1,4 +1,6 @@
 export { classifyGaidIntent, normText } from './intentRouter.js';
+export { classifyGaidIntent as classifyVoiaIntent } from './intentRouter.js';
+export { sendVoiaMessage, queryVoiaBrain, shouldUseAgent, VOIA_AGENT_CAPABILITIES } from './voiaAgent.js';
 export {
   isGenericPlannerPrompt,
   sanitizeDestination,

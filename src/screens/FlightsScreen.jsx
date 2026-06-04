@@ -1,20 +1,41 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Icon } from '../components/icons.jsx';
-import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer } from '../components/ui.jsx';
-import { EmptyState, EmptyInline } from './EmptyStates.jsx';
-import { Async, CardSkeleton, CatalogCarousel, Carousel, Skeleton, ErrorState, CarouselSkeleton } from '../core/states.jsx';
-import { useAccount, useTrips, useCatalog, deriveTraits, profileCompletion } from '../core/store.jsx';
-import { TBD, has, orTBD, fmtDuration, fmtMoney } from '../core/contracts.jsx';
-// Flights — search + results as a horizontal carousel. Production: results from
-// tripApi (empty-first). No mockData. Original layout (no copyrighted airline UI).
+import { Placeholder, Button, Tag, Card, Modal, Topbar, TabRow, AddToTripDrawer } from '../components/ui.jsx';
+import { EmptyState } from './EmptyStates.jsx';
+import { CatalogCarousel } from '../core/states.jsx';
+import { useCatalog } from '../core/store.jsx';
+import { TBD, has, orTBD, fmtMoney } from '../core/contracts.jsx';
+
+function defaultDates() {
+  const dep = new Date();
+  dep.setDate(dep.getDate() + 30);
+  const ret = new Date(dep);
+  ret.setDate(ret.getDate() + 7);
+  return {
+    departDate: dep.toISOString().slice(0, 10),
+    returnDate: ret.toISOString().slice(0, 10),
+  };
+}
 
 const FlightsScreen = ({ setRoute }) => {
+  const dates = defaultDates();
+  const [from, setFrom] = useState('GRU');
+  const [to, setTo] = useState('');
+  const [departDate, setDepartDate] = useState(dates.departDate);
+  const [returnDate, setReturnDate] = useState(dates.returnDate);
+  const [adults, setAdults] = useState(1);
+  const [searchParams, setSearchParams] = useState(null);
   const [sort, setSort] = useState('best');
   const [picked, setPicked] = useState(null);
   const [addItem, setAddItem] = useState(null);
-  const q = useCatalog('flights');
 
-  // Sort using the raw numeric value the projection provides (no string parsing).
+  const q = useCatalog('flights', searchParams);
+
+  const handleSearch = useCallback(() => {
+    if (!from.trim() || !to.trim()) return;
+    setSearchParams({ from: from.trim(), to: to.trim(), departDate, returnDate, adults });
+  }, [from, to, departDate, returnDate, adults]);
+
   const data = (q.data || []).slice().sort((a, b) => {
     if (sort === 'price') return (a.priceValue ?? 0) - (b.priceValue ?? 0);
     if (sort === 'time') return String(a.dep).localeCompare(String(b.dep));
@@ -24,17 +45,23 @@ const FlightsScreen = ({ setRoute }) => {
 
   return (
     <div className="min-h-screen">
-      <Topbar subtitle="Gaid · Voos" title="Sugestões para sua viagem"
+      <Topbar subtitle="Voia · Voos" title="Busca de voos em tempo real"
         right={<Button variant="ghost" icon={Icon.Filter}>Filtros</Button>}/>
 
       <div className="px-10">
         <Card className="p-2 mb-6">
           <div className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] divide-x hairline">
-            <SearchCell label="De"        value={TBD} icon={Icon.Plane}/>
-            <SearchCell label="Para"      value={TBD} icon={Icon.MapPin}/>
-            <SearchCell label="Datas"     value={TBD} icon={Icon.Calendar}/>
-            <SearchCell label="Viajantes" value={TBD} icon={Icon.Users}/>
-            <div className="flex items-center pl-2 pr-1"><Button icon={Icon.Search}>Buscar</Button></div>
+            <SearchCell label="De" value={from} onChange={setFrom} placeholder="GRU ou São Paulo"/>
+            <SearchCell label="Para" value={to} onChange={setTo} placeholder="CDG ou Paris"/>
+            <SearchCell label="Ida" value={departDate} onChange={setDepartDate} type="date"/>
+            <SearchCell label="Volta" value={returnDate} onChange={setReturnDate} type="date"/>
+            <div className="flex items-center pl-2 pr-1 gap-2">
+              <select value={adults} onChange={e => setAdults(Number(e.target.value))}
+                className="h-10 px-2 rounded-lg border hairline text-[13px] bg-white">
+                {[1,2,3,4,5,6].map(n => <option key={n} value={n}>{n} adulto{n>1?'s':''}</option>)}
+              </select>
+              <Button icon={Icon.Search} onClick={handleSearch} disabled={!from || !to}>Buscar</Button>
+            </div>
           </div>
         </Card>
 
@@ -44,7 +71,11 @@ const FlightsScreen = ({ setRoute }) => {
             { id: 'price', label: 'Mais barato' },
             { id: 'time', label: 'Por horário' },
           ]}/>
-          <div className="text-[12px] text-ink-500">{data.length ? `${data.length} resultados · trecho ida` : 'trecho ida'}</div>
+          <div className="text-[12px] text-ink-500">
+            {searchParams
+              ? (data.length ? `${data.length} resultados · ${searchParams.from} → ${searchParams.to}` : 'Buscando via Amadeus…')
+              : 'Informe origem e destino para buscar'}
+          </div>
         </div>
       </div>
 
@@ -52,10 +83,15 @@ const FlightsScreen = ({ setRoute }) => {
         <CatalogCarousel
           query={sortedQuery}
           itemClass="w-[300px]"
-          empty={<EmptyState icon={Icon.Plane} eyebrow="Voos"
-            title="Nenhum voo para mostrar ainda"
-            desc="Informe origem, destino e datas — a Gaid compara tarifas e milhas e mostra as melhores opções aqui em carrossel."
-            primary={<Button icon={Icon.Sparkles} onClick={() => setRoute('home')}>Conversar com a Gaid</Button>}/>}
+          empty={!searchParams
+            ? <EmptyState icon={Icon.Plane} eyebrow="Voos"
+                title="Busque voos reais"
+                desc="Informe origem, destino e datas — a Voia busca tarifas reais via Amadeus e mostra as melhores opções."
+                primary={<Button icon={Icon.Sparkles} onClick={() => setRoute('home')}>Conversar com a Voia</Button>}/>
+            : <EmptyState icon={Icon.Plane} eyebrow="Voos"
+                title="Nenhum voo encontrado"
+                desc="Tente outras datas ou aeroportos. A Voia também pode ajudar pelo chat."
+                primary={<Button icon={Icon.Sparkles} onClick={() => setRoute('home')}>Conversar com a Voia</Button>}/>}
           render={(f) => (
             <Card key={f.id} hover className="p-5 h-full cursor-pointer" onClick={()=>setPicked(f)}>
               <div className="flex items-center justify-between">
@@ -104,23 +140,9 @@ const FlightsScreen = ({ setRoute }) => {
             <div className="grid grid-cols-2 gap-3">
               <Mini3 label="Cabine" value={orTBD(picked.cabin)}/>
               <Mini3 label="Bagagem" value={orTBD(picked.baggage)} tone="sage"/>
-              <Mini3 label="Seguro Gaid" value="Ativo" tone="sage"/>
+              <Mini3 label="Seguro Voia" value="Ativo" tone="sage"/>
               <Mini3 label="Trecho" value={`${orTBD(picked.from)} → ${orTBD(picked.to)}`}/>
             </div>
-            {data.length > 1 && (
-              <div>
-                <div className="label mb-2">Mesma rota — comparar</div>
-                <div className="space-y-1.5">
-                  {data.filter(x=>x.id!==picked.id).map(x => (
-                    <div key={x.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-ink-50">
-                      <Placeholder tone={x.tone} className="h-7 w-7 rounded-md"/>
-                      <div className="flex-1 text-[12.5px] text-ink-700">{orTBD(x.airline)} · {orTBD(x.dep)} → {orTBD(x.arr)} · {orTBD(x.stops)}</div>
-                      <div className="text-[12.5px] font-medium">{fmtMoney(x.price)}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
       </Modal>
@@ -130,18 +152,24 @@ const FlightsScreen = ({ setRoute }) => {
   );
 };
 
-const SearchCell = ({ label, value, icon: Ic }) => (
-  <button className="px-4 py-2.5 text-left hover:bg-ink-50 transition-colors">
+const SearchCell = ({ label, value, onChange, placeholder, type = 'text' }) => (
+  <label className="px-4 py-2.5 text-left hover:bg-ink-50 transition-colors cursor-text block">
     <div className="label mb-0.5">{label}</div>
-    <div className="text-[13.5px] text-ink-900 font-medium truncate">{value}</div>
-  </button>
+    <input
+      type={type}
+      value={value}
+      onChange={e => onChange?.(e.target.value)}
+      placeholder={placeholder}
+      className="w-full text-[13.5px] text-ink-900 font-medium bg-transparent outline-none placeholder:text-ink-400"
+    />
+  </label>
 );
+
 const Mini3 = ({ label, value, tone }) => (
   <div className="bg-ink-50 rounded-xl p-3">
     <div className="label">{label}</div>
     <div className={`text-[14px] font-medium mt-0.5 ${tone==='sage'?'text-sage-700':'text-ink-900'}`}>{value}</div>
   </div>
 );
-
 
 export { FlightsScreen };

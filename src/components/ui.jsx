@@ -154,7 +154,7 @@ const Sidebar = ({ route, setRoute, openCmd }) => {
     { id: 'home',    label: 'Início',          icon: Icon.Home },
     { id: 'experts', label: 'Experts',         icon: Icon.Users },
     { id: 'explore', label: 'Explorar',        icon: Icon.Compass },
-    { id: 'trips',   label: 'Minhas viagens',  icon: Icon.Calendar },
+    { id: 'trips',   label: 'Minha Voia',      icon: Icon.Calendar },
   ];
   const items2 = [
     { id: 'flights', label: 'Voos',     icon: Icon.Plane },
@@ -221,7 +221,7 @@ const Sidebar = ({ route, setRoute, openCmd }) => {
 const Topbar = ({ title, subtitle, right }) => (
   <div className="px-4 sm:px-6 lg:px-10 pt-6 lg:pt-8 pb-4 lg:pb-6 flex flex-col sm:flex-row sm:items-end justify-between gap-4 sm:gap-6">
     <div className="min-w-0">
-      <div className="label mb-1">{subtitle || 'Gaid'}</div>
+      <div className="label mb-1">{subtitle || 'Voia'}</div>
       <h1 className="text-[28px] tracking-tight font-medium text-ink-900 leading-none">{title}</h1>
     </div>
     <div className="flex items-center gap-2">{right}</div>
@@ -243,11 +243,11 @@ const SectionHeader = ({ eyebrow, title, action }) => (
 const CmdPalette = ({ open, onClose, setRoute }) => {
   const items = useMemo(() => [
     { id: 'home',    label: 'Início',         hint: 'tela inicial',     route: 'home',    icon: Icon.Home },
-    { id: 'trips',   label: 'Minhas viagens', hint: 'suas viagens',     route: 'trips',   icon: Icon.Calendar },
+    { id: 'trips',   label: 'Minha Voia',     hint: 'suas viagens',     route: 'trips',   icon: Icon.Calendar },
     { id: 'experts', label: 'Experts',        hint: 'especialistas',    route: 'experts', icon: Icon.Users },
     { id: 'explore', label: 'Explorar',       hint: 'roteiros prontos', route: 'explore', icon: Icon.Compass },
     { id: 'flights', label: 'Voos',           hint: 'busca + milhas',   route: 'flights', icon: Icon.Plane },
-    { id: 'hotels',  label: 'Hotéis',         hint: 'Gaid Collection',  route: 'hotels',  icon: Icon.Bed },
+    { id: 'hotels',  label: 'Hotéis',         hint: 'Voia Collection',  route: 'hotels',  icon: Icon.Bed },
     { id: 'tours',   label: 'Passeios',       hint: 'curados',          route: 'tours',   icon: Icon.Ticket },
     { id: 'plans',   label: 'Planos',         hint: 'Signature',        route: 'plans',   icon: Icon.Award },
   ], []);

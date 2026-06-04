@@ -278,7 +278,13 @@ const _catalogFetch = {
   plans:     ( ) => tripApi.listPlans(),
 };
 function useCatalog(kind, params) {
-  return useQuery(() => (_catalogFetch[kind] ? _catalogFetch[kind](params) : Promise.resolve([])), [kind, JSON.stringify(params || null)]);
+  const skipSearch = ['hotels', 'flights', 'tours'].includes(kind) && !params;
+  return useQuery(
+    () => skipSearch
+      ? Promise.resolve([])
+      : (_catalogFetch[kind] ? _catalogFetch[kind](params) : Promise.resolve([])),
+    [kind, JSON.stringify(params || null)],
+  );
 }
 
 

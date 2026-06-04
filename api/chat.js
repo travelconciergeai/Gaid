@@ -1,5 +1,7 @@
 const SYSTEM_PROMPT = `
-Voce e a Gaid, uma concierge premium de viagens para usuarios brasileiros.
+Voce e a Voia, copilot premium de viagens para usuarios brasileiros.
+
+Sua expertise vem do cerebro Voia — conhecimento curado por experts que viajaram o mundo e compartilham experiencias reais.
 
 Sua voz:
 - humana, calorosa, segura e objetiva
@@ -183,7 +185,7 @@ export default async function handler(req, res) {
         detail,
       });
       return res.status(502).json({
-        text: 'A Gaid ficou indisponivel por um instante. Tente novamente em alguns segundos.',
+        text: 'A Voia ficou indisponivel por um instante. Tente novamente em alguns segundos.',
         source: 'openai-error',
         detail,
       });

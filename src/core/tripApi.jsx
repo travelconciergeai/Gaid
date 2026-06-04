@@ -475,19 +475,86 @@ const _emptyAdapter = {
   async applyHotel(_tripId, _hotelId, _nights) { return null; },
   async applyFlight(_tripId, _flightId, _dayId) { return null; },
   async applyTour(_tripId, _tourId, _dayId, _slot) { return null; },
-  // catálogo / busca (carrosséis)
-  async searchHotels(_q) { return []; },
-  async searchFlights(_q) { return []; },
-  async searchTours(_q) { return []; },
-  async listTemplates(_q) { return []; },     // roteiros sugeridos
+
+  // catálogo / busca — dados reais via APIs
+  async searchHotels(q = {}) {
+    const res = await fetch('/api/search/hotels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(q),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || 'Falha na busca de hotéis.');
+    return data.hotels || [];
+  },
+  async searchFlights(q = {}) {
+    const res = await fetch('/api/search/flights', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(q),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || 'Falha na busca de voos.');
+    return data.flights || [];
+  },
+  async searchTours(q = {}) {
+    const res = await fetch('/api/search/tours', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(q),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || 'Falha na busca de passeios.');
+    return data.tours || [];
+  },
+  async searchPlaces(q = {}) {
+    const res = await fetch('/api/search/places', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(q),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || 'Falha na busca de lugares.');
+    return data.places || [];
+  },
+  async queryBrain(q = {}) {
+    const res = await fetch('/api/brain/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(q),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || 'Falha ao consultar cérebro Voia.');
+    return data;
+  },
+  async listTemplates(q = {}) {
+    const res = await fetch('/api/catalog/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(q),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return [];
+    return data.templates || [];
+  },
   async getTemplate(_id) { return null; },
-  async listExperts(_q) { return []; },
+  async listExperts(_q = {}) {
+    const res = await fetch('/api/catalog/experts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(_q),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return [];
+    return data.experts || [];
+  },
   async listPlans() { return []; },
-  async listDestinations(_q) { return {}; },     // curated destinations (grouped by region)
-  // perfil / sessão (TravelProfile vem do onboarding; backend confirma)
+  async listDestinations(_q) { return {}; },
   async getTravelProfile() { return null; },
-  async sendChatMessage({ message, history = [], context = {} } = {}) {
-    const res = await fetch('/api/chat', {
+
+  async sendChatMessage({ message, history = [], context = {}, useAgent = false } = {}) {
+    const endpoint = useAgent ? '/api/agent' : '/api/chat';
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message, history, context }),
@@ -495,17 +562,19 @@ const _emptyAdapter = {
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       return {
-        text: data?.text || 'Não consegui falar com a Gaid agora. Tente novamente em instantes.',
+        text: data?.text || data?.error || 'Não consegui falar com a Voia agora. Tente novamente em instantes.',
         source: data?.source || 'error',
       };
     }
     const payload = {
       text: data?.text || 'Não consegui obter uma resposta da IA agora. Tente novamente em instantes.',
-      source: data?.source || 'error',
+      source: data?.source || 'openai',
     };
     if (Array.isArray(data?.itinerarySuggestions)) {
       payload.itinerarySuggestions = data.itinerarySuggestions;
     }
+    if (Array.isArray(data?.actions)) payload.actions = data.actions;
+    if (Array.isArray(data?.toolCalls)) payload.toolCalls = data.toolCalls;
     return payload;
   },
 };

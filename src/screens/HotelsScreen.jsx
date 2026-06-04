@@ -1,32 +1,70 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Icon } from '../components/icons.jsx';
-import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer } from '../components/ui.jsx';
-import { EmptyState, EmptyInline } from './EmptyStates.jsx';
-import { Async, CardSkeleton, CatalogCarousel, Carousel, Skeleton, ErrorState, CarouselSkeleton } from '../core/states.jsx';
-import { useAccount, useTrips, useCatalog, deriveTraits, profileCompletion } from '../core/store.jsx';
-import { TBD, has, orTBD, fmtDuration, fmtMoney } from '../core/contracts.jsx';
-// Hotels — Gaid Collection. Production: results come from tripApi (empty-first),
-// rendered in a horizontal carousel. No mockData; nothing fabricated.
+import { Button, Tag, Card, Modal, SmartImg, Topbar, AddToTripDrawer } from '../components/ui.jsx';
+import { EmptyState } from './EmptyStates.jsx';
+import { CatalogCarousel } from '../core/states.jsx';
+import { useCatalog } from '../core/store.jsx';
+import { has, orTBD, fmtMoney } from '../core/contracts.jsx';
+
+function defaultDates() {
+  const checkIn = new Date();
+  checkIn.setDate(checkIn.getDate() + 30);
+  const checkOut = new Date(checkIn);
+  checkOut.setDate(checkOut.getDate() + 3);
+  return {
+    checkIn: checkIn.toISOString().slice(0, 10),
+    checkOut: checkOut.toISOString().slice(0, 10),
+  };
+}
 
 const HotelsScreen = ({ setRoute }) => {
+  const dates = defaultDates();
+  const [city, setCity] = useState('');
+  const [checkIn, setCheckIn] = useState(dates.checkIn);
+  const [checkOut, setCheckOut] = useState(dates.checkOut);
+  const [searchParams, setSearchParams] = useState(null);
   const [open, setOpen] = useState(null);
   const [addItem, setAddItem] = useState(null);
-  const q = useCatalog('hotels');
+
+  const q = useCatalog('hotels', searchParams);
+
+  const handleSearch = useCallback(() => {
+    if (!city.trim()) return;
+    setSearchParams({ city: city.trim(), checkIn, checkOut, adults: 2 });
+  }, [city, checkIn, checkOut]);
 
   return (
     <div className="min-h-screen">
-      <Topbar subtitle="Gaid · Hotéis" title="Gaid Collection"
+      <Topbar subtitle="Voia · Hotéis" title="Hotéis em tempo real"
         right={<><Button variant="ghost" icon={Icon.Filter}>Filtros</Button>
                   <Button variant="secondary" icon={Icon.MapPin}>Mapa</Button></>}/>
+
+      <div className="px-10 pb-4">
+        <Card className="p-2 mb-6">
+          <div className="grid grid-cols-[2fr_1fr_1fr_auto] divide-x hairline">
+            <SearchCell label="Destino" value={city} onChange={setCity} placeholder="Paris, Orlando, Lisboa…"/>
+            <SearchCell label="Check-in" value={checkIn} onChange={setCheckIn} type="date"/>
+            <SearchCell label="Check-out" value={checkOut} onChange={setCheckOut} type="date"/>
+            <div className="flex items-center pl-2 pr-1">
+              <Button icon={Icon.Search} onClick={handleSearch} disabled={!city.trim()}>Buscar</Button>
+            </div>
+          </div>
+        </Card>
+      </div>
 
       <div className="px-10 pb-12">
         <CatalogCarousel
           query={q}
           itemClass="w-[320px]"
-          empty={<EmptyState icon={Icon.Bed} eyebrow="Hotéis"
-            title="Nenhum hotel para mostrar ainda"
-            desc="Defina destino e datas e a Gaid Collection traz opções curadas — elas aparecem aqui em carrossel."
-            primary={<Button icon={Icon.Sparkles} onClick={() => setRoute('home')}>Conversar com a Gaid</Button>}/>}
+          empty={!searchParams
+            ? <EmptyState icon={Icon.Bed} eyebrow="Hotéis"
+                title="Busque hotéis reais"
+                desc="Defina destino e datas — a Voia busca opções com preços reais via Amadeus."
+                primary={<Button icon={Icon.Sparkles} onClick={() => setRoute('home')}>Conversar com a Voia</Button>}/>
+            : <EmptyState icon={Icon.Bed} eyebrow="Hotéis"
+                title="Nenhum hotel encontrado"
+                desc="Tente outras datas ou destino. A Voia também pode ajudar pelo chat."
+                primary={<Button icon={Icon.Sparkles} onClick={() => setRoute('home')}>Conversar com a Voia</Button>}/>}
           render={(h) => (
             <Card key={h.id} hover className="overflow-hidden h-full" onClick={() => setOpen(h)}>
               <SmartImg seed={`hotel-${h.id}`} tone={h.tone} label={h.city} w={600} h={400} className="h-[200px]"/>
@@ -56,27 +94,12 @@ const HotelsScreen = ({ setRoute }) => {
         </>}>
         {open && (
           <div className="space-y-5">
-            <div className="grid grid-cols-2 gap-3">
-              <SmartImg seed={`hotel-cover-${open.id}`} tone={open.tone} label={open.city} w={600} h={400} className="h-[200px] rounded-xl"/>
-              <div className="grid grid-cols-2 gap-3">
-                <SmartImg seed={`hotel-${open.id}-1`} tone="warm" w={400} h={400} className="rounded-xl aspect-square"/>
-                <SmartImg seed={`hotel-${open.id}-2`} tone="cool" w={400} h={400} className="rounded-xl aspect-square"/>
-                <SmartImg seed={`hotel-${open.id}-3`} tone="sage" w={400} h={400} className="rounded-xl aspect-square"/>
-                <SmartImg seed={`hotel-${open.id}-4`} tone="coral" w={400} h={400} className="rounded-xl aspect-square"/>
-              </div>
-            </div>
             <div className="grid grid-cols-4 gap-3">
-              <Mini3 label="Avaliação" value={has(open.rating) ? `${open.rating} ★` : TBD} tone="sage"/>
+              <Mini3 label="Avaliação" value={has(open.rating) ? `${open.rating} ★` : '—'} tone="sage"/>
               <Mini3 label="Noites" value={orTBD(open.nights)}/>
               <Mini3 label="Total" value={fmtMoney(open.price)}/>
-              <Mini3 label="Cancelamento" value="Grátis 48h" tone="sage"/>
+              <Mini3 label="Cancelamento" value="Consultar" tone="sage"/>
             </div>
-            {has(open.perk) && (
-              <div className="bg-brand-50 border border-brand-100 rounded-xl p-4 flex gap-3">
-                <Icon.Sparkles size={16} className="text-brand-700 mt-0.5"/>
-                <div className="text-[13px] text-brand-900"><span className="font-medium">Gaid Perk:</span> {open.perk}.</div>
-              </div>
-            )}
           </div>
         )}
       </Modal>
@@ -86,5 +109,24 @@ const HotelsScreen = ({ setRoute }) => {
   );
 };
 
+const SearchCell = ({ label, value, onChange, placeholder, type = 'text' }) => (
+  <label className="px-4 py-2.5 text-left hover:bg-ink-50 transition-colors cursor-text block">
+    <div className="label mb-0.5">{label}</div>
+    <input
+      type={type}
+      value={value}
+      onChange={e => onChange?.(e.target.value)}
+      placeholder={placeholder}
+      className="w-full text-[13.5px] text-ink-900 font-medium bg-transparent outline-none placeholder:text-ink-400"
+    />
+  </label>
+);
+
+const Mini3 = ({ label, value, tone }) => (
+  <div className="bg-ink-50 rounded-xl p-3">
+    <div className="label">{label}</div>
+    <div className={`text-[14px] font-medium mt-0.5 ${tone==='sage'?'text-sage-700':'text-ink-900'}`}>{value}</div>
+  </div>
+);
 
 export { HotelsScreen };
