@@ -32,7 +32,15 @@ export {
   logBrainError,
 } from './observability.js';
 export { buildGaidContext } from './contextAssembler.js';
-export { conversationController, detectIntent, extractDestinationEvidence } from './conversationController.js';
+export { conversationController } from './conversationController.js';
+export { normalizeUserMessage } from './normalizer.js';
+export { classifyIntent } from './intentClassifier.js';
+export { extractEntities } from './entityExtractor.js';
+export { validateDestinationCandidate, createDestinationEvidence } from './destinationGuard.js';
+export { decideNextState, normalizeConversationState } from './conversationStateMachine.js';
+export { buildWizardSeed, firstWizardStep } from './wizardController.js';
+export { buildDynamicStarters } from './starterController.js';
+export { runConversationControllerSelfTest } from './coreAgentSelfTest.js';
 export {
   OUTPUT_TYPES,
   action,

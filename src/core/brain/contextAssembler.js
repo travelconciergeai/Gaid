@@ -26,8 +26,10 @@ function activeTripContext(activeTrip) {
     dates: activeTrip.dates || tripContext.dates || null,
     durationDays: activeTrip.durationDays || tripContext.durationDays || null,
     travelers: activeTrip.travelers || tripContext.travelers || null,
+    travelerComposition: activeTrip.travelerComposition || tripContext.travelerComposition || tripContext.travelers?.composition || '',
     interests: asArray(activeTrip.interests || tripContext.interests || tripContext.priorities),
     itineraryDays: days,
+    selectedItem: activeTrip.selectedItem || null,
   };
 }
 
@@ -60,19 +62,26 @@ function buildGaidContext({
   lastRecommendationSet = null,
   lastRecommendationQuery = '',
   pendingAction = null,
+  mode = 'idle',
+  wizardState = null,
+  lastSurface = null,
 } = {}) {
   const profilePart = profileContext(profile);
   return {
     ...profilePart,
     activeTrip: activeTripContext(activeTrip),
     conversation: {
+      mode,
       surface,
       lastIntent,
       pendingDestination,
+      pendingRecommendationQuery: lastRecommendationQuery,
       selectedItem,
       lastRecommendationSet,
       lastRecommendationQuery,
+      wizardState,
       pendingAction,
+      lastSurface,
     },
   };
 }
