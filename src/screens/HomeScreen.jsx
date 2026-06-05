@@ -19,6 +19,8 @@ import {
   logKnowledgeDecision,
   logToolExecution,
   rankRecommendationCandidates,
+  buildGaidContext,
+  conversationController,
 } from '../core/brain/index.js';
 // Home — conversational landing.
 // Two modes:
@@ -280,6 +282,8 @@ function discoveryKnowledgeContext(context) {
     context.children ? 'crianças' : '',
     context.travelStyle === 'budget' ? 'econômico' : '',
     context.travelStyle === 'premium' ? 'premium' : '',
+    ...(Array.isArray(context.profileInterests) ? context.profileInterests : []),
+    ...(Array.isArray(context.profilePriorities) ? context.profilePriorities : []),
   ].filter(Boolean);
 
   return {
@@ -345,9 +349,14 @@ function sourceDiscoveryCards(context) {
       area: context.neighborhood || item.area,
       rating: item.rating,
       reason: enrichDiscoveryReason({ ...item, reason: baseReason }, context, routedKnowledge.context),
+      shortReason: enrichDiscoveryReason({ ...item, reason: baseReason }, context, routedKnowledge.context),
+      idealFor: context.children ? 'famílias com crianças' : context.couple ? 'casais' : context.category === 'Restaurant' ? 'quem quer comer bem' : 'viajantes curiosos',
+      caution: context.weatherHint === 'rain' ? 'Confirme deslocamento e tempo de permanência antes de sair.' : 'Curadoria inicial; dados ao vivo entram em integração futura.',
       source: source === 'KNOWLEDGE_CORE' ? 'gaid_knowledge_core' : source,
       confidence: metadata?.confidence || 0.45,
       reasoningHint: metadata?.reasoningHint || 'Discovery local sem conhecimento adicional.',
+      tags: [context.category, context.neighborhood || destination, ...(context.profileInterests || []).slice(0, 2)].filter(Boolean),
+      actions: [{ id: 'details', label: 'Ver detalhes' }],
       knowledge: routedKnowledge.context,
     };
     return card;
@@ -409,6 +418,43 @@ function discoveryMessage(context, cards = null) {
     followupSuggestions: response.followupSuggestions,
     recommendations: response.cards,
     discoveryContext: context,
+  };
+}
+
+function profileAwareDiscoveryContext(context, gaidContext) {
+  const familyProfile = /fam/i.test(gaidContext.userProfile.defaultComposition || '') ||
+    gaidContext.userProfile.commonCompanions.some(item => /crian|beb/i.test(item));
+  const coupleProfile = /casal/i.test(gaidContext.userProfile.defaultComposition || '') ||
+    gaidContext.userProfile.commonCompanions.some(item => /parceir|marido|esposa/i.test(item));
+  return {
+    ...context,
+    family: context.family || familyProfile,
+    children: context.children || gaidContext.userProfile.childrenAges.length > 0,
+    couple: context.couple || coupleProfile,
+    travelStyle: context.travelStyle || gaidContext.preferences.pace || null,
+    budget: context.budget || gaidContext.preferences.budgetStyle || null,
+    profileInterests: gaidContext.preferences.interests,
+    profilePriorities: gaidContext.preferences.priorityRanking,
+  };
+}
+
+function shortContractMessage(response, source = 'conversation-controller') {
+  return {
+    id: `a-${Date.now()}`,
+    who: 'agent',
+    text: [response?.title, response?.body].filter(Boolean).join('\n\n') || 'Como você prefere seguir?',
+    sections: response?.sections || [],
+    actions: response?.actions || [],
+    source,
+  };
+}
+
+function checklistContractMessage(response) {
+  return {
+    id: `checklist-${Date.now()}`,
+    who: 'agent',
+    checklist: response,
+    source: 'conversation-controller',
   };
 }
 
@@ -1647,6 +1693,16 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     ? nextWizardQuestion(wizardV3.context, wizardV3.answers, wizardV3.maxInteractions)
     : null;
   const wizard = activeWizardQuestion ? [activeWizardQuestion] : [];
+  const latestRecommendation = [...chat].reverse().find(m => Array.isArray(m.recommendations) && m.recommendations.length > 0) || null;
+  const getHomeContext = () => buildGaidContext({
+    profile: acct.profile,
+    activeTrip,
+    surface: 'home',
+    lastIntent: plannerState,
+    pendingDestination: pendingPlannerContext,
+    lastRecommendationSet: latestRecommendation?.recommendations || null,
+    lastRecommendationQuery: latestRecommendation?.discoveryContext?.query || '',
+  });
 
   const detectFlow = (t) => {
     const s = (t || '').toLowerCase();
@@ -1695,6 +1751,61 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     ]);
   };
 
+  const runControllerDecision = (decision, userText, baseChat) => {
+    const nextChat = Array.isArray(baseChat) ? baseChat : chat;
+    const action = decision?.action || {};
+    if (decision?.statePatch?.pendingDestination !== undefined) {
+      setPendingPlannerContext(decision.statePatch.pendingDestination);
+    }
+    if (action.type === 'START_WIZARD') {
+      startFlow(userText, 'trip', action.seedContext || {});
+      return true;
+    }
+    if (action.type === 'ASK_DESTINATION_CLARIFICATION') {
+      setPhase('done');
+      setChat([...nextChat, shortContractMessage(decision.response)]);
+      return true;
+    }
+    if (action.type === 'SHOW_RECOMMENDATIONS' || action.type === 'REFINE_RECOMMENDATIONS') {
+      const sourceText = action.message || userText;
+      const lastContext = latestRecommendation?.discoveryContext || {};
+      const mergedContext = {
+        ...lastContext,
+        ...extractDiscoveryContext(sourceText),
+        ...(!extractDiscoveryContext(sourceText).destination && getHomeContext().activeTrip.destination ? { destination: getHomeContext().activeTrip.destination } : {}),
+        ...(action.destination ? { destination: action.destination } : {}),
+      };
+      const discoveryContext = profileAwareDiscoveryContext(mergedContext, getHomeContext());
+      if (!hasEnoughDiscoveryContext(discoveryContext)) {
+        setPhase('done');
+        setChat([...nextChat, {
+          id: `discovery-clarify-${Date.now()}`,
+          who: 'agent',
+          text: 'Em qual cidade você quer essa dica?',
+          source: 'discovery-engine',
+          discoveryContext,
+        }]);
+        return true;
+      }
+      setPhase('done');
+      setChat([...nextChat, discoveryMessage(discoveryContext, sourceDiscoveryCards(discoveryContext))]);
+      return true;
+    }
+    if (action.type === 'SHOW_CHECKLIST') {
+      setPhase('done');
+      setChat([...nextChat, checklistContractMessage(decision.response)]);
+      return true;
+    }
+    if (action.type === 'ROUTE_TO_PLAN_REPLANNING' || action.type === 'ROUTE_TO_PLAN_EDITING') {
+      setPhase('done');
+      setChat([...nextChat, shortContractMessage(decision.response)]);
+      return true;
+    }
+    setPhase('done');
+    setChat([...nextChat, shortContractMessage(decision.response)]);
+    return true;
+  };
+
   const sendToGaid = async (message, baseChat = []) => {
     setThinking(true);
     try {
@@ -1726,85 +1837,22 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     // From idle: collect the core trip context before creating the real trip.
     if (mode === 'idle') {
       setMode('chat');
-      setChat([{ id: 'u-0', who: 'user', text: t }]);
-      setPendingPlannerContext(null);
-
-      if (isDestinationOnlyMessage(t)) {
-        const destination = titleCaseDestination(t);
-        setPendingPlannerContext({
-          destination,
-          destinationEvidence: createDestinationEvidence(destination, 'user_explicit_message', t, 0.8, false),
-        });
-        setPhase('done');
-        setChat([
-          { id: 'u-0', who: 'user', text: t },
-          {
-            id: `clarify-${Date.now()}`,
-            who: 'agent',
-            text: `Você quer montar uma viagem para ${destination} ou quer uma indicação rápida por lá?`,
-            source: 'intent-router',
-          },
-        ]);
-        return;
-      }
-
-      const classification = classifyGaidIntent(t);
+      const userMsg = { id: 'u-0', who: 'user', text: t };
+      setChat([userMsg]);
+      const decision = conversationController(t, {
+        ...getHomeContext(),
+        conversation: { ...getHomeContext().conversation, pendingDestination: null },
+      });
       logIntentDecision({
         surface: 'home',
         flow: 'initial-message',
-        intent: classification.intent,
-        confidence: classification.confidence,
-        requiresTrip: classification.requiresTrip,
-        nextTool: classification.nextTool,
-        reason: classification.reason,
+        intent: decision.intent,
+        confidence: decision.response?.confidence || 0,
+        requiresTrip: decision.intent === 'PLAN_TRIP',
+        nextTool: decision.surface,
+        reason: 'Conversation Controller V1 decision.',
       });
-
-      if (isTripPlanningIntent(t) || classification.intent === 'PLAN_TRIP') {
-        startFlow(t, 'trip');
-        return;
-      }
-
-      if (isDiscoveryIntent(t) || classification.nextTool === 'Discovery Engine') {
-        const discoveryContext = extractDiscoveryContext(t);
-        if (!hasEnoughDiscoveryContext(discoveryContext)) {
-          setPhase('done');
-          setChat([
-            { id: 'u-0', who: 'user', text: t },
-            {
-              id: `discovery-clarify-${Date.now()}`,
-              who: 'agent',
-              text: 'Em qual cidade você está?',
-              source: 'discovery-engine',
-              discoveryContext,
-            },
-          ]);
-          return;
-        }
-        setPhase('done');
-        setChat([
-          { id: 'u-0', who: 'user', text: t },
-          discoveryMessage(discoveryContext, buildLocalRecommendations(t)),
-        ]);
-        return;
-      }
-
-      setPhase('done');
-      if (/^[a-z\s\u00C0-\u017F]{2,32}$/i.test(t)) {
-        const destination = titleCaseDestination(t);
-        setPendingPlannerContext({
-          destination,
-          destinationEvidence: createDestinationEvidence(destination, 'user_explicit_message', t, 0.75, false),
-        });
-      }
-      setChat([
-        { id: 'u-0', who: 'user', text: t },
-        {
-          id: `clarify-${Date.now()}`,
-          who: 'agent',
-          text: 'Você quer que eu monte uma viagem completa ou prefere uma indicação rápida para agora?',
-          source: 'intent-router',
-        },
-      ]);
+      runControllerDecision(decision, t, [userMsg]);
       return;
     }
 
@@ -1822,6 +1870,19 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     } else {
       const userMsg = { id: `u-${Date.now()}`, who: 'user', text: t };
       const nextChat = [...chat, userMsg];
+      const decision = conversationController(t, getHomeContext());
+      logIntentDecision({
+        surface: 'home',
+        flow: 'chat-message',
+        intent: decision.intent,
+        confidence: decision.response?.confidence || 0,
+        requiresTrip: decision.intent === 'PLAN_TRIP',
+        nextTool: decision.surface,
+        plannerState,
+        reason: 'Conversation Controller V1 decision.',
+      });
+      runControllerDecision(decision, t, nextChat);
+      return;
       const classification = classifyGaidIntent(t);
       logIntentDecision({
         surface: 'home',
@@ -2338,10 +2399,39 @@ const ChatMsg = ({ m, wizard, genSteps, onAnswer, onGenDone, onOpenTrip }) => {
     );
   }
 
+  if (m.checklist) {
+    return (
+      <div className="max-w-[560px] bg-white border-half rounded-2xl p-4 shadow-soft space-y-3">
+        <div>
+          <div className="text-[10.5px] uppercase tracking-wider text-ink-400">checklist</div>
+          <div className="text-[15px] font-medium text-ink-900 mt-1">{m.checklist.title}</div>
+        </div>
+        <div className="space-y-2">
+          {(m.checklist.items || []).map((item, index) => (
+            <div key={`${item.label}-${index}`} className="flex items-start gap-2.5 text-[13px] text-ink-700">
+              <Icon.Check size={14} className="text-brand-700 mt-0.5 shrink-0"/>
+              <span>{item.label}</span>
+            </div>
+          ))}
+        </div>
+        <div className="text-[12px] text-ink-500 leading-relaxed">
+          Regras podem mudar. Antes de viajar, confirme em uma fonte oficial.
+        </div>
+      </div>
+    );
+  }
+
   // plain agent text
   return (
     <div className="text-[14.5px] text-ink-900 leading-relaxed max-w-[85%]">
       {m.text}
+      {Array.isArray(m.sections) && m.sections.length > 0 && (
+        <div className="mt-3 space-y-2">
+          {m.sections.map((section, index) => (
+            <div key={index} className="text-[13px] text-ink-700">{section.title ? `${section.title}: ` : ''}{section.body}</div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -2383,7 +2473,17 @@ const RecommendationCarousel = ({ items }) => {
           </div>
           <div>
             <div className="text-[12px] uppercase tracking-wide text-ink-400 mb-1">Por que combina</div>
-            <p className="text-[14px] leading-relaxed text-ink-700">{selected?.reason || 'Selecionado pela curadoria da Gaid para este contexto.'}</p>
+            <p className="text-[14px] leading-relaxed text-ink-700">{selected?.shortReason || selected?.reason || 'Selecionado pela curadoria da Gaid para este contexto.'}</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="rounded-xl border-half bg-white p-3">
+              <div className="text-[11px] text-ink-400 mb-1">Ideal para</div>
+              <div className="text-[13px] text-ink-800">{selected?.idealFor || 'viajantes com esse perfil'}</div>
+            </div>
+            <div className="rounded-xl border-half bg-white p-3">
+              <div className="text-[11px] text-ink-400 mb-1">Atenção</div>
+              <div className="text-[13px] text-ink-800">{selected?.caution || 'Confirme dados vivos quando a integração estiver ativa.'}</div>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-xl border-half bg-white p-3">
@@ -2398,6 +2498,13 @@ const RecommendationCarousel = ({ items }) => {
           {selected?.reasoningHint && (
             <div className="rounded-xl bg-brand-50 text-brand-900 px-4 py-3 text-[13px] leading-relaxed">
               {selected.reasoningHint}
+            </div>
+          )}
+          {Array.isArray(selected?.tags) && selected.tags.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {selected.tags.map(tag => (
+                <span key={tag} className="h-7 px-3 rounded-full bg-ink-100 text-ink-700 text-[12px] inline-flex items-center">{tag}</span>
+              ))}
             </div>
           )}
           <div className="rounded-xl border-half bg-canvas p-4">

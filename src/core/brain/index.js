@@ -31,3 +31,17 @@ export {
   logToolExecution,
   logBrainError,
 } from './observability.js';
+export { buildGaidContext } from './contextAssembler.js';
+export { conversationController, detectIntent, extractDestinationEvidence } from './conversationController.js';
+export {
+  OUTPUT_TYPES,
+  action,
+  shortMessage,
+  wizardBlock,
+  recommendationCards,
+  recommendationDrawer,
+  replanningPreview,
+  timelineAction,
+  checklist,
+  loading,
+} from './outputContract.js';
