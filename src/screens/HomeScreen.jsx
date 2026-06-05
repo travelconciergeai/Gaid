@@ -1388,10 +1388,22 @@ function parseWizardBudget(value) {
 }
 
 function extractWizardContextFromPrompt(prompt, seed = {}) {
+  const destination = parseWizardDestination(prompt);
+  const seedDestination = filledString(seed?.destination);
+  const selectedDestination = seedDestination || destination;
   return {
     ...cloneWizardV3().context,
     ...(seed || {}),
-    ...(parseWizardDestination(prompt) ? { destination: parseWizardDestination(prompt) } : {}),
+    ...(selectedDestination ? {
+      destination: selectedDestination,
+      destinationEvidence: seed?.destinationEvidence || createDestinationEvidence(
+        selectedDestination,
+        seedDestination ? 'pending_destination_confirmation' : 'user_explicit_message',
+        seedDestination ? seedDestination : prompt,
+        seedDestination ? 0.95 : 0.85,
+        true
+      ),
+    } : {}),
     ...parseWizardPeriod(prompt),
     ...parseWizardDuration(prompt),
     ...parseWizardTravelers(prompt),
@@ -1410,7 +1422,14 @@ function applyWizardAnswer(context, question, answer, skipped = false) {
       skippedFields: { ...(context.skippedFields || {}), [question.id]: true },
     };
   }
-  if (question.id === 'destination') return { ...context, destination: parseWizardDestination(answer) || filledString(answer) };
+  if (question.id === 'destination') {
+    const destination = parseWizardDestination(answer) || filledString(answer);
+    return {
+      ...context,
+      destination,
+      destinationEvidence: createDestinationEvidence(destination, 'wizard_answer', answer, 0.95, true),
+    };
+  }
   if (question.id === 'period') return { ...context, ...parseWizardPeriod(answer) };
   if (question.id === 'duration') return { ...context, ...parseWizardDuration(answer) };
   if (question.id === 'travelers') return { ...context, ...parseWizardTravelers(answer) };
@@ -1422,6 +1441,7 @@ function applyWizardAnswer(context, question, answer, skipped = false) {
 
 function nextWizardQuestion(context, answers, maxInteractions = WIZARD_V3_MAX_INTERACTIONS) {
   if (!context.destination) return WIZARD_V3_QUESTIONS.find(q => q.id === 'destination');
+  if (!context.period && !context.dates?.label && !context.skippedFields?.period && answers.length < maxInteractions) return WIZARD_V3_QUESTIONS.find(q => q.id === 'period');
   if (!context.durationDays && !context.nights) return WIZARD_V3_QUESTIONS.find(q => q.id === 'duration');
   if (!context.travelers && !context.skippedFields?.travelers && answers.length < maxInteractions) return WIZARD_V3_QUESTIONS.find(q => q.id === 'travelers');
   if ((!context.interests || context.interests.length === 0) && !context.skippedFields?.interests && answers.length < maxInteractions) return WIZARD_V3_QUESTIONS.find(q => q.id === 'interests');
@@ -1429,7 +1449,6 @@ function nextWizardQuestion(context, answers, maxInteractions = WIZARD_V3_MAX_IN
     return { ...WIZARD_V3_QUESTIONS.find(q => q.id === 'priorityRanking'), options: context.interests.map(item => ({ id: item, label: item })) };
   }
   if (!context.budget && !context.skippedFields?.budget && answers.length < maxInteractions) return WIZARD_V3_QUESTIONS.find(q => q.id === 'budget');
-  if (!context.period && !context.dates?.label && !context.skippedFields?.period && answers.length < maxInteractions) return WIZARD_V3_QUESTIONS.find(q => q.id === 'period');
   return null;
 }
 
@@ -1456,6 +1475,101 @@ function canCompleteWizardV3(context, skippedAll = false) {
   return Boolean(context?.destination && (context.durationDays || context.nights || skippedAll));
 }
 
+const GENERIC_DESTINATION_PATTERNS = [
+  /^(quero\s+)?(montar|criar|gerar|planejar)\s+(um\s+|uma\s+)?(roteiro|viagem)(\s+novo|\s+nova)?$/i,
+  /^(roteiro|viagem)\s+(novo|nova)$/i,
+  /^(nova|novo)\s+(viagem|roteiro)$/i,
+  /^quero\s+(viajar|ir)$/i,
+];
+
+function isForbiddenDestination(value) {
+  const raw = filledString(value);
+  const text = normText(raw);
+  if (!raw || raw.length < 2) return true;
+  return GENERIC_DESTINATION_PATTERNS.some(pattern => pattern.test(raw)) ||
+    /^(quero|montar|criar|gerar|planejar|roteiro|viagem|novo|nova)$/i.test(text);
+}
+
+function createDestinationEvidence(destination, source, originalText, confidence = 0.9, confirmed = true) {
+  const cleanDestination = titleCaseDestination(destination);
+  if (isForbiddenDestination(cleanDestination)) return null;
+  const evidence = {
+    destination: cleanDestination,
+    source,
+    originalText: filledString(originalText),
+    confidence,
+    confirmed,
+  };
+  console.info('destination_evidence_created', evidence);
+  return evidence;
+}
+
+function validDestinationEvidence(context) {
+  const evidence = context?.destinationEvidence;
+  return Boolean(
+    context?.destination &&
+    !isForbiddenDestination(context.destination) &&
+    evidence?.destination &&
+    evidence.confirmed &&
+    evidence.confidence >= 0.65 &&
+    !['gpt_inference', 'fallback', 'generated_text', 'assistant_suggestion', 'raw_prompt'].includes(evidence.source)
+  );
+}
+
+function profileDefaultsForWizard(profile) {
+  const travelerProfile = profile?.travelerProfile || {};
+  const preferences = profile?.preferences || {};
+  const defaultComposition = filledString(travelerProfile.defaultComposition);
+  const travelers = defaultComposition
+    ? {
+      count: defaultComposition === 'Solo' || defaultComposition === 'Sozinho'
+        ? 1
+        : defaultComposition === 'Casal'
+          ? 2
+          : null,
+      composition: defaultComposition,
+      children: { ages: Array.isArray(travelerProfile.childrenAges) ? travelerProfile.childrenAges : [] },
+    }
+    : null;
+  return {
+    ...(travelers ? { travelers, travelerComposition: travelers.composition } : {}),
+    ...(Array.isArray(travelerProfile.childrenAges) && travelerProfile.childrenAges.length ? { childrenAges: travelerProfile.childrenAges } : {}),
+    ...(Array.isArray(preferences.interests) && preferences.interests.length ? { interests: preferences.interests } : {}),
+    ...(preferences.pace ? { stylePace: preferences.pace } : {}),
+    ...(preferences.budgetStyle ? { budget: preferences.budgetStyle } : {}),
+    ...(Array.isArray(preferences.priorityRanking) && preferences.priorityRanking.length ? { priorityRanking: preferences.priorityRanking } : {}),
+  };
+}
+
+function initialWizardAnswersFromContext(context = {}) {
+  const answers = [];
+  if (context.destination) {
+    answers.push({
+      questionId: 'destination',
+      question: 'Para onde você quer viajar?',
+      answer: context.destination,
+      componentType: 'free_text',
+    });
+  }
+  if (context.period || context.dates?.label) {
+    answers.push({
+      questionId: 'period',
+      question: 'Quando você imagina viajar?',
+      answer: context.period || context.dates.label,
+      componentType: 'free_text',
+    });
+  }
+  if (context.durationDays || context.nights) {
+    answers.push({
+      questionId: 'duration',
+      question: 'Quantos dias você quer viajar?',
+      answer: context.durationDays ? `${context.durationDays} dias` : `${context.nights} noites`,
+      componentType: 'single_select',
+    });
+  }
+  return answers;
+}
+
 function wizardSummaryLines(answers) {
   return answers
     .filter(item => item.question && item.answer)
@@ -1468,6 +1582,7 @@ function buildWizardTripContext(context, originalPrompt, answers, skippedAll = f
   const summary = wizardSummaryLines(answers);
   return {
     destination: safe.destination,
+    destinationEvidence: safe.destinationEvidence || null,
     period: safe.period || safe.dates?.label || null,
     dates: safe.dates || (safe.period ? { label: safe.period } : null),
     durationDays: safe.durationDays || (safe.nights ? safe.nights + 1 : null),
@@ -1559,14 +1674,19 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     setWizardHistory([]);
     setMode('chat');
     setChat([{ id: 'u-0', who: 'user', text: userText }]);
-    const context = extractWizardContextFromPrompt(userText, seedContext);
+    const profileDefaults = profileDefaultsForWizard(acct.profile);
+    const context = extractWizardContextFromPrompt(userText, {
+      ...profileDefaults,
+      ...seedContext,
+    });
+    const initialAnswers = initialWizardAnswersFromContext(context);
     setWizardV3({
       active: true,
       status: 'collecting',
       stepIndex: 0,
       maxInteractions: WIZARD_V3_MAX_INTERACTIONS,
       context,
-      answers: [],
+      answers: initialAnswers,
     });
     setPhase('asking');
     setChat(c => [
@@ -1611,7 +1731,10 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
 
       if (isDestinationOnlyMessage(t)) {
         const destination = titleCaseDestination(t);
-        setPendingPlannerContext({ destination });
+        setPendingPlannerContext({
+          destination,
+          destinationEvidence: createDestinationEvidence(destination, 'user_explicit_message', t, 0.8, false),
+        });
         setPhase('done');
         setChat([
           { id: 'u-0', who: 'user', text: t },
@@ -1667,7 +1790,11 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
 
       setPhase('done');
       if (/^[a-z\s\u00C0-\u017F]{2,32}$/i.test(t)) {
-        setPendingPlannerContext({ destination: t });
+        const destination = titleCaseDestination(t);
+        setPendingPlannerContext({
+          destination,
+          destinationEvidence: createDestinationEvidence(destination, 'user_explicit_message', t, 0.75, false),
+        });
       }
       setChat([
         { id: 'u-0', who: 'user', text: t },
@@ -1706,7 +1833,26 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         plannerState,
       });
       if ((classification.intent === 'PLAN_TRIP' || isTripPlanningIntent(t) || /\broteiro\b|viagem/.test(normText(t))) && pendingPlannerContext?.destination) {
-        startFlow(t, 'trip', pendingPlannerContext);
+        startFlow(t, 'trip', {
+          ...pendingPlannerContext,
+          destinationEvidence: createDestinationEvidence(
+            pendingPlannerContext.destination,
+            'pending_destination_confirmation',
+            `${pendingPlannerContext.destination} · ${t}`,
+            0.95,
+            true
+          ),
+        });
+        return;
+      }
+      if (pendingPlannerContext?.destination && /\b(dica|recomend|indica|onde|jantar|cafe|café|restaurante|o que fazer)\b/.test(normText(t))) {
+        const discoveryContext = {
+          ...extractDiscoveryContext(`${t} ${pendingPlannerContext.destination}`),
+          destination: pendingPlannerContext.destination,
+        };
+        setPendingPlannerContext(null);
+        setPlannerState(PLANNER_IDLE);
+        setChat([...nextChat, discoveryMessage(discoveryContext)]);
         return;
       }
       if (plannerState === PLANNER_COLLECTING && (classification.intent === 'PLAN_TRIP' || classification.intent === 'UNCLEAR')) {
@@ -1757,25 +1903,56 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         return;
       }
       setChat(nextChat);
-      sendToGaid(t, nextChat);
+      setChat(c => [...c, {
+        id: `a-${Date.now()}`,
+        who: 'agent',
+        text: 'Posso te ajudar criando um roteiro ou trazendo dicas rápidas em cards. O que você prefere fazer agora?',
+        source: 'conversation-controller',
+      }]);
     }
   };
 
   const completeWizard = (finalAnswers, finalContext, { mode = 'deterministic', qa = [], skippedAll = false } = {}) => {
     const answersForSummary = wizardV3.answers;
     const safeContext = wizardContextWithDefaults(finalContext || wizardV3.context, skippedAll);
-    if (!safeContext.destination) {
+    const allowCreation = validDestinationEvidence(safeContext) && canCompleteWizardV3(safeContext, skippedAll) && wizardV3.status === 'review';
+    if (!validDestinationEvidence(safeContext)) {
+      console.info('trip_creation_blocked', {
+        reason: 'missing_valid_destination_evidence',
+        destination: safeContext.destination,
+        destinationEvidence: safeContext.destinationEvidence || null,
+      });
       setWizardV3(current => ({ ...current, active: true, status: 'collecting' }));
       setPhase('asking');
-      setChat(c => [...c, { id: `a-${Date.now()}`, who: 'agent', text: 'Antes de criar a viagem, preciso saber o destino.' }]);
+      setChat(c => [...c, { id: `a-${Date.now()}`, who: 'agent', text: 'Para montar o roteiro, preciso primeiro saber o destino.' }]);
       return;
     }
     if (!canCompleteWizardV3(safeContext, skippedAll)) {
+      console.info('trip_creation_blocked', {
+        reason: 'missing_duration_or_assumption',
+        destination: safeContext.destination,
+        destinationEvidence: safeContext.destinationEvidence || null,
+      });
       setWizardV3(current => ({ ...current, active: true, status: 'collecting' }));
       setPhase('asking');
       setChat(c => [...c, { id: `a-${Date.now()}`, who: 'agent', text: 'Antes de gerar, preciso saber a duração da viagem.' }]);
       return;
     }
+    if (!allowCreation) {
+      console.info('trip_creation_blocked', {
+        reason: 'not_in_review_state',
+        status: wizardV3.status,
+        destination: safeContext.destination,
+      });
+      setWizardV3(current => ({ ...current, active: true, status: 'collecting' }));
+      setPhase('asking');
+      return;
+    }
+    console.info('trip_creation_allowed', {
+      destination: safeContext.destination,
+      destinationEvidence: safeContext.destinationEvidence,
+      skippedAll,
+    });
     setPlannerState(PLANNER_GENERATING);
     setPhase('generating');
     setWizardV3(current => ({ ...current, active: false, status: 'generating' }));
