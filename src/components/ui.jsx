@@ -281,14 +281,8 @@ const Sidebar = ({ route, setRoute, openCmd }) => {
   const u = acct.user;
   const items = [
     { id: 'home',    label: 'Início',          icon: Icon.Home },
-    { id: 'experts', label: 'Experts',         icon: Icon.Users },
-    { id: 'explore', label: 'Explorar',        icon: Icon.Compass },
-    { id: 'trips',   label: 'Minhas viagens',  icon: Icon.Calendar },
-  ];
-  const items2 = [
-    { id: 'flights', label: 'Voos',     icon: Icon.Plane },
-    { id: 'hotels',  label: 'Hotéis',   icon: Icon.Bed },
-    { id: 'tours',   label: 'Passeios', icon: Icon.Ticket },
+    { id: 'trips',   label: 'Roteiros',         icon: Icon.Calendar },
+    { id: 'explore', label: 'Dicas',            icon: Icon.Compass },
   ];
   const NavItem = ({ it }) => {
     const ActiveIcon = it.icon;
@@ -320,10 +314,6 @@ const Sidebar = ({ route, setRoute, openCmd }) => {
 
       <div className="px-3 space-y-0.5">
         {items.map(it => <NavItem key={it.id} it={it}/>)}
-      </div>
-      <div className="px-3 pt-5 space-y-0.5">
-        <div className="label px-3 pb-1">Reservar</div>
-        {items2.map(it => <NavItem key={it.id} it={it}/>)}
       </div>
 
       <div className="mt-auto p-3">
@@ -372,13 +362,8 @@ const SectionHeader = ({ eyebrow, title, action }) => (
 const CmdPalette = ({ open, onClose, setRoute }) => {
   const items = useMemo(() => [
     { id: 'home',    label: 'Início',         hint: 'tela inicial',     route: 'home',    icon: Icon.Home },
-    { id: 'trips',   label: 'Minhas viagens', hint: 'suas viagens',     route: 'trips',   icon: Icon.Calendar },
-    { id: 'experts', label: 'Experts',        hint: 'especialistas',    route: 'experts', icon: Icon.Users },
-    { id: 'explore', label: 'Explorar',       hint: 'roteiros prontos', route: 'explore', icon: Icon.Compass },
-    { id: 'flights', label: 'Voos',           hint: 'busca + milhas',   route: 'flights', icon: Icon.Plane },
-    { id: 'hotels',  label: 'Hotéis',         hint: 'Gaid Collection',  route: 'hotels',  icon: Icon.Bed },
-    { id: 'tours',   label: 'Passeios',       hint: 'curados',          route: 'tours',   icon: Icon.Ticket },
-    { id: 'plans',   label: 'Planos',         hint: 'Signature',        route: 'plans',   icon: Icon.Award },
+    { id: 'trips',   label: 'Roteiros',       hint: 'suas viagens',     route: 'trips',   icon: Icon.Calendar },
+    { id: 'explore', label: 'Dicas',          hint: 'recomendações',    route: 'explore', icon: Icon.Compass },
   ], []);
   const [q, setQ] = useState('');
   const filtered = items.filter(i => (i.label + ' ' + i.hint).toLowerCase().includes(q.toLowerCase()));
@@ -397,7 +382,7 @@ const CmdPalette = ({ open, onClose, setRoute }) => {
         </div>
         <div className="max-h-[320px] overflow-y-auto p-2">
           {filtered.length === 0 ? (
-            <div className="px-3 py-6 text-center text-[13px] text-ink-500">Nada por aqui. Tente "experts" ou "milhas".</div>
+            <div className="px-3 py-6 text-center text-[13px] text-ink-500">Nada por aqui. Tente "roteiros" ou "dicas".</div>
           ) : filtered.map(it => {
             const Ic = it.icon;
             return (

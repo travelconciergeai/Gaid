@@ -1,22 +1,15 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Icon } from '../icons.jsx';
 import { GaidLogo } from '../ui.jsx';
 import { useAccount } from '../../core/store.jsx';
 
 const PRIMARY_TABS = [
   { id: 'home', label: 'Início', icon: Icon.Home },
-  { id: 'trips', label: 'Viagens', icon: Icon.Calendar },
-  { id: 'explore', label: 'Explorar', icon: Icon.Compass },
-  { id: 'experts', label: 'Experts', icon: Icon.Users },
+  { id: 'trips', label: 'Roteiros', icon: Icon.Calendar },
+  { id: 'explore', label: 'Dicas', icon: Icon.Compass },
 ];
 
-const RESERVE_ITEMS = [
-  { id: 'flights', label: 'Voos', icon: Icon.Plane },
-  { id: 'hotels', label: 'Hotéis', icon: Icon.Bed },
-  { id: 'tours', label: 'Passeios', icon: Icon.Ticket },
-];
-
-const MobileTabBar = ({ route, setRoute, onReserve }) => {
+const MobileTabBar = ({ route, setRoute }) => {
   const acct = useAccount();
   const u = acct.user;
 
@@ -44,14 +37,6 @@ const MobileTabBar = ({ route, setRoute, onReserve }) => {
               </button>
             );
           })}
-          <button
-            type="button"
-            onClick={onReserve}
-            className={`flex-1 flex flex-col items-center justify-center gap-0.5 min-h-[52px] rounded-[18px] transition-colors active:scale-[0.98]
-              ${RESERVE_ITEMS.some((r) => r.id === route) ? 'bg-ink-900 text-paper' : 'text-ink-600'}`}>
-            <Icon.Plus size={18}/>
-            <span className="text-[10px] font-medium tracking-wide">Reservar</span>
-          </button>
           <button
             type="button"
             onClick={() => setRoute('profile')}
@@ -93,46 +78,11 @@ const MobileTopBar = ({ title, subtitle, onBack, right }) => (
   </header>
 );
 
-const ReserveSheet = ({ open, onClose, setRoute, route }) => {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 lg:hidden">
-      <button type="button" className="absolute inset-0 bg-ink-900/35 backdrop-blur-sm" onClick={onClose} aria-label="Fechar"/>
-      <div className="absolute left-0 right-0 bottom-0 bg-white border-t hairline rounded-t-3xl p-4 pb-[max(20px,env(safe-area-inset-bottom))] fade-up">
-        <div className="w-10 h-1 rounded-full bg-ink-200 mx-auto mb-4"/>
-        <div className="label px-1 mb-3">Reservar</div>
-        <div className="space-y-1">
-          {RESERVE_ITEMS.map((it) => {
-            const Ic = it.icon;
-            const active = route === it.id;
-            return (
-              <button
-                key={it.id}
-                type="button"
-                onClick={() => { setRoute(it.id); onClose(); }}
-                className={`w-full flex items-center gap-3 px-3 h-12 rounded-xl text-left transition-colors
-                  ${active ? 'bg-brand-50 text-brand-700' : 'hover:bg-ink-50 text-ink-900'}`}>
-                <div className="h-9 w-9 rounded-lg bg-ink-100 text-ink-700 flex items-center justify-center">
-                  <Ic size={16}/>
-                </div>
-                <span className="text-[14px] font-medium">{it.label}</span>
-                <Icon.ChevronRight size={14} className="ml-auto text-ink-400"/>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-};
-
 const MOBILE_MAIN_ROUTES = new Set([
-  'home', 'trips', 'explore', 'experts', 'profile', 'plan',
-  'flights', 'hotels', 'tours', 'wallet', 'miles', 'plans',
+  'home', 'trips', 'explore', 'profile', 'plan',
 ]);
 
 const MobileShell = ({ route, setRoute, children, planMode }) => {
-  const [reserveOpen, setReserveOpen] = useState(false);
   const showTabBar = MOBILE_MAIN_ROUTES.has(route) && route !== 'plan';
   const padBottom = showTabBar ? 'pb-[calc(5.5rem+env(safe-area-inset-bottom))]' : '';
 
@@ -152,17 +102,10 @@ const MobileShell = ({ route, setRoute, children, planMode }) => {
         <MobileTabBar
           route={route}
           setRoute={setRoute}
-          onReserve={() => setReserveOpen(true)}
         />
       )}
-      <ReserveSheet
-        open={reserveOpen}
-        onClose={() => setReserveOpen(false)}
-        setRoute={setRoute}
-        route={route}
-      />
     </div>
   );
 };
 
-export { MobileShell, MobileTabBar, MobileTopBar, ReserveSheet };
+export { MobileShell, MobileTabBar, MobileTopBar };

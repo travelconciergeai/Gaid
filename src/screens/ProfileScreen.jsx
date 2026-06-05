@@ -16,10 +16,7 @@ const ProfileScreen = ({ setRoute }) => {
   const traits = deriveTraits(acct.profile);
   const completion = profileCompletion(acct.profile);
   const { summaries } = useTrips();
-  const expertsQ = useCatalog('experts');
   const tripCount = summaries.length;
-  const cardCount = (acct.cards || []).length;
-  const expertCount = (expertsQ.data || []).length;
   const toast = useToast();
 
   const accountItems = [
@@ -60,11 +57,9 @@ const ProfileScreen = ({ setRoute }) => {
             </div>
 
             {/* Stats row */}
-            <div className="grid grid-cols-4 gap-4 mt-7 pt-7 border-t hairline">
+            <div className="grid grid-cols-2 gap-4 mt-7 pt-7 border-t hairline">
               <ProfileStatD value={tripCount} label="Viagens" hint={tripCount ? 'no seu histórico' : 'comece a planejar'}/>
-              <ProfileStatD value={cardCount} label="Cartões" hint={cardCount ? 'na carteira' : 'nenhum conectado'}/>
-              <ProfileStatD value={u.miles.toLocaleString('pt-BR')} label="Milhas" hint={u.miles ? '+12% no mês' : 'conecte programas'}/>
-              <ProfileStatD value={expertCount} label="Experts" hint="à sua disposição"/>
+              <ProfileStatD value={`${completion}%`} label="Perfil" hint="personalização da Gaid"/>
             </div>
           </div>
         </Card>
@@ -75,18 +70,18 @@ const ProfileScreen = ({ setRoute }) => {
           <div>
             <SectionHeader eyebrow="Sua Gaid" title="Acesso rápido"/>
             <div className="grid grid-cols-2 gap-4">
-              <ShortcutCard tone="ink" icon={Icon.Wallet} title="Wallet"
-                value={cardCount ? `${cardCount} ${cardCount === 1 ? 'cartão' : 'cartões'}` : 'Vazia'} desc="Salas VIP, seguros e melhor cartão por compra"
-                onClick={() => setRoute('wallet')}/>
-              <ShortcutCard tone="cool" icon={Icon.Coins} title="Milhas"
-                value={u.miles ? `${u.miles.toLocaleString('pt-BR')} pts` : 'Conectar'} desc="Otimizador e transferências com bônus"
-                onClick={() => setRoute('miles')}/>
-              <ShortcutCard tone="warm" icon={Icon.Users} title="Experts"
-                value={`${expertCount} especialistas`} desc="Pessoas que assinam seus roteiros"
-                onClick={() => setRoute('experts')}/>
-              <ShortcutCard tone="sage" icon={Icon.Award} title="Plano"
-                value={u.tier} desc="Gerencie sua assinatura Gaid"
-                onClick={() => setRoute('plans')}/>
+              <ShortcutCard tone="ink" icon={Icon.Calendar} title="Roteiros"
+                value={`${tripCount} ${tripCount === 1 ? 'viagem' : 'viagens'}`} desc="Abra, edite ou continue seus roteiros"
+                onClick={() => setRoute('trips')}/>
+              <ShortcutCard tone="cool" icon={Icon.Compass} title="Dicas"
+                value="Explorar" desc="Ideias e recomendações para decidir melhor"
+                onClick={() => setRoute('explore')}/>
+              <ShortcutCard tone="warm" icon={Icon.Sparkles} title="Novo roteiro"
+                value="Começar" desc="Converse com a Gaid para criar uma viagem"
+                onClick={() => setRoute('home')}/>
+              <ShortcutCard tone="sage" icon={Icon.Sliders} title="Preferências"
+                value={`${completion}%`} desc="Ajuste como a Gaid personaliza suas dicas"
+                onClick={() => acct.editProfile()}/>
             </div>
 
             {/* Travel profile summary */}

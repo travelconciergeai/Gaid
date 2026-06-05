@@ -2590,9 +2590,9 @@ const HomeFirstRun = ({ setRoute, onPickIdea }) => {
   // Action starters — each routes to a real screen, so they keep working once
   // the backend is plugged in (no fabricated content, just navigation/intent).
   const starters = [
-    { id: 'custom',  label: 'Criar roteiro personalizado', icon: Icon.Sparkles, primary: true, run: () => setRoute('plan') },
-    { id: 'search',  label: 'Buscar voos ou hospedagens',  icon: Icon.Search,   run: () => setRoute('flights') },
-    { id: 'explore', label: 'Explorar roteiros prontos',    icon: Icon.Compass,  run: () => setRoute('explore') },
+    { id: 'custom',  label: 'Criar roteiro',       icon: Icon.Sparkles, run: () => onPickIdea?.('Quero montar um roteiro') },
+    { id: 'tip',     label: 'Pedir uma dica',      icon: Icon.Compass,  run: () => onPickIdea?.('O que fazer no Rio?') },
+    { id: 'trips',   label: 'Ver meus roteiros',   icon: Icon.Calendar, run: () => setRoute('trips') },
   ];
 
   return (
