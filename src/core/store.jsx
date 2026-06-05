@@ -252,7 +252,29 @@ const SessionProvider = ({ children }) => {
       }
       update({ needsOnboarding: false, profile: nextProfile });
     },
-    setProfile: (profile) => update({ profile }),
+    setProfile: async (profile) => {
+      let nextProfile = profile || null;
+      const storageUser = authSession?.user || sess.user;
+      if (storageUser && nextProfile) {
+        writeStoredProfile(storageUser, nextProfile);
+      }
+      if (authSession?.user && authSession?.access_token && nextProfile) {
+        try {
+          const { data } = await supabase
+            .from('profiles')
+            .update({
+              display_name: sess.user.name || nextProfile?.display_name || null,
+              metadata: { onboarding: nextProfile },
+            })
+            .eq('user_id', authSession.user.id)
+            .select('*')
+            .maybeSingle();
+          nextProfile = onboardingProfileFromRow(data || null, authSession.user) || nextProfile;
+        } catch (_error) {}
+      }
+      update({ needsOnboarding: false, profile: nextProfile });
+      return nextProfile;
+    },
     editProfile: () => update({ needsOnboarding: true }),
     logout: async () => {
       await supabase.auth.signOut();
