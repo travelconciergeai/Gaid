@@ -601,6 +601,14 @@ function indoorAlternativeFor(item, trip, day) {
         noite: { title: 'Jantar em Disney Springs', place: 'Disney Springs', tag: 'restaurante', dur: '2h' },
       },
     },
+    {
+      match: /istambul|istanbul|turquia/,
+      options: {
+        manhã: { title: 'Museu Arqueológico de Istambul', place: 'Sultanahmet', tag: 'museu', dur: '2h' },
+        tarde: { title: 'Cisterna da Basílica', place: 'Sultanahmet', tag: 'cultura', dur: '1h30' },
+        noite: { title: 'Grand Bazaar coberto', place: 'Beyazıt', tag: 'compras', dur: '2h' },
+      },
+    },
   ];
   const city = cityAlternatives.find(itemOption => itemOption.match.test(key));
   const picked = city?.options?.[slot] || city?.options?.tarde;
@@ -631,6 +639,45 @@ function indoorAlternativeFor(item, trip, day) {
     vibe: 'alternativa interna para manter o dia confortável',
     conf: false,
   };
+}
+function isIstanbulSultanahmetRainTarget(item, trip, day) {
+  const destination = normText(`${day?.city || ''} ${trip?.destination || ''} ${trip?.tripContext?.destination || ''}`);
+  const target = normText(`${item?.title || ''} ${item?.place || ''} ${item?.tag || ''}`);
+  return /(istambul|istanbul|turquia)/.test(destination) && /sultanahmet/.test(target);
+}
+function istanbulCoveredMorningItems(day) {
+  return [
+    {
+      id: `rain-istanbul-archaeology-${day?.d || 'd'}`,
+      t: 'manhã',
+      title: 'Museu Arqueológico de Istambul',
+      place: 'Sultanahmet',
+      dur: '2h',
+      tag: 'museu',
+      vibe: 'programa coberto, cultural e perto dos principais pontos históricos',
+      conf: false,
+    },
+    {
+      id: `rain-istanbul-cistern-${day?.d || 'd'}`,
+      t: 'manhã',
+      title: 'Cisterna da Basílica',
+      place: 'Sultanahmet',
+      dur: '1h',
+      tag: 'cultura',
+      vibe: 'experiência coberta e atmosférica, boa para chuva',
+      conf: false,
+    },
+    {
+      id: `rain-istanbul-grand-bazaar-${day?.d || 'd'}`,
+      t: 'manhã',
+      title: 'Grand Bazaar coberto',
+      place: 'Beyazıt',
+      dur: '1h30',
+      tag: 'compras',
+      vibe: 'mercado histórico coberto, protegido da chuva e na mesma região',
+      conf: false,
+    },
+  ];
 }
 function familyAlternativeFor(item, trip, day) {
   const destination = day?.city && day.city !== TBD ? day.city : knownTripDestination(trip) || item?.place || 'destino';
@@ -825,6 +872,10 @@ function alternateDayForMove(days, currentDay) {
     safeDays.find(day => day.d !== currentDay?.d) ||
     null;
 }
+function nextDayForMove(days, currentDay) {
+  const safeDays = normalizeDays(days);
+  return safeDays.find(day => day.d === currentDay?.d + 1) || alternateDayForMove(safeDays, currentDay);
+}
 function buildReplanPreview({ message, trip, days }) {
   const type = inferReplanType(message);
   const safeDays = normalizeDays(days).map(day => ({ ...day, items: [...day.items] }));
@@ -868,6 +919,31 @@ function buildReplanPreview({ message, trip, days }) {
     if (type === 'WEATHER') {
       items.forEach(item => {
         if (!isOutdoorLikeItem(item)) return;
+        if (isIstanbulSultanahmetRainTarget(item, trip, day)) {
+          const moveDay = nextDayForMove(safeDays, day);
+          if (moveDay) {
+            changes.push(makeStructuredChange({
+              type: 'move',
+              day: moveDay.d,
+              slot: 'manhã',
+              targetTitle: item.title,
+              newTitle: item.title,
+              reason: `chuva no Dia ${day.d}; mover Sultanahmet para o Dia ${moveDay.d} de manhã`,
+              targetId: item.id,
+            }));
+          }
+          istanbulCoveredMorningItems(day).forEach(coveredItem => {
+            changes.push(makeStructuredChange({
+              type: 'add_rest',
+              day: day.d,
+              slot: 'manhã',
+              newTitle: coveredItem.title,
+              reason: 'protegido da chuva, menos filas e mesma região histórica',
+              item: coveredItem,
+            }));
+          });
+          return;
+        }
         const replacement = indoorAlternativeFor(item, trip, day);
         if (replacement.title && !normText(replacement.title).includes('programa coberto')) {
           changes.push(makeStructuredChange({
@@ -1057,7 +1133,8 @@ function replanSummaryText(type, targetNumbers) {
 }
 function previewTextForReplan(preview) {
   if (!Array.isArray(preview.changes) || preview.changes.length === 0) return preview.summary;
-  const bullets = preview.changes.slice(0, 3).map((item) => {
+  const previewLimit = preview.type === 'WEATHER' ? 4 : 3;
+  const bullets = preview.changes.slice(0, previewLimit).map((item) => {
     if (item.type === 'replace') return `- trocar “${item.targetTitle}” por “${item.newTitle}”`;
     if (item.type === 'move') return `- mover “${item.targetTitle}” para o Dia ${item.day}, ${item.slot}`;
     if (item.type === 'remove') return `- remover “${item.targetTitle}” de ${item.slot || 'um período'} do Dia ${item.day}`;
