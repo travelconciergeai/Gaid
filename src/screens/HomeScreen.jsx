@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Icon } from '../components/icons.jsx';
-import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer, GaidLogo } from '../components/ui.jsx';
+import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer, GaidLogo, ConciergeLoading } from '../components/ui.jsx';
 import { EmptyState, EmptyInline } from './EmptyStates.jsx';
 import { Async, CardSkeleton, CatalogCarousel, Carousel, Skeleton, ErrorState, CarouselSkeleton } from '../core/states.jsx';
 import { useAccount, useCatalog } from '../core/store.jsx';
@@ -384,6 +384,32 @@ function discoveryRefinementQuestion(context) {
   if (context?.category === 'Attraction') return 'Quer algo cultural, ao ar livre ou bom para chuva?';
   const place = context?.neighborhood || context?.destination;
   return place ? `Quer algo mais leve, cultural ou local em ${place}?` : 'Quer algo mais leve, cultural ou local?';
+}
+
+function buildDiscoveryResponse(context, cards = null) {
+  return {
+    cards: Array.isArray(cards) ? cards : sourceDiscoveryCards(context),
+    refinementQuestion: discoveryRefinementQuestion(context),
+    followupSuggestions: [
+      'Mais romântico',
+      'Mais local',
+      context?.category === 'Hotel' ? 'Mais confortável' : 'Mais econômico',
+    ],
+  };
+}
+
+function discoveryMessage(context, cards = null) {
+  const response = buildDiscoveryResponse(context, cards);
+  return {
+    id: `rec-${Date.now()}`,
+    who: 'agent',
+    source: 'discovery-engine',
+    discoveryResponse: response,
+    refinementQuestion: response.refinementQuestion,
+    followupSuggestions: response.followupSuggestions,
+    recommendations: response.cards,
+    discoveryContext: context,
+  };
 }
 
 const CONTEXTUAL_TRIP_STEPS = {
@@ -1634,14 +1660,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
         setPhase('done');
         setChat([
           { id: 'u-0', who: 'user', text: t },
-          {
-            id: `rec-${Date.now()}`,
-            who: 'agent',
-            text: discoveryIntro(discoveryContext),
-            refinementQuestion: discoveryRefinementQuestion(discoveryContext),
-            recommendations: buildLocalRecommendations(t),
-            discoveryContext,
-          },
+          discoveryMessage(discoveryContext, buildLocalRecommendations(t)),
         ]);
         return;
       }
@@ -1704,14 +1723,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
           category: pendingDiscovery.discoveryContext.category || inferredContext.category,
         };
         if (hasEnoughDiscoveryContext(mergedContext)) {
-          setChat([...nextChat, {
-            id: `rec-${Date.now()}`,
-            who: 'agent',
-            text: discoveryIntro(mergedContext),
-            refinementQuestion: discoveryRefinementQuestion(mergedContext),
-            recommendations: sourceDiscoveryCards(mergedContext),
-            discoveryContext: mergedContext,
-          }]);
+          setChat([...nextChat, discoveryMessage(mergedContext)]);
           return;
         }
       }
@@ -1728,14 +1740,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
               category: lastDiscovery.discoveryContext.category || inferredContext.category,
             };
             if (hasEnoughDiscoveryContext(mergedContext)) {
-              setChat([...nextChat, {
-                id: `rec-${Date.now()}`,
-                who: 'agent',
-                text: discoveryIntro(mergedContext),
-                refinementQuestion: discoveryRefinementQuestion(mergedContext),
-                recommendations: sourceDiscoveryCards(mergedContext),
-                discoveryContext: mergedContext,
-              }]);
+              setChat([...nextChat, discoveryMessage(mergedContext)]);
               return;
             }
           }
@@ -1748,14 +1753,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
           }]);
           return;
         }
-        setChat([...nextChat, {
-          id: `rec-${Date.now()}`,
-          who: 'agent',
-          text: discoveryIntro(discoveryContext),
-          refinementQuestion: discoveryRefinementQuestion(discoveryContext),
-          recommendations: buildLocalRecommendations(t),
-          discoveryContext,
-        }]);
+        setChat([...nextChat, discoveryMessage(discoveryContext, buildLocalRecommendations(t))]);
         return;
       }
       setChat(nextChat);
@@ -1786,7 +1784,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
     setChat(c => [
       ...c,
       { id: `u-summary-${Date.now()}`, who: 'user', text: summary },
-      { id: `a-generating-${Date.now()}`, who: 'agent', text: 'Estou montando seu roteiro...' },
+      { id: `a-generating-${Date.now()}`, who: 'agent', generating: true, loadingCategory: 'planning' },
     ]);
     Promise.resolve(kickoffPlan && kickoffPlan({
       prompt: summary,
@@ -1921,11 +1919,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
                 onOpenTrip={openGeneratedTrip}/>
             ))}
             {thinking && (
-              <div className="flex gap-1 pt-1 pl-1">
-                <span className="dot h-1.5 w-1.5 rounded-full bg-ink-400"/>
-                <span className="dot h-1.5 w-1.5 rounded-full bg-ink-400"/>
-                <span className="dot h-1.5 w-1.5 rounded-full bg-ink-400"/>
-              </div>
+              <ConciergeLoading category="auto" className="fade-up"/>
             )}
           </div>
         </div>
@@ -2023,7 +2017,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
                 <button onClick={() => submit()}
                   className="h-12 px-5 rounded-full bg-ink-900 text-paper hover:bg-brand-700 focus-visible:ring-4 focus-visible:ring-brand-200 transition-colors flex items-center gap-2 text-[14px] font-medium shrink-0">
                   <Icon.Send size={15}/>
-                  {thinking ? 'Pensando…' : 'Pedir'}
+                  Pedir
                 </button>
               </div>
             </div>
@@ -2144,13 +2138,7 @@ const ChatMsg = ({ m, wizard, genSteps, onAnswer, onGenDone, onOpenTrip }) => {
   if (m.generating) {
     return (
       <div className="fade-up">
-        <GeneratingCard
-          steps={genSteps}
-          totalDuration={30000}
-          onDone={onGenDone}
-          onSkip={onGenDone}
-          embedded
-        />
+        <ConciergeLoading category={m.loadingCategory || 'planning'}/>
       </div>
     );
   }
@@ -2164,11 +2152,11 @@ const ChatMsg = ({ m, wizard, genSteps, onAnswer, onGenDone, onOpenTrip }) => {
   }
 
   if (Array.isArray(m.recommendations) && m.recommendations.length > 0) {
-    const displayText = filledString(m.refinementQuestion, m.text && m.text.length <= 140 ? m.text : '');
+    const refinementQuestion = filledString(m.discoveryResponse?.refinementQuestion, m.refinementQuestion);
     return (
       <div className="space-y-3 max-w-[760px]">
-        {displayText && <div className="text-[14.5px] text-ink-900 leading-relaxed max-w-[85%]">{displayText}</div>}
         <RecommendationCarousel items={m.recommendations}/>
+        {refinementQuestion && <div className="text-[14.5px] text-ink-900 leading-relaxed max-w-[85%]">{refinementQuestion}</div>}
       </div>
     );
   }
@@ -2487,103 +2475,12 @@ const InlineWizard = ({ stepIdx, step, wizard, total, answered, onPick, onSkipSt
 // ============ Generating animation ============
 // Rendered inline in the chat as an agent message. Shows steps progressing.
 const GeneratingCard = ({ steps, totalDuration = 30000, onDone, onSkip, embedded = false }) => {
-  const [stepIdx, setStepIdx] = useState(0);
-  const [substepIdx, setSubstepIdx] = useState(0);
-  const [elapsed, setElapsed] = useState(0);
-  const stepDuration = totalDuration / steps.length;
-
   useEffect(() => {
-    const start = Date.now();
-    const tick = setInterval(() => {
-      const e = Date.now() - start;
-      setElapsed(e);
-      const newStep = Math.min(steps.length - 1, Math.floor(e / stepDuration));
-      setStepIdx(newStep);
-      if (e >= totalDuration) {
-        clearInterval(tick);
-        onDone && onDone();
-      }
-    }, 200);
-    return () => clearInterval(tick);
-  }, []);
+    const timer = setTimeout(() => onDone && onDone(), totalDuration);
+    return () => clearTimeout(timer);
+  }, [onDone, totalDuration]);
 
-  useEffect(() => {
-    setSubstepIdx(0);
-    const subs = steps[stepIdx]?.sub || [''];
-    if (subs.length <= 1) return;
-    const rot = setInterval(() => {
-      setSubstepIdx(i => (i + 1) % subs.length);
-    }, 2400);
-    return () => clearInterval(rot);
-  }, [stepIdx]);
-
-  const pct = Math.min(100, Math.round((elapsed / totalDuration) * 100));
-  const current = steps[stepIdx];
-  const sub = (current?.sub || [''])[substepIdx % (current?.sub?.length || 1)];
-
-  return (
-    <div className="bg-white border-half rounded-3xl shadow-lift p-6 relative overflow-hidden max-w-[640px]">
-      <button onClick={onSkip} title="Ir para o roteiro"
-        className="absolute top-4 right-4 h-8 px-3 rounded-md text-[12px] text-ink-500 hover:text-ink-900 hover:bg-ink-100 inline-flex items-center gap-1">
-        Ir agora <Icon.ArrowRight size={11}/>
-      </button>
-
-      <div className="flex items-start gap-4">
-        <div className="relative h-12 w-12 shrink-0">
-          <div className="absolute inset-0 rounded-full bg-white border-half flex items-center justify-center">
-            <GaidLogo className="h-4 w-auto max-w-[26px]"/>
-          </div>
-          <div className="absolute inset-0 rounded-full ring-2 ring-ink-900/30 animate-ping"/>
-        </div>
-        <div className="flex-1 text-left">
-          <div className="label">Gaid está montando seu roteiro</div>
-          <div className="text-[19px] tracking-tight font-medium text-ink-900 mt-1">{current?.label}</div>
-          <div className="text-[12.5px] text-ink-500 mt-1 transition-opacity duration-300" key={sub}>
-            <span className="shimmer-text">{sub}</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-5">
-        <div className="h-1 rounded-full bg-ink-100 overflow-hidden">
-          <div className="h-full bg-ink-900 transition-all duration-200" style={{ width: `${pct}%` }}/>
-        </div>
-        <div className="flex items-center justify-between text-[11px] mono text-ink-500 mt-1.5">
-          <span>{pct}%</span>
-          <span>{Math.max(0, Math.ceil((totalDuration - elapsed) / 1000))}s restantes</span>
-        </div>
-      </div>
-
-      <div className="mt-6 grid grid-cols-1 gap-1.5 text-left">
-        {steps.map((s, i) => {
-          const done = i < stepIdx;
-          const active = i === stepIdx;
-          return (
-            <div key={s.id}
-              className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors
-                          ${active ? 'bg-ink-50' : ''}`}>
-              <div className={`h-6 w-6 rounded-full flex items-center justify-center transition-colors
-                              ${done ? 'bg-ink-900 text-paper' :
-                                active ? 'bg-white border-half text-ink-900' :
-                                'bg-ink-100 text-ink-400'}`}>
-                {done ? <Icon.Check size={12}/> :
-                 active ? <span className="h-1.5 w-1.5 rounded-full bg-ink-900 animate-pulse"/> :
-                 <span className="h-1 w-1 rounded-full bg-ink-400"/>}
-              </div>
-              <div className={`text-[13px] flex-1 transition-colors
-                              ${done ? 'text-ink-500 line-through decoration-ink-400' :
-                                active ? 'text-ink-900 font-medium' :
-                                'text-ink-400'}`}>
-                {s.label}
-              </div>
-              {done && <div className="text-[10.5px] mono text-ink-400">ok</div>}
-              {active && <div className="text-[10.5px] mono text-ink-700">…</div>}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+  return <ConciergeLoading category="planning" className="max-w-[640px]"/>;
 };
 
 // ============ Prep briefing — "Tudo que pensei por você" ============

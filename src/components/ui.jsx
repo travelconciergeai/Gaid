@@ -9,6 +9,135 @@ const GaidLogo = ({ className = 'h-8 w-auto', alt = 'Gaid' }) => (
   <img src={gaidLogoUrl} alt={alt} className={`block object-contain ${className}`} />
 );
 
+const CONCIERGE_LOADING_PHRASES = {
+  profile: [
+    'Entendendo seu jeito de viajar...',
+    'Descobrindo o que faz essa viagem ter a sua cara...',
+    'Procurando experiências que combinam com você...',
+    'Ajustando o roteiro ao seu estilo...',
+    'Eliminando programas que parecem bons no Instagram, mas não na vida real...',
+    'Tentando não sugerir 14 museus no mesmo dia...',
+  ],
+  atlas: [
+    'Consultando especialistas de viagem...',
+    'Cruzando dicas que normalmente só locais conhecem...',
+    'Vasculhando conhecimentos do Atlas...',
+    'Procurando aqueles lugares que não aparecem nos roteiros genéricos...',
+    'Comparando centenas de recomendações...',
+    'Separando armadilhas para turistas de experiências memoráveis...',
+  ],
+  weather: [
+    'Conferindo clima, logística e bom senso...',
+    'Calculando quanto tempo você realmente vai gastar em deslocamentos...',
+    'Descobrindo se o pôr do sol vale a pena naquele horário...',
+    'Verificando se o plano sobrevive a um dia de chuva...',
+    'Evitando que você passe metade da viagem dentro de um transporte...',
+  ],
+  family: [
+    'Pensando na paciência das crianças...',
+    'Equilibrando diversão para pequenos e adultos...',
+    'Procurando pausas estratégicas para ninguém surtar...',
+    'Garantindo que o dia não termine em modo sobrevivência...',
+    'Calculando a distância máxima antes do primeiro "já chegou?"...',
+  ],
+  food: [
+    'Investigando onde vale a pena fazer aquela refeição especial...',
+    'Separando restaurantes incríveis de pegadinhas turísticas...',
+    'Descobrindo onde os locais realmente comem...',
+    'Procurando experiências gastronômicas memoráveis...',
+    'Analisando riscos de fila, espera e arrependimento...',
+  ],
+  fun: [
+    'Convencendo um especialista italiano que pizza no almoço é uma boa ideia...',
+    'Discutindo com um francês sobre qual croissant merece entrar no roteiro...',
+    'Evitando que você acorde às 6h sem necessidade...',
+    'Negociando com a meteorologia...',
+    'Consultando uma quantidade preocupante de opiniões sobre café...',
+    'Garantindo que seu roteiro tenha mais férias e menos maratona...',
+    'Procurando lugares que rendem boas fotos e boas memórias...',
+    'Fazendo contas que ninguém quer fazer nas férias...',
+    'Simulando cenários para evitar perrengues...',
+    'Tentando encaixar tudo sem criar um episódio de Corrida Maluca...',
+  ],
+  premium: [
+    'Conversando com nossos especialistas...',
+    'Construindo um roteiro pensado para você...',
+    'Avaliando milhares de possibilidades...',
+    'Transformando informações em decisões...',
+    'Encontrando o melhor equilíbrio entre tempo, custo e experiência...',
+    'Montando algo que você provavelmente não encontraria sozinho...',
+    'Criando sua próxima grande memória...',
+    'Organizando os bastidores para que você aproveite a viagem...',
+  ],
+};
+
+function conciergePoolsForCategory(category) {
+  if (category === 'planning') return ['profile', 'atlas', 'weather', 'premium'];
+  if (category === 'discovery') return ['atlas', 'premium', 'food'];
+  if (category === 'weather') return ['weather', 'atlas', 'premium'];
+  if (category === 'family') return ['family', 'profile', 'premium'];
+  if (category === 'food') return ['food', 'atlas', 'premium'];
+  return ['profile', 'atlas', 'weather', 'family', 'food', 'premium'];
+}
+
+function pickConciergePhrase(category, previous) {
+  const smartPools = conciergePoolsForCategory(category);
+  const funChance = Math.random() < 0.3;
+  const poolName = funChance ? 'fun' : smartPools[Math.floor(Math.random() * smartPools.length)] || 'premium';
+  const pool = CONCIERGE_LOADING_PHRASES[poolName] || CONCIERGE_LOADING_PHRASES.premium;
+  if (pool.length <= 1) return pool[0] || 'Organizando os bastidores para você...';
+  let next = pool[Math.floor(Math.random() * pool.length)];
+  if (next === previous) {
+    next = pool[(pool.indexOf(next) + 1) % pool.length];
+  }
+  return next;
+}
+
+const ConciergeLoading = ({ category = 'auto', className = '' }) => {
+  const [phrase, setPhrase] = useState(() => pickConciergePhrase(category));
+  const [progress, setProgress] = useState(18);
+
+  useEffect(() => {
+    setPhrase(previous => pickConciergePhrase(category, previous));
+    setProgress(18);
+  }, [category]);
+
+  useEffect(() => {
+    const phraseTimer = setInterval(() => {
+      setPhrase(previous => pickConciergePhrase(category, previous));
+    }, 2400 + Math.floor(Math.random() * 600));
+    const progressTimer = setInterval(() => {
+      setProgress(value => {
+        if (value >= 92) return 28;
+        return Math.min(92, value + 8 + Math.floor(Math.random() * 12));
+      });
+    }, 900);
+    return () => {
+      clearInterval(phraseTimer);
+      clearInterval(progressTimer);
+    };
+  }, [category]);
+
+  return (
+    <div className={`bg-white border-half rounded-2xl shadow-soft px-4 py-3.5 max-w-[520px] ${className}`}>
+      <div className="flex items-start gap-3">
+        <div className="h-9 w-9 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center shrink-0">
+          <Icon.Sparkles size={15}/>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[12px] font-medium text-ink-900">✨ Concierge trabalhando nos bastidores</div>
+          <div key={phrase} className="text-[13px] text-ink-600 mt-1 leading-relaxed fade-up">
+            {phrase}
+          </div>
+          <div className="mt-3 h-1 rounded-full bg-ink-100 overflow-hidden">
+            <div className="h-full rounded-full bg-brand-700 transition-all duration-700 ease-out" style={{ width: `${progress}%` }}/>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ---------- Placeholder "photography" ----------
 // We never draw real imagery; show striped placeholders with a caption.
 const Placeholder = ({ tone = 'warm', label, className = '', children, intense = false }) => {
@@ -565,4 +694,4 @@ const AddToTripDrawer = ({ open, onClose, item }) => {
 };
 
 
-export { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, ToastCtx, ToastProvider, useToast, Sidebar, Topbar, SectionHeader, CmdPalette, Stat, TabRow, OptimizeMenu, OPTIMIZE_MODES, AddToTripDrawer, GaidLogo };
+export { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, ToastCtx, ToastProvider, useToast, Sidebar, Topbar, SectionHeader, CmdPalette, Stat, TabRow, OptimizeMenu, OPTIMIZE_MODES, AddToTripDrawer, GaidLogo, ConciergeLoading };

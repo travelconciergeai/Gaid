@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useBreakpoint } from '../hooks/useBreakpoint.js';
 import { Icon } from '../components/icons.jsx';
-import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer, GaidLogo } from '../components/ui.jsx';
+import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer, GaidLogo, ConciergeLoading } from '../components/ui.jsx';
 import { EmptyState, EmptyInline } from './EmptyStates.jsx';
 import { Async, CardSkeleton, CatalogCarousel, Carousel, Skeleton, ErrorState, CarouselSkeleton } from '../core/states.jsx';
 import { useTripStore } from '../core/store.jsx';
@@ -1586,6 +1586,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
   const [tab, setTab] = useState('roteiro');
   const [chat, setChat] = useState(() => []);
   const [typing, setTyping] = useState(false);
+  const [typingCategory, setTypingCategory] = useState('auto');
   const [draft, setDraft] = useState('');
   const [days, setDays] = useState(() => safeClone(tripData.days));
   const [editing, setEditing] = useState(null);
@@ -1992,6 +1993,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     const userMsg = { who: 'user', text: kickoff };
     setChat(c => c.some(m => m.who === 'user' && m.text === kickoff) ? c : [...c, userMsg]);
     persistPlanMessage('user', kickoff);
+    setTypingCategory(isWizardKickoff ? 'planning' : 'auto');
     setTyping(true);
     let alive = true;
     tripApi.sendChatMessage({
@@ -2103,6 +2105,14 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     }
     setChat(nextChat);
     setDraft('');
+    const replanType = planIntent.intent === 'REPLAN_ITINERARY' ? inferReplanType(t) : null;
+    let loadingCategory = 'auto';
+    if (replanType === 'WEATHER') loadingCategory = 'weather';
+    else if (replanType === 'GASTRONOMY') loadingCategory = 'food';
+    else if (replanType === 'CHILD_FRIENDLY') loadingCategory = 'family';
+    else if (planIntent.intent === 'REPLAN_ITINERARY' || planIntent.intent === 'OPTIMIZE_ITINERARY') loadingCategory = 'planning';
+    else if (planIntent.intent === 'GET_RECOMMENDATION') loadingCategory = 'discovery';
+    setTypingCategory(loadingCategory);
     setTyping(true);
     persistPlanMessage('user', t);
 
@@ -2725,11 +2735,7 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
             else send(t);
           }} />)}
           {typing && (
-            <div className="flex gap-1 pt-2">
-              <span className="dot h-1.5 w-1.5 rounded-full bg-ink-400"/>
-              <span className="dot h-1.5 w-1.5 rounded-full bg-ink-400"/>
-              <span className="dot h-1.5 w-1.5 rounded-full bg-ink-400"/>
-            </div>
+            <ConciergeLoading category={typingCategory} className="fade-up"/>
           )}
         </div>
 
