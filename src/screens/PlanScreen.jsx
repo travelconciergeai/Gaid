@@ -676,8 +676,13 @@ function freeTimeItem(slot, day, reason = 'respiro no roteiro') {
     conf: false,
   };
 }
-function targetDaysForReplan(message, days, type) {
+function targetDaysForReplan(message, days, type, trip = null) {
   const safeDays = normalizeDays(days);
+  if (type === 'WEATHER') {
+    const calendarDay = replanDayFromCalendarDate(message, safeDays, trip);
+    if (calendarDay) return [calendarDay];
+    if (hasWeatherDateMention(message)) return [];
+  }
   const explicit = parseTargetDay(message, safeDays);
   if (explicit) return safeDays.filter(day => day.d === explicit);
   if (/\bamanha\b|\bamanhã\b/.test(normText(message)) && safeDays[1]) return [safeDays[1]];
@@ -839,7 +844,20 @@ function buildReplanPreview({ message, trip, days }) {
     confidence: knowledgeMetadata.confidence,
     fallbackUsed: !knowledge.context?.destinationKnowledge?.knowledge && !knowledge.context?.travelerRules?.rules,
   });
-  const targets = targetDaysForReplan(message, safeDays, type);
+  const targets = targetDaysForReplan(message, safeDays, type, trip);
+  if (type === 'WEATHER' && targets.length === 0 && hasWeatherDateMention(message)) {
+    const metadata = activeKnowledgeMetadata(knowledge);
+    return {
+      type,
+      changes: [],
+      nextDays: safeDays,
+      summary: 'Qual dia do roteiro você quer ajustar?',
+      knowledge,
+      source: metadata.source,
+      confidence: metadata.confidence,
+      reasoningHint: metadata.reasoningHint,
+    };
+  }
   const targetNumbers = new Set(targets.map(day => day.d));
   const changes = [];
 
@@ -1002,11 +1020,14 @@ function buildReplanPreview({ message, trip, days }) {
   });
 
   if (usefulChanges.length === 0) {
+    const summary = type === 'WEATHER'
+      ? 'Consigo ajustar por chuva, mas esse dia ainda não tem atividades externas ou itens definidos para mover ou trocar.'
+      : 'Consigo ajustar, mas preciso de um roteiro com atividades mais definidas.';
     return {
       type,
       changes: [],
       nextDays,
-      summary: 'Consigo ajustar, mas preciso de um roteiro com atividades mais definidas.',
+      summary,
       knowledge,
       source: metadata.source,
       confidence: metadata.confidence,
@@ -1201,6 +1222,37 @@ function parsePlanDateRange(value, fallbackDates = null) {
     return buildDateRangePayload(year, month, days[0], year, month, days[1]);
   }
   return null;
+}
+function hasWeatherDateMention(value) {
+  const text = normText(value);
+  return /\b(?:dia\s*)?\d{1,2}\s+de\s+[a-z]+/.test(text) ||
+    /\bdia\s*\d{1,2}\b/.test(text);
+}
+function parseSinglePlanDate(value, fallbackDates = null) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const text = normText(raw);
+  const dayMatch = text.match(/\b(?:dia\s*)?(\d{1,2})(?:\s+de\s+[a-z]+)?\b/);
+  const day = Number(dayMatch?.[1]);
+  if (!Number.isFinite(day) || day < 1 || day > 31) return null;
+  const monthName = Object.keys(PT_MONTHS_PLAN).find(month => text.includes(month));
+  const fallbackStart = localDateFromIso(fallbackDates?.start);
+  const month = monthName ? PT_MONTHS_PLAN[monthName] : fallbackStart ? fallbackStart.getMonth() + 1 : null;
+  if (!month) return null;
+  const explicitYear = Number(text.match(/\b(20\d{2})\b/)?.[1]) || null;
+  const year = explicitYear || fallbackStart?.getFullYear() || chooseDateYear(month, day);
+  return isoPlanDate(year, month, day);
+}
+function replanDayFromCalendarDate(message, days, trip) {
+  const safeDays = normalizeDays(days);
+  const tripDates = trip?.tripContext?.dates || trip?.dates || null;
+  const targetIso = parseSinglePlanDate(message, tripDates);
+  const start = localDateFromIso(tripDates?.start);
+  const target = localDateFromIso(targetIso);
+  if (!start || !target) return null;
+  const dayNumber = Math.round((target.getTime() - start.getTime()) / 86400000) + 1;
+  if (!Number.isFinite(dayNumber) || dayNumber < 1) return null;
+  return safeDays.find(day => day.d === dayNumber) || null;
 }
 function buildDateRangePayload(startYear, startMonth, startDay, endYear, endMonth, endDay) {
   const start = new Date(startYear, startMonth - 1, startDay);
@@ -2145,8 +2197,11 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         days,
       });
       if (guard) {
-        setChat(c => [...c, { who: 'gaid', text: guard, source: 'state-guard' }]);
-        persistPlanMessage('assistant', guard, { source: 'state-guard', intent: planIntent.intent });
+        const guardText = inferReplanType(t) === 'WEATHER'
+          ? 'Entendi a previsão de chuva. Consigo ajustar, mas preciso que o roteiro tenha atividades definidas para saber o que mover ou trocar.'
+          : guard;
+        setChat(c => [...c, { who: 'gaid', text: guardText, source: 'state-guard' }]);
+        persistPlanMessage('assistant', guardText, { source: 'state-guard', intent: planIntent.intent });
         return;
       }
       const preview = buildReplanPreview({ message: t, trip: tripData, days });

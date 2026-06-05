@@ -377,6 +377,15 @@ function discoveryIntro(context) {
   return `Claro. Separei ${label} em ${place} sem abrir um roteiro completo.`;
 }
 
+function discoveryRefinementQuestion(context) {
+  if (context?.category === 'Restaurant') return 'Quer algo mais romântico, clássico ou moderno?';
+  if (context?.category === 'Cafe') return 'Prefere café rápido, brunch ou uma pausa mais charmosa?';
+  if (context?.category === 'Hotel') return 'Quer algo mais central, boutique ou com mais conforto?';
+  if (context?.category === 'Attraction') return 'Quer algo cultural, ao ar livre ou bom para chuva?';
+  const place = context?.neighborhood || context?.destination;
+  return place ? `Quer algo mais leve, cultural ou local em ${place}?` : 'Quer algo mais leve, cultural ou local?';
+}
+
 const CONTEXTUAL_TRIP_STEPS = {
   familyCount: {
     id: 'travelerCount',
@@ -690,7 +699,7 @@ function inferPlannerDestination(value) {
     .replace(/\b(?:por|durante)\s+\d+.*$/i, '')
     .replace(/[,.!?;:].*$/, '')
     .trim();
-  if (isGenericInitialPrompt(candidate) || /\b(roteiro|viagem|viajar|planej|planejar|montar|criar|crie|monte)\b/i.test(candidate)) return '';
+  if (isGenericInitialPrompt(candidate) || /\b(roteiro|viagem|viajar|planej|planejar|montar|criar|crie|monte|gerar|gere|novo|nova)\b/i.test(candidate)) return '';
   return candidate.length >= 2 ? candidate : '';
 }
 
@@ -768,7 +777,14 @@ function isGenericInitialPrompt(value) {
     /^quero criar uma viagem$/,
     /^planejar viagem$/,
     /^criar roteiro$/,
+    /^criar viagem$/,
     /^montar roteiro$/,
+    /^gerar roteiro$/,
+    /^gerar roteiro novo$/,
+    /^gerar viagem$/,
+    /^novo roteiro$/,
+    /^nova viagem$/,
+    /^roteiro novo$/,
     /^me ajuda/,
     /^nao sei/,
     /^ainda nao sei/,
@@ -1250,7 +1266,7 @@ function isDestinationOnlyMessage(value) {
 
 function isTripPlanningIntent(value) {
   const text = normText(value);
-  return /(montar|criar|planejar|monte|crie|planeje).*(roteiro|viagem)|quero ir para|vou viajar para|viajar para|roteiro para|viagem para/.test(text);
+  return /(montar|criar|planejar|gerar|monte|crie|planeje|gere).*(roteiro|viagem)|(?:novo|nova).*(roteiro|viagem)|quero ir para|vou viajar para|viajar para|roteiro para|viagem para/.test(text);
 }
 
 function isDiscoveryIntent(value) {
@@ -1622,6 +1638,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
             id: `rec-${Date.now()}`,
             who: 'agent',
             text: discoveryIntro(discoveryContext),
+            refinementQuestion: discoveryRefinementQuestion(discoveryContext),
             recommendations: buildLocalRecommendations(t),
             discoveryContext,
           },
@@ -1691,6 +1708,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
             id: `rec-${Date.now()}`,
             who: 'agent',
             text: discoveryIntro(mergedContext),
+            refinementQuestion: discoveryRefinementQuestion(mergedContext),
             recommendations: sourceDiscoveryCards(mergedContext),
             discoveryContext: mergedContext,
           }]);
@@ -1714,6 +1732,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
                 id: `rec-${Date.now()}`,
                 who: 'agent',
                 text: discoveryIntro(mergedContext),
+                refinementQuestion: discoveryRefinementQuestion(mergedContext),
                 recommendations: sourceDiscoveryCards(mergedContext),
                 discoveryContext: mergedContext,
               }]);
@@ -1733,6 +1752,7 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
           id: `rec-${Date.now()}`,
           who: 'agent',
           text: discoveryIntro(discoveryContext),
+          refinementQuestion: discoveryRefinementQuestion(discoveryContext),
           recommendations: buildLocalRecommendations(t),
           discoveryContext,
         }]);
@@ -2144,9 +2164,10 @@ const ChatMsg = ({ m, wizard, genSteps, onAnswer, onGenDone, onOpenTrip }) => {
   }
 
   if (Array.isArray(m.recommendations) && m.recommendations.length > 0) {
+    const displayText = filledString(m.refinementQuestion, m.text && m.text.length <= 140 ? m.text : '');
     return (
       <div className="space-y-3 max-w-[760px]">
-        {m.text && <div className="text-[14.5px] text-ink-900 leading-relaxed max-w-[85%]">{m.text}</div>}
+        {displayText && <div className="text-[14.5px] text-ink-900 leading-relaxed max-w-[85%]">{displayText}</div>}
         <RecommendationCarousel items={m.recommendations}/>
       </div>
     );
@@ -2160,27 +2181,71 @@ const ChatMsg = ({ m, wizard, genSteps, onAnswer, onGenDone, onOpenTrip }) => {
   );
 };
 
-const RecommendationCarousel = ({ items }) => (
-  <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
-    {items.map((item, index) => (
-      <div key={`${item.name}-${index}`} className="shrink-0 w-[230px] bg-white border-half rounded-2xl p-4 shadow-soft">
-        <div className="h-9 w-9 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center mb-3">
-          <Icon.MapPin size={15}/>
-        </div>
-        <div className="text-[10.5px] uppercase tracking-wider text-ink-500">{item.category}</div>
-        <div className="text-[14px] font-medium text-ink-900 leading-tight mt-1">{item.name}</div>
-        <div className="text-[12px] text-ink-500 mt-1">{item.area}</div>
-        <div className="text-[12px] text-ink-600 leading-snug mt-3">{item.reason}</div>
-        <div className="mt-4 flex items-center justify-between gap-2">
-          <span className="text-[11px] text-ink-400">{item.rating}</span>
-          <button className="h-7 px-2.5 rounded-lg border-half text-[11.5px] text-ink-700 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 transition-colors">
-            Ver detalhes
-          </button>
-        </div>
+const RecommendationCarousel = ({ items }) => {
+  const [selected, setSelected] = useState(null);
+  const sourceLabel = selected?.source === 'gaid_knowledge_core'
+    ? 'Gaid curation'
+    : selected?.source || 'Gaid curation';
+  return (
+    <>
+      <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
+        {items.map((item, index) => (
+          <div key={`${item.name}-${index}`} className="shrink-0 w-[230px] bg-white border-half rounded-2xl p-4 shadow-soft">
+            <div className="h-9 w-9 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center mb-3">
+              <Icon.MapPin size={15}/>
+            </div>
+            <div className="text-[10.5px] uppercase tracking-wider text-ink-500">{item.category}</div>
+            <div className="text-[14px] font-medium text-ink-900 leading-tight mt-1">{item.name}</div>
+            <div className="text-[12px] text-ink-500 mt-1">{item.area}</div>
+            <div className="text-[12px] text-ink-600 leading-snug mt-3">{item.reason}</div>
+            <div className="mt-4 flex items-center justify-between gap-2">
+              <span className="text-[11px] text-ink-400">{item.rating || 'Curadoria Gaid'}</span>
+              <button
+                onClick={() => setSelected(item)}
+                className="h-7 px-2.5 rounded-lg border-half text-[11.5px] text-ink-700 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 transition-colors"
+              >
+                Ver detalhes
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
-    ))}
-  </div>
-);
+      <Drawer open={!!selected} onClose={() => setSelected(null)} eyebrow="Detalhes da sugestão" title={selected?.name || 'Sugestão'} width={440}>
+        <div className="p-6 space-y-5">
+          <div>
+            <div className="label mb-1">{selected?.category || 'Sugestão'}</div>
+            <div className="text-[15px] text-ink-900 font-medium">{selected?.area || 'Área a definir'}</div>
+          </div>
+          <div>
+            <div className="text-[12px] uppercase tracking-wide text-ink-400 mb-1">Por que combina</div>
+            <p className="text-[14px] leading-relaxed text-ink-700">{selected?.reason || 'Selecionado pela curadoria da Gaid para este contexto.'}</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl border-half bg-white p-3">
+              <div className="text-[11px] text-ink-400 mb-1">Fonte</div>
+              <div className="text-[13px] text-ink-800">{sourceLabel}</div>
+            </div>
+            <div className="rounded-xl border-half bg-white p-3">
+              <div className="text-[11px] text-ink-400 mb-1">Confiança</div>
+              <div className="text-[13px] text-ink-800">{selected?.confidence ? `${Math.round(selected.confidence * 100)}%` : 'Curadoria'}</div>
+            </div>
+          </div>
+          {selected?.reasoningHint && (
+            <div className="rounded-xl bg-brand-50 text-brand-900 px-4 py-3 text-[13px] leading-relaxed">
+              {selected.reasoningHint}
+            </div>
+          )}
+          <div className="rounded-xl border-half bg-canvas p-4">
+            <div className="text-[12px] uppercase tracking-wide text-ink-400 mb-1">Futuro</div>
+            <p className="text-[13px] leading-relaxed text-ink-600">
+              Aqui entram mapa, avaliações, horários e disponibilidade quando a integração com Places estiver conectada.
+            </p>
+          </div>
+        </div>
+      </Drawer>
+    </>
+  );
+};
 
 // TODO: replace local recommendation cards with Google Maps Places API results.
 
