@@ -38,6 +38,39 @@ function useQuery(fetcher, deps = []) {
 // ---------------- Session (auth + user + travel profile) ----------------
 const AccountContext = React.createContext(null);
 const useAccount = () => React.useContext(AccountContext);
+const PROFILE_KEY = 'gaid:mvp:onboardingProfile:v1';
+
+function profileStorageKey(user) {
+  return `${PROFILE_KEY}:${user?.id || user?.email || 'guest'}`;
+}
+
+function readStoredProfile(user) {
+  try {
+    const raw = localStorage.getItem(profileStorageKey(user));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredProfile(user, profile) {
+  try {
+    localStorage.setItem(profileStorageKey(user), JSON.stringify(profile));
+  } catch {}
+}
+
+function onboardingProfileFromRow(row, user) {
+  const stored = readStoredProfile(user);
+  const metadataProfile = row?.metadata?.onboarding || row?.metadata?.profile || null;
+  const directProfile = row?.travelerProfile || row?.preferences ? row : null;
+  const profile = metadataProfile || directProfile || stored || null;
+  if (!profile) return null;
+  return {
+    ...profile,
+    display_name: row?.display_name || profile.display_name || nameFromEmail(user?.email),
+    email: user?.email || profile.email || '',
+  };
+}
 
 function emptySession() {
   return {
@@ -75,6 +108,18 @@ function firstNameFrom(name) { return name ? name.trim().split(/\s+/)[0] : ''; }
 // TravelProfile → ordered trait rows the Profile shows (null if nothing set).
 function deriveTraits(profile) {
   if (!profile) return null;
+  if (profile.travelerProfile || profile.preferences) {
+    const rows = [
+      { key: 'companhia', icon: 'Users', label: 'Companhia', chips: [profile.travelerProfile?.defaultComposition, ...(profile.travelerProfile?.commonCompanions || [])].filter(Boolean) },
+      { key: 'criancas', icon: 'Users', label: 'Crianças', chips: profile.travelerProfile?.childrenAges || [] },
+      { key: 'estilo', icon: 'Sparkles', label: 'Interesses', chips: profile.preferences?.interests || [] },
+      { key: 'ritmo', icon: 'Sliders', label: 'Ritmo', chips: profile.preferences?.pace ? [profile.preferences.pace] : [] },
+      { key: 'orcamento', icon: 'Coins', label: 'Conforto', chips: profile.preferences?.budgetStyle ? [profile.preferences.budgetStyle] : [] },
+      { key: 'prioridades', icon: 'Compass', label: 'Prioridades', chips: profile.preferences?.priorityRanking || [] },
+    ];
+    const filled = rows.filter(r => r.chips.length > 0);
+    return filled.length ? rows : null;
+  }
   const rows = [
     { key: 'companhia', icon: 'Users',    label: 'Companhia', chips: profile.travelCompanions || [] },
     { key: 'estilo',    icon: 'Sparkles', label: 'Estilo',    chips: profile.travelStyles || [] },
@@ -88,6 +133,17 @@ function deriveTraits(profile) {
 }
 function profileCompletion(profile) {
   if (!profile) return 0;
+  if (profile.travelerProfile || profile.preferences) {
+    const checks = [
+      profile.travelerProfile?.defaultComposition ? 1 : 0,
+      (profile.travelerProfile?.commonCompanions || []).length,
+      (profile.preferences?.interests || []).length,
+      profile.preferences?.pace ? 1 : 0,
+      profile.preferences?.budgetStyle ? 1 : 0,
+      (profile.preferences?.priorityRanking || []).length,
+    ];
+    return Math.round((checks.filter(Boolean).length / checks.length) * 100);
+  }
   const checks = [
     (profile.travelCompanions || []).length,
     (profile.travelStyles || []).length,
@@ -140,9 +196,9 @@ const SessionProvider = ({ children }) => {
         .select('*')
         .eq('user_id', user.id)
         .maybeSingle();
-      profile = data || null;
+      profile = onboardingProfileFromRow(data || null, user);
     } catch (_error) {
-      profile = null;
+      profile = readStoredProfile(user);
     }
     setSess(sessionFromUser(user, profile));
   }, []);
@@ -177,15 +233,21 @@ const SessionProvider = ({ children }) => {
     },
     finishOnboarding: async (profile) => {
       let nextProfile = profile || null;
+      if (authSession?.user && nextProfile) {
+        writeStoredProfile(authSession.user, nextProfile);
+      }
       if (authSession?.user && authSession?.access_token) {
         try {
           const { data } = await supabase
             .from('profiles')
-            .update({ display_name: sess.user.name || null })
+            .update({
+              display_name: sess.user.name || nextProfile?.display_name || null,
+              metadata: { onboarding: nextProfile },
+            })
             .eq('user_id', authSession.user.id)
             .select('*')
             .maybeSingle();
-          nextProfile = data || nextProfile;
+          nextProfile = onboardingProfileFromRow(data || null, authSession.user) || nextProfile;
         } catch (_error) {}
       }
       update({ needsOnboarding: false, profile: nextProfile });

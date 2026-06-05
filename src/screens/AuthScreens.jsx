@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Icon } from '../components/icons.jsx';
-import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer, GaidLogo } from '../components/ui.jsx';
+import { Placeholder, Button, Tag, Card, Modal, Drawer, SmartImg, Portrait, useToast, Topbar, SectionHeader, Stat, TabRow, OptimizeMenu, AddToTripDrawer, GaidLogo, ConciergeLoading } from '../components/ui.jsx';
 import { EmptyState, EmptyInline } from './EmptyStates.jsx';
 import { Async, CardSkeleton, CatalogCarousel, Carousel, Skeleton, ErrorState, CarouselSkeleton } from '../core/states.jsx';
 import { useAccount, useTrips, useCatalog, deriveTraits, profileCompletion } from '../core/store.jsx';
@@ -45,13 +45,7 @@ const LoginDesktop = ({ onAuthed, onDemo }) => {
 
         <div className="mt-8">
           {stage === 'loading' ? (
-            <div className="flex items-center gap-3 h-[52px] px-4 rounded-2xl border-half bg-white">
-              <div className="relative h-6 w-6">
-                <div className="absolute inset-0 rounded-full bg-white border-half flex items-center justify-center"><GaidLogo className="h-3 w-auto max-w-[18px]"/></div>
-                <div className="absolute inset-0 rounded-full ring-2 ring-ink-900/25 animate-ping"/>
-              </div>
-              <span className="text-[13.5px] text-ink-700">Entrando com <span className="font-medium text-ink-900">{provider}</span>…</span>
-            </div>
+            <ConciergeLoading category="profile" />
           ) : stage === 'email' ? (
             <div className="space-y-2.5 fade-up">
               <button onClick={() => setStage('choices')} className="text-[13px] text-ink-500 hover:text-ink-900 inline-flex items-center gap-1 mb-1">
@@ -145,113 +139,115 @@ const AuthShell = ({ children }) => (
 );
 
 // ============ ONBOARDING ============
-// Destinations come from the single editorial source (app/core/editorial.jsx),
-// not a local list here. Same grouped-by-region shape; UI unchanged.
-const ODESTS = (typeof EDITORIAL_DESTINATIONS !== 'undefined' && EDITORIAL_DESTINATIONS) || {};
 const OnboardingDesktop = ({ onDone, initial }) => {
   const [step, setStep] = useState(0);
-  const [finishing, setFinishing] = useState(false);
+  const [done, setDone] = useState(false);
   const [p, setP] = useState({
-    travelCompanions: [], children: false, childrenAges: [], petProfile: [],
-    travelStyles: [], favoriteDestinations: [], destinationInterests: false,
-    budgetRange: null, tripFrequency: null,
-    hotelPreferences: [], flightPreferences: [], usesMiles: null, milesPrograms: [],
+    travelerProfile: {
+      defaultComposition: '',
+      commonCompanions: [],
+      childrenAges: [],
+    },
+    preferences: {
+      interests: [],
+      pace: '',
+      budgetStyle: '',
+      priorityRanking: ['Experiências únicas', 'Conforto', 'Economia', 'Pouco deslocamento', 'Boa gastronomia', 'Segurança', 'Atividades para crianças', 'Flexibilidade'],
+    },
     ...(initial || {}),
   });
-  const set = (patch) => setP(prev => ({ ...prev, ...patch }));
-  const toggle = (key, val, max) => setP(prev => {
-    const arr = prev[key]; const has = arr.includes(val);
+  const setTraveler = (patch) => setP(prev => ({ ...prev, travelerProfile: { ...prev.travelerProfile, ...patch } }));
+  const setPrefs = (patch) => setP(prev => ({ ...prev, preferences: { ...prev.preferences, ...patch } }));
+  const toggleTraveler = (key, val) => setP(prev => {
+    const arr = prev.travelerProfile[key] || [];
+    const has = arr.includes(val);
+    const next = has ? arr.filter(x => x !== val) : [...arr, val];
+    return { ...prev, travelerProfile: { ...prev.travelerProfile, [key]: next } };
+  });
+  const togglePref = (key, val) => setP(prev => {
+    const arr = prev.preferences[key] || [];
+    const has = arr.includes(val);
     let next = has ? arr.filter(x => x !== val) : [...arr, val];
-    if (max && next.length > max) next = next.slice(1);
-    return { ...prev, [key]: next };
+    return { ...prev, preferences: { ...prev.preferences, [key]: next } };
   });
 
-  // welcome + 6 grouped questions + finish
-  const steps = ['welcome','companions','styles','destinations','budgetfreq','prefs','miles','finish'];
+  const steps = ['composition', 'companions', 'interests', 'pace', 'budget', 'ranking'];
   const cur = steps[Math.min(step, steps.length - 1)];
-  const next = () => setStep(s => Math.min(s + 1, steps.length - 1));
+  const next = () => step >= steps.length - 1 ? setDone(true) : setStep(s => Math.min(s + 1, steps.length - 1));
   const back = () => setStep(s => Math.max(s - 1, 0));
 
   const canNext = (() => {
     switch (cur) {
-      case 'companions': return p.travelCompanions.length > 0;
-      case 'styles': return p.travelStyles.length > 0;
-      case 'destinations': return p.favoriteDestinations.length > 0 || p.destinationInterests;
-      case 'budgetfreq': return !!p.budgetRange && !!p.tripFrequency;
-      case 'prefs': return p.hotelPreferences.length > 0 && p.flightPreferences.length > 0;
-      case 'miles': return !!p.usesMiles;
+      case 'composition': return !!p.travelerProfile.defaultComposition;
+      case 'companions': return p.travelerProfile.commonCompanions.length > 0;
+      case 'interests': return p.preferences.interests.length > 0;
+      case 'pace': return !!p.preferences.pace;
+      case 'budget': return !!p.preferences.budgetStyle;
+      case 'ranking': return p.preferences.priorityRanking.length > 0;
       default: return true;
     }
   })();
-  const doFinish = () => { setFinishing(true); setTimeout(() => onDone && onDone(p), 2200); };
 
-  if (cur === 'welcome') {
+  const summary = onboardingSummary(p);
+  const finish = () => onDone && onDone({
+    travelerProfile: p.travelerProfile,
+    preferences: p.preferences,
+  });
+
+  if (done) {
     return (
-      <AuthShell>
-        <div className="w-full max-w-[420px] mx-auto text-left">
-          <div className="h-12 w-12 rounded-2xl bg-ink-900 text-paper flex items-center justify-center mb-7"><Icon.Compass size={26}/></div>
-          <h1 className="text-[30px] tracking-[-0.03em] font-medium text-ink-900 leading-[1.15]">
-            Vamos personalizar sua <span className="serif-i">experiência de viagem.</span>
+      <div className="min-h-screen flex items-center justify-center bg-canvas px-4 sm:px-6 py-8">
+        <div className="w-full max-w-[560px] bg-white border-half rounded-3xl shadow-card p-6 sm:p-8 text-center">
+          <div className="h-14 w-14 rounded-2xl bg-ink-900 text-paper flex items-center justify-center mx-auto mb-6">
+            <Icon.Sparkles size={26}/>
+          </div>
+          <div className="label mb-2">Perfil pronto</div>
+          <h1 className="text-[26px] sm:text-[32px] tracking-tight font-medium text-ink-900 leading-tight">
+            Agora a Gaid sabe como decidir melhor por você.
           </h1>
-          <p className="text-[15px] text-ink-600 mt-4 leading-relaxed">
-            Leva menos de 2 minutos. Quanto mais soubermos sobre você, melhores serão suas recomendações.
-          </p>
-          <button onClick={next} className="mt-8 w-full h-[54px] rounded-2xl bg-ink-900 text-paper text-[15px] font-medium flex items-center justify-center gap-2 hover:bg-ink-800 transition-colors">
-            Começar <Icon.ArrowRight size={17}/>
+          <p className="text-[15px] text-ink-600 mt-4 leading-relaxed">{summary}</p>
+          <button onClick={finish}
+            className="mt-8 w-full sm:w-auto h-[52px] px-7 rounded-2xl bg-ink-900 text-paper text-[15px] font-medium inline-flex items-center justify-center gap-2 hover:bg-ink-800 transition-colors">
+            Começar a explorar <Icon.ArrowRight size={17}/>
           </button>
-          <button onClick={() => onDone && onDone(initial || null)} className="w-full text-center text-[13px] text-ink-500 mt-3 py-2 hover:text-ink-900">Pular por agora</button>
         </div>
-      </AuthShell>
-    );
-  }
-
-  if (cur === 'finish') {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-paper px-8 text-center">
-        <div className="relative h-16 w-16 mb-7">
-          <div className="absolute inset-0 rounded-2xl bg-ink-900 text-paper flex items-center justify-center"><Icon.Sparkles size={30}/></div>
-          {finishing && <div className="absolute inset-0 rounded-2xl ring-2 ring-ink-900/25 animate-ping"/>}
-        </div>
-        <h1 className="text-[28px] tracking-[-0.02em] font-medium text-ink-900 leading-tight max-w-[480px]">
-          {finishing ? 'Preparando sua Gaid…' : 'Já entendemos como você gosta de viajar.'}
-        </h1>
-        <p className="text-[14.5px] text-ink-600 mt-3 max-w-[420px] leading-relaxed">
-          {finishing ? 'Selecionando destinos, roteiros e hotéis com a sua cara.' : 'Perfeito. Sua Gaid já está montada do seu jeito.'}
-        </p>
-        {!finishing && (
-          <button onClick={doFinish} className="mt-8 h-[54px] px-7 rounded-2xl bg-ink-900 text-paper text-[15px] font-medium flex items-center gap-2 hover:bg-ink-800 transition-colors">
-            Ver minha Gaid <Icon.ArrowRight size={17}/>
-          </button>
-        )}
       </div>
     );
   }
 
-  // Question shell — centered card with progress
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-canvas px-6 py-10">
-      <div className="w-full max-w-[600px]">
-        {/* progress */}
-        <div className="flex items-center gap-3 mb-8">
-          <button onClick={back} className="h-9 w-9 rounded-full hover:bg-ink-100 flex items-center justify-center text-ink-700"><Icon.ChevronLeft size={18}/></button>
+    <div className="min-h-screen flex items-center justify-center bg-canvas px-4 sm:px-6 py-8">
+      <div className="w-full max-w-[680px] bg-white border-half rounded-3xl shadow-card p-5 sm:p-7">
+        <div className="flex items-center gap-3 mb-7">
+          <button onClick={back} disabled={step === 0}
+            className="h-9 w-9 rounded-full hover:bg-ink-100 flex items-center justify-center text-ink-700 disabled:opacity-30 disabled:cursor-not-allowed">
+            <Icon.ChevronLeft size={18}/>
+          </button>
           <div className="flex-1 h-1.5 rounded-full bg-ink-100 overflow-hidden">
-            <div className="h-full bg-ink-900 transition-all duration-300" style={{ width: `${(step/(steps.length-1))*100}%` }}/>
+            <div className="h-full bg-ink-900 transition-all duration-300" style={{ width: `${((step + 1) / steps.length) * 100}%` }}/>
           </div>
-          <span className="text-[12px] mono text-ink-500 tabular-nums">{step}/{steps.length-2}</span>
+          <span className="text-[12px] mono text-ink-500 tabular-nums">{step + 1}/{steps.length}</span>
         </div>
 
-        <ODQuestion cur={cur} p={p} set={set} toggle={toggle}/>
+        <ODQuestion
+          cur={cur}
+          p={p}
+          setTraveler={setTraveler}
+          setPrefs={setPrefs}
+          toggleTraveler={toggleTraveler}
+          togglePref={togglePref}
+        />
 
         <button onClick={next} disabled={!canNext}
           className="mt-9 w-full h-[54px] rounded-2xl bg-ink-900 text-paper text-[15px] font-medium flex items-center justify-center gap-2 hover:bg-ink-800 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
-          Continuar <Icon.ArrowRight size={17}/>
+          {step >= steps.length - 1 ? 'Ver resumo' : 'Continuar'} <Icon.ArrowRight size={17}/>
         </button>
       </div>
     </div>
   );
 };
 
-const ODQuestion = ({ cur, p, set, toggle }) => {
+const ODQuestion = ({ cur, p, setTraveler, setPrefs, toggleTraveler, togglePref }) => {
   const Block = ({ title, hint, children }) => (
     <div>
       <h1 className="text-[26px] tracking-[-0.02em] font-medium text-ink-900 leading-snug">{title}</h1>
@@ -259,7 +255,7 @@ const ODQuestion = ({ cur, p, set, toggle }) => {
       <div className="mt-6">{children}</div>
     </div>
   );
-  const Chips = ({ options, selected, onToggle, single, max }) => (
+  const Chips = ({ options, selected, onToggle }) => (
     <div className="flex flex-wrap gap-2.5">
       {options.map(o => {
         const on = selected.includes(o);
@@ -273,111 +269,121 @@ const ODQuestion = ({ cur, p, set, toggle }) => {
       })}
     </div>
   );
+  const SingleCards = ({ options, value, onPick }) => (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+      {options.map(o => {
+        const on = value === o;
+        return (
+          <button key={o} onClick={() => onPick(o)}
+            className={`min-h-[54px] px-4 rounded-2xl border-half text-left text-[14px] font-medium transition-all active:scale-[.98] flex items-center justify-between gap-3
+              ${on ? 'bg-ink-900 text-paper border-ink-900' : 'bg-white text-ink-900 border-edge hover:border-ink-400'}`}>
+            <span>{o}</span>
+            {on && <Icon.Check size={15}/>}
+          </button>
+        );
+      })}
+    </div>
+  );
+  const moveRank = (index, direction) => {
+    const next = [...p.preferences.priorityRanking];
+    const target = index + direction;
+    if (target < 0 || target >= next.length) return;
+    const [item] = next.splice(index, 1);
+    next.splice(target, 0, item);
+    setPrefs({ priorityRanking: next });
+  };
+
   switch (cur) {
+    case 'composition': return (
+      <Block title="Como você costuma viajar?" hint="Isso vira a base das recomendações e do ritmo dos roteiros.">
+        <SingleCards
+          options={['Sozinho', 'Casal', 'Família', 'Amigos', 'Trabalho', 'Varia bastante']}
+          value={p.travelerProfile.defaultComposition}
+          onPick={(value) => setTraveler({ defaultComposition: value })}
+        />
+      </Block>
+    );
     case 'companions': return (
-      <Block title="Com quem você costuma viajar?" hint="Pode escolher mais de uma.">
-        <div className="grid grid-cols-3 gap-3">
-          {['Casal','Família com filhos','Sozinho','Amigos','Com pet'].map(o => {
-            const on = p.travelCompanions.includes(o);
-            const Ic = Icon[{Casal:'Heart','Família com filhos':'Users',Sozinho:'Compass',Amigos:'Users','Com pet':'Award'}[o]] || Icon.Compass;
-            return (
-              <button key={o} onClick={() => toggle('travelCompanions', o)}
-                className={`relative rounded-2xl border-half p-4 h-[104px] flex flex-col items-start justify-between text-left transition-all hover:border-ink-400 active:scale-[.98]
-                            ${on ? 'bg-ink-900 text-paper border-ink-900' : 'bg-white text-ink-900 border-edge'}`}>
-                <Ic size={22} className={on ? 'text-paper' : 'text-ink-700'}/>
-                <span className="text-[14px] font-medium leading-tight">{o}</span>
-                {on && <div className="absolute top-3 right-3 h-5 w-5 rounded-full bg-paper text-ink-900 flex items-center justify-center"><Icon.Check size={12}/></div>}
-              </button>
-            );
-          })}
-        </div>
-        {p.travelCompanions.includes('Família com filhos') && (
+      <Block title="Quem normalmente viaja com você?" hint="Pode escolher mais de uma opção.">
+        <Chips
+          options={['Parceiro(a)', 'Crianças', 'Bebê ou criança pequena', 'Pais ou idosos', 'Pet', 'Amigos', 'Costumo viajar sozinho']}
+          selected={p.travelerProfile.commonCompanions}
+          onToggle={(value) => toggleTraveler('commonCompanions', value)}
+        />
+        {(p.travelerProfile.commonCompanions.includes('Crianças') || p.travelerProfile.commonCompanions.includes('Bebê ou criança pequena')) && (
           <div className="mt-4 bg-ink-50 rounded-2xl p-4 fade-up">
-            <div className="text-[13px] font-medium text-ink-800 mb-2.5">Idade das crianças</div>
-            <Chips options={['0–3 anos','4–7 anos','8–12 anos','13+']} selected={p.childrenAges} onToggle={(v)=>toggle('childrenAges',v)}/>
-          </div>
-        )}
-        {p.travelCompanions.includes('Com pet') && (
-          <div className="mt-3 bg-ink-50 rounded-2xl p-4 fade-up">
-            <div className="text-[13px] font-medium text-ink-800 mb-2.5">Porte do pet</div>
-            <Chips options={['pequeno porte','médio porte','grande porte']} selected={p.petProfile} onToggle={(v)=>toggle('petProfile',v)}/>
+            <div className="text-[13px] font-medium text-ink-800 mb-2.5">Faixa de idade das crianças</div>
+            <Chips options={['0–2', '3–5', '6–10', '11+']} selected={p.travelerProfile.childrenAges} onToggle={(v)=>toggleTraveler('childrenAges', v)}/>
           </div>
         )}
       </Block>
     );
-    case 'styles': return <Block title="O que você mais gosta em uma viagem?" hint="Escolha até 5."><Chips options={['Cultura','Gastronomia','Praia','Natureza','Compras','Parques','Luxo','Economia','Experiências locais','Aventura','Descanso','Romântico']} selected={p.travelStyles} max={5} onToggle={(v)=>toggle('travelStyles',v,5)}/></Block>;
-    case 'destinations': return (
-      <Block title="Quais destinos combinam com você?" hint="Escolha quantos quiser.">
-        <div className="space-y-5">
-          {Object.entries(ODESTS).map(([region, list]) => (
-            <div key={region}>
-              <div className="label mb-2">{region}</div>
-              <Chips options={list} selected={p.favoriteDestinations} onToggle={(v)=>toggle('favoriteDestinations',v)}/>
+    case 'interests': return (
+      <Block title="O que mais combina com você?" hint="A Gaid usa isso para priorizar dicas e escolhas no roteiro.">
+        <Chips
+          options={['Gastronomia', 'Cultura', 'Compras', 'Natureza', 'Parques', 'Museus', 'Vida noturna', 'Descanso', 'Luxo', 'Econômico', 'Experiências locais', 'Lugares instagramáveis']}
+          selected={p.preferences.interests}
+          onToggle={(value) => togglePref('interests', value)}
+        />
+      </Block>
+    );
+    case 'pace': return (
+      <Block title="Qual ritmo você prefere?" hint="Isso evita roteiros corridos demais ou vazios demais.">
+        <SingleCards
+          options={['Leve', 'Equilibrado', 'Intenso', 'Quero aproveitar tudo sem sofrer']}
+          value={p.preferences.pace}
+          onPick={(value) => setPrefs({ pace: value })}
+        />
+      </Block>
+    );
+    case 'budget': return (
+      <Block title="Como você prefere equilibrar custo e conforto?" hint="Não é orçamento fixo. É uma preferência de decisão.">
+        <SingleCards
+          options={['Econômico', 'Moderado', 'Confortável', 'Premium', 'Depende da viagem']}
+          value={p.preferences.budgetStyle}
+          onPick={(value) => setPrefs({ budgetStyle: value })}
+        />
+      </Block>
+    );
+    case 'ranking': return (
+      <Block title="Ordene o que mais influencia suas decisões de viagem" hint="Use as setas para colocar o mais importante no topo.">
+        <div className="space-y-2">
+          {p.preferences.priorityRanking.map((item, index) => (
+            <div key={item} className="flex items-center gap-3 px-4 py-3 rounded-2xl border-half bg-white">
+              <div className="h-7 w-7 rounded-full bg-ink-100 text-ink-600 flex items-center justify-center text-[11px] mono shrink-0">{index + 1}</div>
+              <div className="flex-1 text-[14px] font-medium text-ink-900">{item}</div>
+              <div className="flex items-center gap-1">
+                <button onClick={() => moveRank(index, -1)} disabled={index === 0}
+                  className="h-8 w-8 rounded-lg border-half text-ink-500 hover:text-ink-900 disabled:opacity-30 disabled:cursor-not-allowed">↑</button>
+                <button onClick={() => moveRank(index, 1)} disabled={index === p.preferences.priorityRanking.length - 1}
+                  className="h-8 w-8 rounded-lg border-half text-ink-500 hover:text-ink-900 disabled:opacity-30 disabled:cursor-not-allowed">↓</button>
+              </div>
             </div>
           ))}
-          <button onClick={() => set({ destinationInterests: !p.destinationInterests })}
-            className={`w-full h-12 rounded-2xl border-half flex items-center justify-center gap-2 text-[14px] font-medium transition-colors
-                        ${p.destinationInterests ? 'bg-ink-900 text-paper border-ink-900' : 'bg-white text-ink-800 border-edge hover:border-ink-400'}`}>
-            <Icon.Sparkles size={15}/> Quero explorar sugestões
-          </button>
         </div>
-      </Block>
-    );
-    case 'budgetfreq': return (
-      <Block title="Orçamento e frequência">
-        <div className="space-y-7">
-          <div>
-            <div className="text-[15px] font-medium text-ink-900 mb-3">Quanto você costuma investir em uma viagem?</div>
-            <div className="space-y-2">
-              {['Até R$5 mil','R$5–10 mil','R$10–20 mil','R$20–40 mil','R$40 mil+'].map(o => {
-                const on = p.budgetRange === o;
-                return (
-                  <button key={o} onClick={() => set({budgetRange:o})}
-                    className={`w-full h-14 px-4 rounded-2xl border-half flex items-center justify-between transition-all hover:border-ink-400 ${on?'bg-ink-900 text-paper border-ink-900':'bg-white text-ink-900 border-edge'}`}>
-                    <span className="text-[15px] font-medium">{o}</span>
-                    <div className={`h-5 w-5 rounded-full flex items-center justify-center ${on?'bg-paper text-ink-900':'border-half border-ink-300'}`}>{on && <Icon.Check size={12}/>}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div>
-            <div className="text-[15px] font-medium text-ink-900 mb-3">Quantas viagens faz por ano?</div>
-            <Chips options={['1','2','3','4+']} selected={p.tripFrequency?[p.tripFrequency]:[]} onToggle={(v)=>set({tripFrequency:v})}/>
-          </div>
-        </div>
-      </Block>
-    );
-    case 'prefs': return (
-      <Block title="Suas preferências">
-        <div className="space-y-7">
-          <div>
-            <div className="text-[15px] font-medium text-ink-900 mb-1">O que você valoriza em hotéis?</div>
-            <div className="text-[13px] text-ink-500 mb-3">Escolha até 3.</div>
-            <Chips options={['Melhor preço','Localização','Luxo','Resort','Boutique','Espaço para família','Pet friendly','Experiência local']} selected={p.hotelPreferences} max={3} onToggle={(v)=>toggle('hotelPreferences',v,3)}/>
-          </div>
-          <div>
-            <div className="text-[15px] font-medium text-ink-900 mb-1">O que você prioriza em voos?</div>
-            <div className="text-[13px] text-ink-500 mb-3">Escolha até 3.</div>
-            <Chips options={['Menor preço','Menos conexões','Conforto','Melhores horários','Milhas','Classe executiva']} selected={p.flightPreferences} max={3} onToggle={(v)=>toggle('flightPreferences',v,3)}/>
-          </div>
-        </div>
-      </Block>
-    );
-    case 'miles': return (
-      <Block title="Você usa milhas ou pontos?">
-        <Chips options={['Sim','Não','Quero aprender']} selected={p.usesMiles?[p.usesMiles]:[]} onToggle={(v)=>set({usesMiles:v})}/>
-        {p.usesMiles === 'Sim' && (
-          <div className="mt-4 bg-ink-50 rounded-2xl p-4 fade-up">
-            <div className="text-[13px] font-medium text-ink-800 mb-2.5">Quais programas?</div>
-            <Chips options={['Livelo','Esfera','LATAM Pass','Smiles','Azul']} selected={p.milesPrograms} onToggle={(v)=>toggle('milesPrograms',v)}/>
-          </div>
-        )}
       </Block>
     );
     default: return null;
   }
 };
+
+function onboardingSummary(profile) {
+  const composition = profile.travelerProfile.defaultComposition
+    ? `viagens em ${profile.travelerProfile.defaultComposition.toLowerCase()}`
+    : 'viagens com contexto flexível';
+  const interests = profile.preferences.interests.slice(0, 3).map(item => item.toLowerCase());
+  const interestText = interests.length ? `, com foco em ${sentenceList(interests)}` : '';
+  const pace = profile.preferences.pace ? `, ritmo ${profile.preferences.pace.toLowerCase()}` : '';
+  const budget = profile.preferences.budgetStyle ? ` e perfil ${profile.preferences.budgetStyle.toLowerCase()}` : '';
+  return `Você prefere ${composition}${interestText}${pace}${budget}.`;
+}
+
+function sentenceList(values) {
+  const items = values.filter(Boolean);
+  if (items.length <= 1) return items[0] || '';
+  if (items.length === 2) return `${items[0]} e ${items[1]}`;
+  return `${items.slice(0, -1).join(', ')} e ${items[items.length - 1]}`;
+}
 
 
 
