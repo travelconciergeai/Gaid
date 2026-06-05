@@ -7,6 +7,12 @@ import { Async, CardSkeleton, CatalogCarousel, Carousel, Skeleton, ErrorState, C
 import { useTripStore } from '../core/store.jsx';
 import { TBD, has, orTBD, fmtDuration, fmtMoney } from '../core/contracts.jsx';
 import { tripApi } from '../core/tripApi.jsx';
+import {
+  getKnowledgeForRequest,
+  logBrainError,
+  logKnowledgeDecision,
+  logToolExecution,
+} from '../core/brain/index.js';
 // Plan screen — chat at left, live timeline at right.
 // Itinerary is fully editable: add/remove items, change time slot, replace activity.
 
@@ -693,6 +699,93 @@ function makeStructuredChange({ type, day, slot, targetTitle = '', newTitle = ''
     item,
   };
 }
+function replanKnowledgeIntent(type) {
+  return type === 'WEATHER' ? 'REPLAN_FOR_WEATHER' : 'OPTIMIZE_ITINERARY';
+}
+function scenarioForReplan(type) {
+  if (type === 'WEATHER') return 'rain';
+  if (type === 'TIME_LOSS') return 'lost_morning';
+  if (type === 'COMFORT') return 'tired_traveler reduce_displacement';
+  if (type === 'CHILD_FRIENDLY') return 'child_tired crianças';
+  if (type === 'GASTRONOMY') return 'more_gastronomy';
+  return 'optimize_itinerary';
+}
+function buildReplanKnowledgeRequest({ message, trip, days, type }) {
+  const tripContext = trip?.tripContext && typeof trip.tripContext === 'object' ? trip.tripContext : {};
+  const safeDays = normalizeDays(days);
+  const priorities = [
+    ...(Array.isArray(tripContext.priorities) ? tripContext.priorities : []),
+    ...(Array.isArray(tripContext.interests) ? tripContext.interests : []),
+    tripContext.tripPriority,
+    scenarioForReplan(type),
+  ].flat().filter(Boolean);
+  const itinerarySummary = safeDays.map(day => ({
+    day: day.d,
+    city: day.city,
+    items: day.items.map(item => ({
+      title: item.title,
+      slot: item.t,
+      place: item.place,
+      tag: item.tag,
+    })),
+  }));
+  return {
+    destination: knownTripDestination(trip),
+    durationDays: tripContext.durationDays || safeDays.length || null,
+    travelerComposition: tripContext.travelerComposition || tripContext.travelers?.composition || trip?.travelerComposition || '',
+    travelers: tripContext.travelers || null,
+    priorities,
+    weather: type === 'WEATHER' ? 'rain' : '',
+    tripStyle: tripContext.stylePace || tripContext.comfortLevel || '',
+    scenario: scenarioForReplan(type),
+    message,
+    days: itinerarySummary,
+  };
+}
+function activeKnowledgeMetadata(knowledge) {
+  const metadata = knowledge?.context?.sourceMetadata?.find(item => item.enabled);
+  return {
+    source: metadata?.source === 'KNOWLEDGE_CORE' ? 'gaid_knowledge_core' : metadata?.source || 'replanning-engine',
+    confidence: metadata?.confidence || 0.45,
+    reasoningHint: metadata?.reasoningHint || 'Preview gerado com regras locais de replanning.',
+  };
+}
+function knowledgeReasonForChange(change, type, day, knowledge) {
+  const context = knowledge?.context || {};
+  const destination = context.destinationKnowledge?.knowledge;
+  const traveler = context.travelerRules?.rules;
+  const replanning = context.replanningRules?.rules?.[0];
+  const hints = context.knowledgeHints?.hints || [];
+  const destinationHint = destination?.label ? `em ${destination.label}` : day?.city ? `em ${day.city}` : '';
+  if (type === 'WEATHER' && destination?.rainyDayAlternatives?.length) {
+    return `${change.reason}; prioriza alternativa coberta ${destinationHint}`;
+  }
+  if (type === 'CHILD_FRIENDLY' && traveler?.pacing) {
+    return `${change.reason}; ajusta ritmo para crianças/família`;
+  }
+  if (type === 'GASTRONOMY' && destination?.foodStrengths?.length) {
+    return `${change.reason}; aproveita pontos fortes de gastronomia ${destinationHint}`;
+  }
+  if (type === 'COMFORT' && traveler?.pacing) {
+    return `${change.reason}; ${traveler.pacing}`;
+  }
+  if (replanning?.action) return `${change.reason}; ${replanning.action}`;
+  return hints[0] ? `${change.reason}; ${hints[0]}` : change.reason;
+}
+function enhanceReplanChangesWithKnowledge(changes, { type, days, knowledge }) {
+  const metadata = activeKnowledgeMetadata(knowledge);
+  const safeDays = normalizeDays(days);
+  return changes.map((change) => {
+    const day = safeDays.find(item => item.d === change.day);
+    return {
+      ...change,
+      reason: knowledgeReasonForChange(change, type, day, knowledge),
+      source: metadata.source,
+      confidence: metadata.confidence,
+      reasoningHint: metadata.reasoningHint,
+    };
+  });
+}
 function applyStructuredReplanChanges(days, changes) {
   const nextDays = normalizeDays(days).map(day => ({ ...day, items: [...day.items] }));
   changes.forEach((change) => {
@@ -730,6 +823,22 @@ function alternateDayForMove(days, currentDay) {
 function buildReplanPreview({ message, trip, days }) {
   const type = inferReplanType(message);
   const safeDays = normalizeDays(days).map(day => ({ ...day, items: [...day.items] }));
+  const knowledge = getKnowledgeForRequest(
+    replanKnowledgeIntent(type),
+    buildReplanKnowledgeRequest({ message, trip, days: safeDays, type })
+  );
+  const knowledgeMetadata = activeKnowledgeMetadata(knowledge);
+  logKnowledgeDecision({
+    surface: 'plan',
+    flow: 'replanning',
+    intent: replanKnowledgeIntent(type),
+    replanType: type,
+    destination: knownTripDestination(trip),
+    sources: knowledge.context?.sourceMetadata,
+    selectedSource: knowledgeMetadata.source,
+    confidence: knowledgeMetadata.confidence,
+    fallbackUsed: !knowledge.context?.destinationKnowledge?.knowledge && !knowledge.context?.travelerRules?.rules,
+  });
   const targets = targetDaysForReplan(message, safeDays, type);
   const targetNumbers = new Set(targets.map(day => day.d));
   const changes = [];
@@ -875,8 +984,22 @@ function buildReplanPreview({ message, trip, days }) {
       }
     }
   });
-  const usefulChanges = changes.filter(change => change.targetTitle || change.newTitle);
+  const usefulChanges = enhanceReplanChangesWithKnowledge(
+    changes.filter(change => change.targetTitle || change.newTitle),
+    { type, days: safeDays, knowledge }
+  );
   const nextDays = usefulChanges.length ? applyStructuredReplanChanges(safeDays, usefulChanges) : safeDays;
+  const metadata = activeKnowledgeMetadata(knowledge);
+  logToolExecution({
+    surface: 'plan',
+    flow: 'replanning',
+    tool: 'Replanning Engine',
+    action: usefulChanges.length ? 'preview_changes' : 'fallback_no_useful_items',
+    selectedSource: metadata.source,
+    confidence: metadata.confidence,
+    changeCount: usefulChanges.length,
+    dayCount: safeDays.length,
+  });
 
   if (usefulChanges.length === 0) {
     return {
@@ -884,6 +1007,10 @@ function buildReplanPreview({ message, trip, days }) {
       changes: [],
       nextDays,
       summary: 'Consigo ajustar, mas preciso de um roteiro com atividades mais definidas.',
+      knowledge,
+      source: metadata.source,
+      confidence: metadata.confidence,
+      reasoningHint: metadata.reasoningHint,
     };
   }
   return {
@@ -891,6 +1018,10 @@ function buildReplanPreview({ message, trip, days }) {
     changes: usefulChanges,
     nextDays,
     summary: replanSummaryText(type, targetNumbers),
+    knowledge,
+    source: metadata.source,
+    confidence: metadata.confidence,
+    reasoningHint: metadata.reasoningHint,
   };
 }
 function replanSummaryText(type, targetNumbers) {
@@ -1208,7 +1339,7 @@ function inferInitialItineraryDuration(trip, kickoff) {
   }
   return { days: 3, assumed: true };
 }
-function buildInitialItineraryPrompt(kickoff, trip, duration) {
+function buildInitialItineraryPrompt(kickoff, trip, duration, knowledge = null) {
   const assumption = duration.assumed
     ? `Como a duracao nao foi definida, assuma ${duration.days} dias e diga isso naturalmente no texto.`
     : `Use ${duration.days} dias como duracao do roteiro.`;
@@ -1223,7 +1354,82 @@ function buildInitialItineraryPrompt(kickoff, trip, duration) {
     'Os itens devem ser especificos para o destino e preferências da viagem, nao placeholders genericos.',
     'Nao invente reservas, precos, disponibilidade, hoteis ou voos confirmados.',
     `Contexto da viagem: ${JSON.stringify(trip.tripContext || {}).slice(0, 1200)}`,
+    knowledgePromptBlock(knowledge),
   ].join('\n');
+}
+function arrayFrom(value) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return value ? [value] : [];
+}
+function buildPlanKnowledgeRequest(trip, duration) {
+  const tripContext = trip?.tripContext && typeof trip.tripContext === 'object' ? trip.tripContext : {};
+  return {
+    destination: knownTripDestination(trip),
+    durationDays: duration?.days || tripContext.durationDays || null,
+    nights: tripContext.nights || trip?.nights || null,
+    dates: tripContext.dates || trip?.dates || null,
+    period: tripContext.period || tripContext.dates?.label || '',
+    travelers: tripContext.travelers || null,
+    travelerComposition: tripContext.travelerComposition || tripContext.travelers?.composition || '',
+    tripStyle: tripContext.stylePace || tripContext.comfortLevel || '',
+    stylePace: tripContext.stylePace || null,
+    priorities: [
+      ...arrayFrom(tripContext.priorities),
+      ...arrayFrom(tripContext.tripPriority),
+      ...arrayFrom(tripContext.interests),
+      ...arrayFrom(tripContext.experiences),
+    ],
+  };
+}
+function activePlanKnowledgeMetadata(knowledge) {
+  const metadata = knowledge?.context?.sourceMetadata?.find(item => item.enabled);
+  return {
+    source: metadata?.source === 'KNOWLEDGE_CORE' ? 'gaid_knowledge_core' : metadata?.source || 'openai',
+    confidence: metadata?.confidence || 0,
+    reasoningHint: metadata?.reasoningHint || '',
+  };
+}
+function hasUsefulPlanKnowledge(knowledge) {
+  const context = knowledge?.context || {};
+  const metadata = activePlanKnowledgeMetadata(knowledge);
+  return metadata.source === 'gaid_knowledge_core' && (
+    !!context.destinationKnowledge?.knowledge ||
+    !!context.travelerRules?.rules ||
+    (Array.isArray(context.knowledgeHints?.hints) && context.knowledgeHints.hints.length > 0)
+  );
+}
+function compactPlanKnowledgeContext(knowledge) {
+  if (!hasUsefulPlanKnowledge(knowledge)) return null;
+  const context = knowledge.context || {};
+  const metadata = activePlanKnowledgeMetadata(knowledge);
+  return {
+    destinationKnowledge: context.destinationKnowledge,
+    travelerRules: context.travelerRules,
+    knowledgeHints: context.knowledgeHints,
+    sourceMetadata: context.sourceMetadata,
+    source: metadata.source,
+    confidence: metadata.confidence,
+  };
+}
+function knowledgePromptBlock(knowledge) {
+  const compact = compactPlanKnowledgeContext(knowledge);
+  if (!compact) return '';
+  const destination = compact.destinationKnowledge?.knowledge;
+  const travelerRules = compact.travelerRules?.rules;
+  const hints = compact.knowledgeHints?.hints || [];
+  return [
+    '',
+    'Conhecimento Gaid para orientar esta primeira versão:',
+    destination?.personality ? `- Personalidade do destino: ${destination.personality}` : '',
+    destination?.pacingAdvice ? `- Ritmo recomendado: ${destination.pacingAdvice}` : '',
+    destination?.foodStrengths?.length ? `- Gastronomia forte: ${destination.foodStrengths.join(', ')}` : '',
+    destination?.cultureStrengths?.length ? `- Cultura/experiências fortes: ${destination.cultureStrengths.join(', ')}` : '',
+    destination?.shoppingStrengths?.length ? `- Compras/áreas úteis: ${destination.shoppingStrengths.join(', ')}` : '',
+    destination?.rainyDayAlternatives?.length ? `- Alternativas para chuva: ${destination.rainyDayAlternatives.join(', ')}` : '',
+    travelerRules?.pacing ? `- Regra para perfil de viajante: ${travelerRules.pacing}` : '',
+    hints.length ? `- Hints consolidados: ${hints.slice(0, 4).join(' ')}` : '',
+    '- Use esse conhecimento como curadoria interna da Gaid, sem dizer que consultou APIs externas.',
+  ].filter(Boolean).join('\n');
 }
 function withDurationAssumptionText(text, duration) {
   if (!duration.assumed) return text;
@@ -1416,6 +1622,9 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       replanType: action.payload?.replanType,
       replanSummary: action.payload?.summary,
       changes: action.payload?.changes?.map(({ item, ...change }) => change),
+      knowledgeSource: action.payload?.source,
+      confidence: action.payload?.confidence,
+      reasoningHint: action.payload?.reasoningHint,
     });
     toast({ title: 'Roteiro reorganizado', desc: action.payload?.summary || 'Mudanças aplicadas.', tone: 'success' });
     return 'applied';
@@ -1630,8 +1839,26 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
     kickoffKeyRef.current = kickoffKey;
     const isWizardKickoff = tripData.tripContext?.wizard?.completed === true;
     const duration = inferInitialItineraryDuration(tripData, kickoff);
+    const planKnowledge = isWizardKickoff
+      ? getKnowledgeForRequest('PLAN_TRIP', buildPlanKnowledgeRequest(tripData, duration))
+      : null;
+    const planKnowledgeContext = compactPlanKnowledgeContext(planKnowledge);
+    const planKnowledgeMetadata = activePlanKnowledgeMetadata(planKnowledge);
+    if (isWizardKickoff) {
+      logKnowledgeDecision({
+        surface: 'plan',
+        flow: 'initial-itinerary',
+        intent: 'PLAN_TRIP',
+        destination: knownTripDestination(tripData),
+        durationDays: duration.days,
+        sources: planKnowledge?.context?.sourceMetadata,
+        selectedSource: planKnowledgeContext?.source || 'openai',
+        confidence: planKnowledgeContext?.confidence || 0,
+        fallbackUsed: !planKnowledgeContext,
+      });
+    }
     const chatMessage = isWizardKickoff
-      ? buildInitialItineraryPrompt(kickoff, tripData, duration)
+      ? buildInitialItineraryPrompt(kickoff, tripData, duration, planKnowledge)
       : kickoff;
     const userMsg = { who: 'user', text: kickoff };
     setChat(c => c.some(m => m.who === 'user' && m.text === kickoff) ? c : [...c, userMsg]);
@@ -1648,6 +1875,14 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         itineraryDays: duration.days,
         assumedDuration: duration.assumed,
         tripContext: tripData.tripContext,
+        ...(planKnowledgeContext ? {
+          destinationKnowledge: planKnowledgeContext.destinationKnowledge,
+          travelerRules: planKnowledgeContext.travelerRules,
+          knowledgeHints: planKnowledgeContext.knowledgeHints,
+          sourceMetadata: planKnowledgeContext.sourceMetadata,
+          knowledgeSource: planKnowledgeContext.source,
+          knowledgeConfidence: planKnowledgeContext.confidence,
+        } : {}),
       },
     }).then(async (response) => {
       if (!alive) return;
@@ -1664,27 +1899,55 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
           const { nextDays, count } = buildTimelineWithSuggestions(days, initialSuggestions);
           if (count > 0) await commitTimelineDays(nextDays);
         }
+        logToolExecution({
+          surface: 'plan',
+          flow: 'initial-itinerary',
+          tool: 'Trip Planner',
+          action: initialSuggestions.length > 0 ? 'apply_initial_itinerary' : 'fallback_empty_structure',
+          generationSource: initialSuggestions.length > 0 && planKnowledgeContext ? planKnowledgeContext.source : initialSuggestions.length > 0 ? response.source : 'local',
+          confidence: initialSuggestions.length > 0 && planKnowledgeContext ? planKnowledgeContext.confidence : 0,
+          fallbackUsed: initialSuggestions.length === 0,
+          suggestionCount: initialSuggestions.length,
+          durationDays: duration.days,
+        });
         setChat(c => [...c, {
           who: 'gaid',
           text,
-          source: initialSuggestions.length > 0 ? response.source : 'local',
+          source: initialSuggestions.length > 0 && planKnowledgeContext ? planKnowledgeContext.source : initialSuggestions.length > 0 ? response.source : 'local',
           itinerarySuggestions: initialSuggestions,
+          knowledge: planKnowledgeContext || null,
+          knowledgeSource: initialSuggestions.length > 0 && planKnowledgeContext ? planKnowledgeContext.source : null,
+          confidence: initialSuggestions.length > 0 && planKnowledgeContext ? planKnowledgeContext.confidence : null,
           cta: null,
           ctaApplied: initialSuggestions.length > 0,
           initialKickoff: true,
         }]);
-        persistPlanMessage('assistant', text, { source: initialSuggestions.length > 0 ? response.source : 'local', initialItinerary: true });
+        persistPlanMessage('assistant', text, {
+          source: initialSuggestions.length > 0 && planKnowledgeContext ? planKnowledgeContext.source : initialSuggestions.length > 0 ? response.source : 'local',
+          initialItinerary: true,
+          knowledge: planKnowledgeContext || null,
+          confidence: initialSuggestions.length > 0 && planKnowledgeContext ? planKnowledgeContext.confidence : null,
+          reasoningHint: initialSuggestions.length > 0 && planKnowledgeContext ? planKnowledgeMetadata.reasoningHint : null,
+        });
       } else {
         setChat(c => [...c, assistantResponseToBubble(response)]);
         persistPlanMessage('assistant', response.text, { source: response.source });
       }
       clearKickoff && clearKickoff();
-    }).catch(() => {
+    }).catch((error) => {
       if (!alive) return;
       setTyping(false);
       const fallback = isWizardKickoff
         ? 'Criei a estrutura dos dias do roteiro. Me peça para montar uma primeira versão quando quiser.'
         : 'Não consegui responder agora. Tente novamente em instantes.';
+      logBrainError({
+        surface: 'plan',
+        flow: isWizardKickoff ? 'initial-itinerary' : 'chat',
+        tool: 'Trip Planner',
+        fallbackUsed: true,
+        generationSource: 'error',
+        error,
+      });
       setChat(c => [...c, { who: 'gaid', text: fallback, source: isWizardKickoff ? 'local' : 'error' }]);
       persistPlanMessage('assistant', fallback, { source: isWizardKickoff ? 'local' : 'error', initialItinerary: isWizardKickoff });
       clearKickoff && clearKickoff();
@@ -1890,7 +2153,14 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
       const text = previewTextForReplan(preview);
       if (!Array.isArray(preview.changes) || preview.changes.length === 0) {
         setChat(c => [...c, { who: 'gaid', text, source: 'replanning-engine' }]);
-        persistPlanMessage('assistant', text, { source: 'replanning-engine', intent: planIntent.intent, replanType: preview.type });
+        persistPlanMessage('assistant', text, {
+          source: 'replanning-engine',
+          intent: planIntent.intent,
+          replanType: preview.type,
+          knowledgeSource: preview.source,
+          confidence: preview.confidence,
+          reasoningHint: preview.reasoningHint,
+        });
         return;
       }
       setChat(c => [...c, {
@@ -1904,6 +2174,9 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
             nextDays: preview.nextDays,
             changes: preview.changes,
             summary: preview.summary,
+            source: preview.source,
+            confidence: preview.confidence,
+            reasoningHint: preview.reasoningHint,
           },
           expiresAfterTurns: 3,
         },
@@ -1914,6 +2187,9 @@ const PlanScreen = ({ kickoff, clearKickoff, setRoute, trip }) => {
         intent: planIntent.intent,
         replanType: preview.type,
         changes: preview.changes.map(({ item, ...change }) => change),
+        knowledgeSource: preview.source,
+        confidence: preview.confidence,
+        reasoningHint: preview.reasoningHint,
       });
       return;
     }

@@ -11,3 +11,23 @@ export {
   canStartGeneration,
   nextPlannerState,
 } from './plannerStateMachine.js';
+export {
+  getDestinationKnowledge,
+  getTravelerRules,
+  getReplanningRules,
+  rankRecommendationCandidates,
+  buildKnowledgeHints,
+} from './knowledgeCore.js';
+export {
+  KNOWLEDGE_SOURCES,
+  resolveKnowledgeSources,
+  buildKnowledgeContext,
+  getKnowledgeForRequest,
+} from './knowledgeRouter.js';
+export {
+  logBrainEvent,
+  logIntentDecision,
+  logKnowledgeDecision,
+  logToolExecution,
+  logBrainError,
+} from './observability.js';

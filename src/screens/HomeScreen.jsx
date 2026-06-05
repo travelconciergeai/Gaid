@@ -14,6 +14,11 @@ import {
   PLANNER_READY,
   PLANNER_GENERATING,
   PLANNER_COMPLETE,
+  getKnowledgeForRequest,
+  logIntentDecision,
+  logKnowledgeDecision,
+  logToolExecution,
+  rankRecommendationCandidates,
 } from '../core/brain/index.js';
 // Home — conversational landing.
 // Two modes:
@@ -252,6 +257,58 @@ function hasEnoughDiscoveryContext(context) {
   return Boolean(context.destination || context.neighborhood);
 }
 
+function discoveryIntentForCategory(category) {
+  if (category === 'Restaurant') return 'FIND_RESTAURANT';
+  if (category === 'Cafe') return 'FIND_CAFE';
+  if (category === 'Hotel') return 'FIND_HOTEL';
+  if (category === 'Attraction') return 'FIND_ATTRACTION';
+  return 'GET_RECOMMENDATION';
+}
+
+function discoveryKnowledgeContext(context) {
+  const travelerComposition = context.family || context.children
+    ? 'família'
+    : context.couple
+      ? 'casal'
+      : '';
+  const priorities = [
+    context.category === 'Restaurant' ? 'gastronomia' : '',
+    context.category === 'Cafe' ? 'cafés' : '',
+    context.category === 'Hotel' ? 'conforto' : '',
+    context.category === 'Attraction' ? 'cultura' : '',
+    context.weatherHint === 'rain' ? 'chuva' : '',
+    context.children ? 'crianças' : '',
+    context.travelStyle === 'budget' ? 'econômico' : '',
+    context.travelStyle === 'premium' ? 'premium' : '',
+  ].filter(Boolean);
+
+  return {
+    destination: context.destination,
+    travelerComposition,
+    priorities,
+    weather: context.weatherHint,
+    tripStyle: context.travelStyle,
+  };
+}
+
+function enrichDiscoveryReason(item, context, knowledgeContext) {
+  const destination = knowledgeContext?.destinationKnowledge?.knowledge;
+  if (!destination) return item.reason;
+  if (context.category === 'Restaurant' && destination.foodStrengths?.length) {
+    return `${item.reason} Combina com a força gastronômica de ${destination.label}.`;
+  }
+  if (context.category === 'Hotel' && destination.pacingAdvice) {
+    return `${item.reason} Ajuda a manter um ritmo mais confortável no destino.`;
+  }
+  if (context.weatherHint === 'rain' && destination.rainyDayAlternatives?.length) {
+    return `${item.reason} Também conversa com bons planos cobertos no destino.`;
+  }
+  if (context.children && destination.familySuitability) {
+    return `${item.reason} ${destination.familySuitability}`;
+  }
+  return item.reason;
+}
+
 function sourceDiscoveryCards(context) {
   const destination = context.destination || 'Rio de Janeiro';
   const catalog = DISCOVERY_CATALOG[destination] || DISCOVERY_CATALOG['Rio de Janeiro'];
@@ -260,19 +317,51 @@ function sourceDiscoveryCards(context) {
       : context.category === 'Hotel' ? 'hotel'
         : 'attraction';
   const rows = catalog[key] || catalog.attraction;
-  return rows.map((item, index) => ({
-    id: `${destination}-${key}-${index + 1}`.toLowerCase().replace(/\s+/g, '-'),
+  const intent = discoveryIntentForCategory(context.category);
+  const routedKnowledge = getKnowledgeForRequest(intent, discoveryKnowledgeContext(context));
+  const source = routedKnowledge.context.sourceMetadata.find(item => item.enabled)?.source || 'gaid-local-discovery';
+  const metadata = routedKnowledge.context.sourceMetadata.find(item => item.enabled);
+  logKnowledgeDecision({
+    surface: 'home',
+    flow: 'discovery',
+    intent,
+    destination,
     category: context.category,
-    name: item.name,
-    area: context.neighborhood || item.area,
-    rating: item.rating,
-    reason: context.weatherHint === 'rain' && key === 'attraction'
+    sources: routedKnowledge.context.sourceMetadata,
+    selectedSource: source === 'KNOWLEDGE_CORE' ? 'gaid_knowledge_core' : source,
+    confidence: metadata?.confidence || 0,
+    fallbackUsed: !routedKnowledge.context.destinationKnowledge?.knowledge,
+  });
+  const cards = rows.map((item, index) => {
+    const baseReason = context.weatherHint === 'rain' && key === 'attraction'
       ? `${item.reason} Também funciona melhor que programa aberto em dia de chuva.`
       : context.children
         ? `${item.reason} É uma opção mais fácil de adaptar para crianças.`
-        : item.reason,
-    source: 'gaid-local-discovery',
-  }));
+        : item.reason;
+    const card = {
+      id: `${destination}-${key}-${index + 1}`.toLowerCase().replace(/\s+/g, '-'),
+      category: context.category,
+      name: item.name,
+      area: context.neighborhood || item.area,
+      rating: item.rating,
+      reason: enrichDiscoveryReason({ ...item, reason: baseReason }, context, routedKnowledge.context),
+      source: source === 'KNOWLEDGE_CORE' ? 'gaid_knowledge_core' : source,
+      confidence: metadata?.confidence || 0.45,
+      reasoningHint: metadata?.reasoningHint || 'Discovery local sem conhecimento adicional.',
+      knowledge: routedKnowledge.context,
+    };
+    return card;
+  });
+  const rankedCards = rankRecommendationCandidates(cards, discoveryKnowledgeContext(context));
+  logToolExecution({
+    surface: 'home',
+    flow: 'discovery',
+    tool: 'Discovery Engine',
+    action: 'rankRecommendationCandidates',
+    selectedSource: source === 'KNOWLEDGE_CORE' ? 'gaid_knowledge_core' : source,
+    resultCount: rankedCards.length,
+  });
+  return rankedCards;
 }
 
 function buildLocalRecommendations(message) {
@@ -1495,6 +1584,15 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       }
 
       const classification = classifyGaidIntent(t);
+      logIntentDecision({
+        surface: 'home',
+        flow: 'initial-message',
+        intent: classification.intent,
+        confidence: classification.confidence,
+        requiresTrip: classification.requiresTrip,
+        nextTool: classification.nextTool,
+        reason: classification.reason,
+      });
 
       if (isTripPlanningIntent(t) || classification.intent === 'PLAN_TRIP') {
         startFlow(t, 'trip');
@@ -1562,6 +1660,15 @@ const HomeScreen = ({ setRoute, kickoffPlan, setActiveTripId, activeTrip }) => {
       const userMsg = { id: `u-${Date.now()}`, who: 'user', text: t };
       const nextChat = [...chat, userMsg];
       const classification = classifyGaidIntent(t);
+      logIntentDecision({
+        surface: 'home',
+        flow: 'chat-message',
+        intent: classification.intent,
+        confidence: classification.confidence,
+        requiresTrip: classification.requiresTrip,
+        nextTool: classification.nextTool,
+        plannerState,
+      });
       if ((classification.intent === 'PLAN_TRIP' || isTripPlanningIntent(t) || /\broteiro\b|viagem/.test(normText(t))) && pendingPlannerContext?.destination) {
         startFlow(t, 'trip', pendingPlannerContext);
         return;
